@@ -1,0 +1,36 @@
+# Generated Visual Studio artefacts
+.vs/
+build/
+x64/
+Debug/
+Release/
+*.obj
+*.pdb
+*.ilk
+*.ipch
+*.suo
+*.user
+*.VC.db
+*.VC.VC.opendb
+# Diagnostic output stays local by default
+reports/
+crashes/
+*.dmp
+*.log
+
+# Never commit game, console SDK, firmware or proprietary title data
+GTA6.Xbox*/
+**/GTA6.Xbox*/
+*.rpf
+*.xvd
+*.xvc
+*.xex
+*.pak
+*.pdb
+*.appx
+*.msix
+*.rpx
+*.bin
+# Executables and DLLs here are produced by our build, not copied from a title
+*.exe
+*.dll
