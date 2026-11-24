@@ -88,6 +88,8 @@ bool verify_xbox_gpu_virtual_memory_configuration(uint32_t target_mode) noexcept
         std::lock_guard lock(host.gpu_va_mutex);
         if (host.configured_mode != target_mode ||
             host.gpu_windows.window_count() != 2 ||
+            host.gpu_windows.segment_count() !=
+                (target_mode == 3 ? 8u : 12u) ||
             host.gpu_windows.window_bytes() !=
                 (target_mode == 3 ? 16ull : 24ull) * 1024 * 1024 * 1024 ||
             !host.gpu_windows.verify_boundaries())

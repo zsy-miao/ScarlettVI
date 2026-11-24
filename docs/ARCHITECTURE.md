@@ -47,26 +47,30 @@ console code, keys or proprietary binary libraries belong in this repository.
    verified), x64 unwind registration and partial current-thread TLS, without
    DLL initialization. Remaining: complete Xbox runtime HLE, TLS callbacks,
    other-thread TLS, process environment and platform handle semantics.
-3. **Console filesystem and runtime:** original experimental 64 KiB pagefile-backed
-   physical-page alias virtualization implemented and verified using Windows
-   VirtualAlloc2 placeholders and MapViewOfFile3, with a VirtualFree intercept.
-     Non-contiguous 64 KiB scatter mapping between multiple reserved regions
-   is also implemented and verified with the independently observed title call
-   convention. Large 16/24 GiB CPU virtual reservations now split 64 KiB
-    placeholders on demand. Remaining: console memory flags, 2 MiB pages, GPU-visible
-   memory semantics, drive virtualization, package/save paths, services and jobs.
-4. **GPU:** native Windows D3D12 hardware creation/queue/command list/fence/upload/
-   root-signature path verified on NVIDIA RTX 5060 Ti. Persistent device context
-   also verified two GPU-executed 128×64 RGBA8 upload/default/readback transfers
-   with exact pixel verification and completion fences. Original HLSL compilation
-   into DXIL Shader Model 6, GPU compute-buffer dispatch, and descriptor-table
-   SRV/UAV texture compute have since been verified; 2,048 computed integers
-   and 16,384 shader-written texture pixels checked. A new verified synthetic
-    guest GPU VA registry now maps XMem-backed 64 KiB page data to real host
-    DXIL buffer compute and reads back 2,048 results through CPU VA aliases.
-    Remaining: Xbox D3D12/XG
-   interfaces, actual console GPU tile maps/heaps, console descriptors,
-   RDNA2 shader ISA to DXIL, Xbox tiling/texture conversion and title presentation.
+3. **Console filesystem and runtime:** the original experimental 64 KiB
+   pagefile-backed physical-page manager uses Windows VirtualAlloc2
+   placeholders, MapViewOfFile3 and VirtualFree interception for true CPU
+   aliases. Contiguous and non-contiguous scatter mappings across multiple
+   regions are verified using independently observed title call patterns.
+   Huge 16/24 GiB CPU virtual windows split 64 KiB placeholders only when
+   individual pages are mapped. Remaining: console memory attributes,
+   2 MiB clusters, real GPU-visible physical page coherency, virtual drives,
+   packages, saves, services and jobs.
+4. **GPU:** original native Windows D3D12 device, queues, command lists,
+   upload resources, fences and root signatures verified on RTX 5060 Ti.
+   GPU-executed texture transfers, independently compiled DXIL Model 6
+   buffer compute and SRV/UAV texture shaders check 2,048 generated
+   integers and 16,384 generated RGBA8 texture pixels. The guest 64 KiB
+   physical-page bridge also executes DXIL compute and reads back 2,048
+   results through guest virtual aliases.
+   The 16/24 GiB logical guest GPU VA windows now use separate **4 GiB
+   host D3D12 reserved-resource segments**. Real 64 KiB D3D12 default-heap
+   tiles are mapped into two distant guest GPU windows and aliased across
+   host resource boundaries. A 65,536-byte GPU copy/readback, explicit
+   aliasing barriers and completion fences pass (see
+   [GPU_TILES.md](GPU_TILES.md)). Remaining: Xbox GPU page-table APIs and
+   coherent CPU/GPU physical memory, console D3D12/XG methods, descriptors,
+   RDNA2 shader decoding, texture swizzles and actual frame presentation.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
    diagnostics, audio device & codec bridges, controller input, frame presentation.
 6. **Execution and diagnostics:** safe thread/exception state, fault collection,
@@ -105,6 +109,8 @@ The `gpu-memory-bridge` mode also verifies guest physical pages, synthetic
 GPU VA translation, actual host DXIL dispatch and aliased guest readback.
 The `memory-sparse`, `gpu-sparse-va` and `gpu-vmem-config` modes verify
 16/24 GiB sparse CPU/GPU address windows and partial Xbox configuration.
+`gpu-tile-map` verifies native D3D12 64 KiB tile residency and GPU physical
+aliasing across segmented 16 GiB guest buffers (see [GPU_TILES.md](GPU_TILES.md)).
 See [GPU_VIRTUAL_MEMORY.md](GPU_VIRTUAL_MEMORY.md).
 All GPU modes use only independently generated test data.
 See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).

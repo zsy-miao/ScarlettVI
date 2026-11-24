@@ -27,6 +27,9 @@ public:
     HRESULT acquire_device11(ID3D12Device11** out) const;
     HRESULT texture_roundtrip_test();
     HRESULT device11_contract_test();
+    // Real Windows D3D12 UpdateTileMappings on two large sparse GPU
+    // resources backed by one 64KiB heap tile, verified by GPU readback.
+    HRESULT tiled_buffer_alias_test();
     HRESULT compute_dispatch_test(uint32_t seed);
     HRESULT texture_shader_test();
     // Submits host DXIL work between CPU-visible 64KiB console page views.

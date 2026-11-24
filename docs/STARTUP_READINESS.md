@@ -52,7 +52,9 @@ Measured working address bindings:
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
-  Xbox page tables, tiling and CPU/GPU coherency remain unsupported
+  Xbox page tables, tiling and CPU/GPU coherency remain unsupported.
+  Native host [D3D12 tile backing](GPU_TILES.md) is tested separately;
+  it does not bind additional Xbox imports
 
 Counted address bindings do **not** guarantee ABI equivalence, correct
 component lifetime, graphics semantics or startup success.

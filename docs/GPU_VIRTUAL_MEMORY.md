@@ -3,7 +3,9 @@
 **Status:** independently implemented Windows host CPU and GPU virtual-address
 reservations for the only two configuration modes observed in the supplied
 game. Both modes are verified on NVIDIA GeForce RTX 5060 Ti. **Xbox-specific
-GPU page tables, physical tile mappings and coherency are not implemented.**
+GPU page tables, game-requested tile mappings and coherency are not
+implemented. Real **host** 64 KiB tile backing is tested separately in
+[GPU_TILES.md](GPU_TILES.md).**
 
 ## Read-only call-site evidence
 
@@ -58,17 +60,22 @@ all windows and physical pages. Both configurations passed in x64 Release.
 
 ## Real Windows D3D12 GPU virtual-address windows
 
-`src/gpu/sparse_gpu_windows.{h,cpp}` creates genuine Windows
-`ID3D12Resource` **reserved buffer resources** using
-`ID3D12Device11::CreateReservedResource`, without backing those buffers
-with committed GPU physical memory.
+`src/gpu/sparse_gpu_windows.{h,cpp}` represents each logical 16/24 GiB
+window as **4 GiB native D3D12 reserved-buffer segments** built with
+`ID3D12Device11::CreateReservedResource`, without physical tile backing
+until explicitly mapped. Each logical 16 GiB window has 4 native segments;
+each 24 GiB window has 6. This size was selected after a reproducible host
+GPU tile-mapping boundary at 4 GiB (see [GPU_TILES.md](GPU_TILES.md)).
 
 The module queries
 `D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT` from the real
 driver and verifies process and per-resource GPU VA address-width limits.
-It registers the resulting native GPU virtual addresses in the original
-thread-safe `GuestAddressSpace`, checks offset translations and
-out-of-bounds queries, and unregisters every mapping on cleanup.
+It registers **each** native segment independently in the thread-safe
+`GuestAddressSpace`, preserving continuous *synthetic guest addresses* but
+not pretending that native GPU virtual addresses are continuous. Requests
+crossing native segment boundaries require splitting by future console
+command/resource translation. Each segment is independently bounds checked
+and unregistered during cleanup.
 
 Measured host limits on NVIDIA GeForce RTX 5060 Ti:
 
@@ -76,14 +83,16 @@ Measured host limits on NVIDIA GeForce RTX 5060 Ti:
 | --- | ---: |
 | Bits per process | 44 |
 | Bits per resource | 40 |
-| Two simultaneously reserved 16 GiB GPU buffers | PASS |
-| Two simultaneously reserved 24 GiB GPU buffers | PASS |
+| Two logical 16 GiB GPU VA windows (8 native 4 GiB buffers) | PASS |
+| Two logical 24 GiB GPU VA windows (12 native 4 GiB buffers) | PASS |
 | Allocated physical VRAM for these reserved resources | 0 GiB |
 
-**Do not submit shaders against these reserved resources yet.**
-They have no mapped memory tiles and are not guaranteed readable or writable.
-Unlike the earlier generated DXIL fixtures, this test is **GPU address-space
-reservation only**, not a GPU computation or copy operation.
+**The `gpu-sparse-va` fixture does not map or use any tiles:** its
+resources remain unbacked. The separate [`gpu-tile-map` test](GPU_TILES.md)
+now allocates a real 64 KiB host GPU heap tile, maps it into two distant guest
+locations (4 GiB and 12 GiB), performs a GPU copy and verifies 65,536 bytes
+through a second resource alias. This test does **not** establish Xbox tile
+mapping or unified CPU/GPU physical-page coherence.
 
 ## Experimental `D3D12ConfigureVirtualMemoryX` bridge
 
@@ -94,8 +103,9 @@ one-argument, HRESULT-returning configuration bridge using the observed
 - Require offset +0x04 mode **3 or 4**, with all other bytes zero.
 - Initialize the same persistent Windows Device11 backend used by the
   experimental `D3D12XboxCreateDevice` factory.
-- Reserve **two real Windows D3D12 GPU virtual buffer windows** of 16 GiB
-  for mode 3 or 24 GiB for mode 4; verify all registered address bounds.
+- Reserve **two logical Windows D3D12 GPU VA windows** of 16 GiB for
+  mode 3 or 24 GiB for mode 4, each backed by independent 4 GiB reserved
+  resources; verify all segment boundaries and resource registrations.
 - Publish configuration only once the actual GPU VA resources exist.
 - Repeating the identical configuration is idempotent; an attempt to
   change the configured mode is rejected without discarding valid resources.
@@ -126,10 +136,12 @@ the title's observed code does, and create a standard native
 This does **not** make the Xbox GPU VA layout equal to the host GPU VA layout.
 The native reserved resources are not automatically linked to XMem's CPU
 pagefile sections, and the two address spaces retain distinct addresses.
-To support the title, ScarlettVI still needs a correct Xbox tile-map
-translator, pageable heap/address identity translation, residency and
-fence/coherency handling, XG texture swizzle conversion and Xbox RDNA2
-shader translation.
+To support the title, ScarlettVI still needs an Xbox tile-map **ABI and
+semantics** translator, pageable heap/address identity translation and
+CPU/GPU coherency. The Windows host tile-mapping and fence implementation
+now works as an isolated native foundation, but does not connect GPU heap
+tiles to the synthetic CPU XMem pagefile sections. Xbox XG texture swizzles
+and RDNA2 shader translation also remain missing.
 
 No game code, initialization callback or shader is executed in these tests,
 and no source/content from the game's binaries is published.

@@ -1,9 +1,12 @@
 #include "device_context.h"
 #include "dxil_compiler.h"
 #include "guest_address_space.h"
+#include "sparse_gpu_windows.h"
+#include <d3d12sdklayers.h>
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cstdio>
 #include <limits>
 #include <vector>
 
@@ -901,6 +904,218 @@ HRESULT DeviceContext::execute_guest_buffer(std::span<const uint32_t> guest_inpu
     readback->Unmap(0, &no_cpu_write);
     last_error_ = S_OK;
     return last_error_;
+}
+
+HRESULT DeviceContext::tiled_buffer_alias_test() {
+    if (!ready()) {
+        last_error_ = initialize();
+        if (FAILED(last_error_)) return last_error_;
+    }
+    Microsoft::WRL::ComPtr<ID3D12Device11> device11;
+    last_error_ = acquire_device11(device11.GetAddressOf());
+    if (FAILED(last_error_)) return last_error_;
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+    last_error_ = device11->CheckFeatureSupport(
+        D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    if (FAILED(last_error_)) return last_error_;
+    if (options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_2)
+        return last_error_ = DXGI_ERROR_UNSUPPORTED;
+
+    constexpr uint64_t kWindowSize = 16ull * 1024 * 1024 * 1024;
+    constexpr uint64_t kFirstTileAt = 4ull * 1024 * 1024 * 1024;
+    constexpr uint64_t kAliasTileAt = 12ull * 1024 * 1024 * 1024;
+    constexpr uint64_t kTileBytes = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    constexpr size_t kCopyBytes = 64 * 1024; // fully initialize a physical tile
+
+    SparseGpuWindows windows;
+    last_error_ = windows.initialize(device11.Get(), kWindowSize, 2);
+    if (FAILED(last_error_)) return last_error_;
+
+    // The native queue's tile-mapping requests are asynchronous. Keep this
+    // automatic drain guard alive until after the sparse resources/heap have
+    // been cleaned up, including early returns from a failed GPU copy.
+    auto drain_queue = [this]() {
+        if (!queue_ || !fence_) return;
+        const uint64_t value = next_fence_++;
+        if (SUCCEEDED(queue_->Signal(fence_.Get(), value)))
+            wait_for_gpu(value);
+    };
+    struct DrainOnScopeExit {
+        decltype(drain_queue)& callback;
+        ~DrainOnScopeExit() { callback(); }
+    } drain{drain_queue};
+
+    D3D12_HEAP_DESC heap_desc{};
+    heap_desc.SizeInBytes = 2 * kTileBytes; // allows negative cross-segment range test
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    Microsoft::WRL::ComPtr<ID3D12Heap> heap;
+    last_error_ = device11->CreateHeap(
+        &heap_desc, IID_PPV_ARGS(heap.GetAddressOf()));
+    if (FAILED(last_error_)) return last_error_;
+
+    // Map a single REAL 64KiB heap tile into two distant reserved GPU VAs.
+    // The same physical heap tile is shared by both D3D12 buffer resources.
+    last_error_ = windows.map_tiles(queue_.Get(), 0, kFirstTileAt,
+                                    heap.Get(), 0, 1);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = windows.map_tiles(queue_.Get(), 1, kAliasTileAt,
+                                    heap.Get(), 0, 1);
+    if (FAILED(last_error_)) return last_error_;
+    if (windows.mapped_tile_count() != 2 ||
+        windows.segment_count() != 8 ||
+        !windows.verify_boundaries() ||
+        windows.map_tiles(queue_.Get(), 0, kFirstTileAt, heap.Get(), 0, 1) !=
+            HRESULT_FROM_WIN32(ERROR_BUSY) ||
+        windows.map_tiles(queue_.Get(), 0, kFirstTileAt + 1, heap.Get(), 0, 1) !=
+            E_INVALIDARG ||
+        windows.map_tiles(queue_.Get(), 0, kFirstTileAt - kTileBytes,
+                          heap.Get(), 0, 2) != E_INVALIDARG ||
+        windows.map_tiles(queue_.Get(), 0, kFirstTileAt + kTileBytes,
+                          heap.Get(), 2, 1) != E_INVALIDARG ||
+        windows.unmap_tiles(queue_.Get(), 0, kFirstTileAt + kTileBytes, 1) !=
+            HRESULT_FROM_WIN32(ERROR_NOT_FOUND)) {
+        return last_error_ = E_FAIL;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> upload, readback;
+    last_error_ = create_buffer(D3D12_HEAP_TYPE_UPLOAD,
+                                D3D12_RESOURCE_STATE_GENERIC_READ,
+                                kTileBytes, upload);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = create_buffer(D3D12_HEAP_TYPE_READBACK,
+                                D3D12_RESOURCE_STATE_COPY_DEST,
+                                kTileBytes, readback);
+    if (FAILED(last_error_)) return last_error_;
+
+    std::array<uint8_t, kCopyBytes> expected{};
+    for (size_t i = 0; i < expected.size(); ++i)
+        expected[i] = static_cast<uint8_t>((i * 37 + (i >> 3) * 11 + 0x53) & 0xFF);
+
+    void* upload_ptr = nullptr;
+    const D3D12_RANGE no_read{0, 0};
+    last_error_ = upload->Map(0, &no_read, &upload_ptr);
+    if (FAILED(last_error_) || !upload_ptr)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+    std::memcpy(upload_ptr, expected.data(), expected.size());
+    const D3D12_RANGE written{0, expected.size()};
+    upload->Unmap(0, &written);
+
+    last_error_ = allocator_->Reset();
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = command_list_->Reset(allocator_.Get(), nullptr);
+    if (FAILED(last_error_)) return last_error_;
+    uint64_t native_first_offset = 0, native_second_offset = 0;
+    ID3D12Resource* first = windows.tile_resource(
+        0, kFirstTileAt, &native_first_offset);
+    ID3D12Resource* second = windows.tile_resource(
+        1, kAliasTileAt, &native_second_offset);
+    if (!first || !second || first == second ||
+        native_first_offset != 0 || native_second_offset != 0)
+        return last_error_ = E_FAIL;
+
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = first;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+    command_list_->ResourceBarrier(1, &barrier);
+    command_list_->CopyBufferRegion(first, native_first_offset,
+                                    upload.Get(), 0, kCopyBytes);
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    command_list_->ResourceBarrier(1, &barrier);
+
+    // Buffer data can be inherited through aliased physical tiles after a
+    // D3D12 aliasing barrier. The guest offsets are large but their native
+    // segment-local offsets are zero, avoiding the observed 4GiB boundary.
+    D3D12_RESOURCE_BARRIER alias{};
+    alias.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+    alias.Aliasing.pResourceBefore = first;
+    alias.Aliasing.pResourceAfter = second;
+    command_list_->ResourceBarrier(1, &alias);
+
+    barrier.Transition.pResource = second;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    command_list_->ResourceBarrier(1, &barrier);
+    command_list_->CopyBufferRegion(readback.Get(), 0,
+                                    second, native_second_offset, kCopyBytes);
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    command_list_->ResourceBarrier(1, &barrier);
+
+    last_error_ = command_list_->Close();
+    if (FAILED(last_error_)) return last_error_;
+    ID3D12CommandList* to_submit[]{command_list_.Get()};
+    queue_->ExecuteCommandLists(1, to_submit);
+    ++submitted_;
+    const uint64_t signal = next_fence_++;
+    last_error_ = queue_->Signal(fence_.Get(), signal);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = wait_for_gpu(signal);
+    if (FAILED(last_error_)) {
+        const HRESULT removed = device_->GetDeviceRemovedReason();
+        return last_error_ = FAILED(removed) ? removed : last_error_;
+    }
+    void* readback_ptr = nullptr;
+    const D3D12_RANGE to_read{0, expected.size()};
+    last_error_ = readback->Map(0, &to_read, &readback_ptr);
+    if (FAILED(last_error_) || !readback_ptr)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+    const bool matched = std::memcmp(readback_ptr, expected.data(),
+                                      expected.size()) == 0;
+    if (!matched) {
+        const auto* actual = static_cast<const uint8_t*>(readback_ptr);
+        size_t first_bad = 0;
+        while (first_bad < expected.size() &&
+               actual[first_bad] == expected[first_bad]) ++first_bad;
+        std::fprintf(stderr, "GPU sparse alias mismatch at %zu: got %02X expected %02X; device status 0x%08X\n",
+                     first_bad,
+                     first_bad < expected.size() ? actual[first_bad] : 0,
+                     first_bad < expected.size() ? expected[first_bad] : 0,
+                     static_cast<unsigned>(device_->GetDeviceRemovedReason()));
+        Microsoft::WRL::ComPtr<ID3D12InfoQueue> messages;
+        if (SUCCEEDED(device_.As(&messages))) {
+            const uint64_t total = messages->GetNumStoredMessages();
+            std::fprintf(stderr, "D3D12 debug messages: %llu\n",
+                         static_cast<unsigned long long>(total));
+            const uint64_t begin = total > 12 ? total - 12 : 0;
+            for (uint64_t i = begin; i < total; ++i) {
+                SIZE_T size = 0;
+                if (SUCCEEDED(messages->GetMessage(i, nullptr, &size)) &&
+                    size != 0 && size < 65536) {
+                    std::vector<uint8_t> storage(size);
+                    auto* msg = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+                    if (SUCCEEDED(messages->GetMessage(i, msg, &size)))
+                        std::fprintf(stderr, "  [D3D12 %u] %s\n",
+                                     static_cast<unsigned>(msg->Severity),
+                                     msg->pDescription ? msg->pDescription : "(no text)");
+                }
+            }
+        }
+    }
+    readback->Unmap(0, &no_read);
+    if (!matched) return last_error_ = E_FAIL;
+
+    last_error_ = windows.unmap_tiles(queue_.Get(), 1, kAliasTileAt, 1);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = windows.unmap_tiles(queue_.Get(), 0, kFirstTileAt, 1);
+    if (FAILED(last_error_) || windows.mapped_tile_count() != 0)
+        return last_error_ = E_FAIL;
+
+    // Drain the async NULL tile mapping operations before destroying the
+    // reserved GPU resources and underlying heap allocation.
+    const uint64_t mapping_complete = next_fence_++;
+    last_error_ = queue_->Signal(fence_.Get(), mapping_complete);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = wait_for_gpu(mapping_complete);
+    if (FAILED(last_error_)) return last_error_;
+    windows.clear();
+    return last_error_ = S_OK;
 }
 
 } // namespace scarlett::gpu

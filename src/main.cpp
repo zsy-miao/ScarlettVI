@@ -9,6 +9,7 @@
 #include "gpu/guest_address_space.h"
 #include "gpu/xbox_device_factory.h"
 #include "gpu/sparse_gpu_windows.h"
+#include <d3d12sdklayers.h>
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
 #include "runtime/xmem_query.h"
@@ -113,6 +114,7 @@ void usage() {
                << L"  ScarlettVI.exe memory-scatter\n"
                << L"  ScarlettVI.exe memory-sparse\n"
                << L"  ScarlettVI.exe gpu-sparse-va\n"
+               << L"  ScarlettVI.exe gpu-tile-map\n"
                << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
@@ -122,6 +124,34 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-tile-map") {
+            if (argc != 2) { usage(); return 2; }
+            // Only this standalone diagnostic fixture enables the host
+            // Windows D3D12 debug layer, when installed on the machine.
+            Microsoft::WRL::ComPtr<ID3D12Debug> debug;
+            const HRESULT debug_hr =
+                D3D12GetDebugInterface(IID_PPV_ARGS(debug.GetAddressOf()));
+            if (SUCCEEDED(debug_hr)) debug->EnableDebugLayer();
+            std::cout << "D3D12 host debug layer: "
+                      << (debug ? "enabled" : "unavailable") << "\n";
+            scarlett::gpu::DeviceContext context;
+            HRESULT hr = context.initialize();
+            if (SUCCEEDED(hr)) hr = context.tiled_buffer_alias_test();
+            std::wcout << L"ScarlettVI | native D3D12 64KiB GPU tile mapping"
+                       << L" + cross-resource physical alias readback: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n"
+                       << L"Host GPU: " << context.adapter_name() << L"\n";
+            std::cout << "D3D12 UpdateTileMappings: 2 large sparse buffers ->"
+                      << " one shared heap tile | 65536 bytes GPU-verified"
+                      << " | submissions: " << context.submitted_commands()
+                      << " | completed fence: " << context.completed_fence()
+                      << " | HRESULT 0x" << std::hex << static_cast<uint32_t>(hr)
+                      << std::dec << "\n"
+                      << "Guest offsets 4GiB and 12GiB translate into separate native 4GiB segments.\n"
+                       << "Real host GPU tile residency only; this does NOT implement"
+                      << " Xbox GPU page tables, tiling formats or shader translation.\n";
+            return SUCCEEDED(hr) ? 0 : 3;
+        }
         if (verb == L"gpu-vmem-config") {
             if (argc != 2 && argc != 3) { usage(); return 2; }
             uint32_t mode = 4;
@@ -150,7 +180,7 @@ int wmain(int argc, wchar_t** argv) {
                       << "Observed 32-byte config mode=" << mode
                       << "; host reserved GPU VA"
                       << " without VRAM commit; host CPU VA reserved without RAM commit.\n"
-                      << "Tile mappings, Xbox protection rules, and console GPU"
+                      << "Xbox tile mappings, console protection rules, and GPU"
                       << " address-space identity are NOT implemented.\n";
             return pass ? 0 : 3;
         }
@@ -168,7 +198,11 @@ int wmain(int argc, wchar_t** argv) {
                 hr = windows.initialize(device.Get(), size_gib * (1ull << 30), 2);
                 process_bits = windows.gpu_va_bits_per_process();
                 resource_bits = windows.gpu_va_bits_per_resource();
-                if (SUCCEEDED(hr) && !windows.verify_boundaries()) hr = E_FAIL;
+                const size_t expected_segments =
+                    static_cast<size_t>(2 * size_gib / 4);
+                if (SUCCEEDED(hr) &&
+                    (windows.segment_count() != expected_segments ||
+                     !windows.verify_boundaries())) hr = E_FAIL;
                 windows.clear();
                 if (SUCCEEDED(hr) && windows.window_count() != 0) hr = E_FAIL;
             }
@@ -178,11 +212,12 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "GPU VA bits per process: " << process_bits
                       << " | per resource: " << resource_bits
                       << " | tested windows: 2 x 16GiB and 2 x 24GiB"
+                       << " | 4GiB native segments: 8 (16GiB), 12 (24GiB)"
                       << " | actual VRAM committed: 0"
                       << " | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
                       << std::dec << "\n"
-                      << "GPU address ranges are RESERVED only; page mappings and"
-                      << " Xbox GPU virtual-memory configuration remain unimplemented.\n";
+                      << "This mode reserves unbacked GPU VA only. The gpu-tile-map"
+                      << " command verifies host 64KiB tile residency separately; Xbox physical page mapping remains unsupported.\n";
             return SUCCEEDED(hr) ? 0 : 3;
         }
         if (verb == L"memory-sparse") {

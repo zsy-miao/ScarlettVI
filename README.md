@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -60,6 +60,11 @@ texture pixels** after GPU execution on an RTX 5060 Ti. The new original
 GPU addresses into D3D12 resources and executes DXIL compute directly from
 ScarlettVI-managed 64 KiB physical-page data; another guest alias verifies
 **2,048 GPU results** with no leaked mappings.
+The original [native GPU tile mapper](docs/GPU_TILES.md) now segments the
+logical 16/24 GiB guest GPU windows into 4 GiB Windows D3D12 resources.
+A real 64 KiB GPU heap tile is mapped into two distant guest locations;
+an aliasing-barrier and readback test verified **65,536/65,536 bytes** on
+the RTX 5060 Ti. Xbox GPU page tables and tile formats are not translated.
 
 These are verified host capabilities; the **Xbox-specific D3D12/XG device ABI,
 RDNA2 shader translation and actual title rendering are still missing**.
@@ -94,6 +99,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe gpu-device11
 .\build\x64\Release\ScarlettVI.exe gpu-device-factory
+.\build\x64\Release\ScarlettVI.exe gpu-tile-map
 .\build\x64\Release\ScarlettVI.exe gpu-sparse-va
 .\build\x64\Release\ScarlettVI.exe gpu-vmem-config 3
 .\build\x64\Release\ScarlettVI.exe gpu-vmem-config 4
