@@ -1,5 +1,6 @@
 #include "device_context.h"
 #include "dxil_compiler.h"
+#include "guest_address_space.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -712,4 +713,133 @@ HRESULT DeviceContext::texture_shader_test() {
     last_error_ = correct ? S_OK : HRESULT_FROM_WIN32(ERROR_CRC);
     return last_error_;
 }
+HRESULT DeviceContext::execute_guest_buffer(std::span<const uint32_t> guest_input,
+                                            std::span<uint32_t> guest_output,
+                                            GuestAddressSpace& address_space,
+                                            uint64_t guest_input_base,
+                                            uint64_t guest_output_base,
+                                            uint32_t seed) {
+    constexpr uint64_t kPage = GuestAddressSpace::guest_alignment;
+    constexpr uint64_t kInputOffset = 256;
+    constexpr uint64_t kOutputOffset = 512;
+    if (guest_input.empty() || guest_input.size() != guest_output.size() ||
+        guest_input.size() > (kPage - kOutputOffset) / sizeof(uint32_t) ||
+        guest_input.size() > UINT32_MAX) {
+        last_error_ = E_INVALIDARG;
+        return last_error_;
+    }
+    last_error_ = prepare_compute_pipeline();
+    if (FAILED(last_error_)) return last_error_;
+    const uint32_t count = static_cast<uint32_t>(guest_input.size());
+    const uint64_t bytes = count * sizeof(uint32_t);
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> input, output, readback;
+    last_error_ = create_buffer(D3D12_HEAP_TYPE_UPLOAD,
+                                D3D12_RESOURCE_STATE_GENERIC_READ, kPage, input);
+    if (FAILED(last_error_)) return last_error_;
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    auto uav_description = buffer_description(kPage);
+    uav_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    last_error_ = device_->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &uav_description,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+        IID_PPV_ARGS(output.ReleaseAndGetAddressOf()));
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = create_buffer(D3D12_HEAP_TYPE_READBACK,
+                                D3D12_RESOURCE_STATE_COPY_DEST, kPage, readback);
+    if (FAILED(last_error_)) return last_error_;
+
+    // This registry translates original synthetic 64 KiB guest ranges into
+    // real D3D12 GPU virtual addresses. Never pass Xbox GPU page numbers to
+    // a Windows D3D12 API as though they were host allocations.
+    if (!address_space.register_buffer(guest_input_base, kPage, input.Get())) {
+        last_error_ = E_INVALIDARG;
+        return last_error_;
+    }
+    if (!address_space.register_buffer(guest_output_base, kPage, output.Get())) {
+        address_space.unregister_buffer(guest_input_base);
+        last_error_ = E_INVALIDARG;
+        return last_error_;
+    }
+    struct UnregisterGuard {
+        GuestAddressSpace& space;
+        uint64_t input_base;
+        uint64_t output_base;
+        ~UnregisterGuard() {
+            space.unregister_buffer(input_base);
+            space.unregister_buffer(output_base);
+        }
+    } guard{address_space, guest_input_base, guest_output_base};
+
+    const auto src = address_space.resolve(guest_input_base + kInputOffset, bytes);
+    const auto dst = address_space.resolve(guest_output_base + kOutputOffset, bytes);
+    if (!src || !dst || src->resource.Get() != input.Get() ||
+        dst->resource.Get() != output.Get() ||
+        address_space.resolve(guest_input_base + kPage - 4, 8)) {
+        last_error_ = E_FAIL;
+        return last_error_;
+    }
+    void* upload_data = nullptr;
+    const D3D12_RANGE no_cpu_read{0, 0};
+    last_error_ = input->Map(0, &no_cpu_read, &upload_data);
+    if (FAILED(last_error_) || !upload_data) {
+        last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+        return last_error_;
+    }
+    std::memcpy(static_cast<uint8_t*>(upload_data) + kInputOffset,
+                guest_input.data(), static_cast<size_t>(bytes));
+    const D3D12_RANGE wrote{static_cast<SIZE_T>(kInputOffset),
+                            static_cast<SIZE_T>(kInputOffset + bytes)};
+    input->Unmap(0, &wrote);
+
+    last_error_ = allocator_->Reset();
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = command_list_->Reset(allocator_.Get(), compute_pipeline_.Get());
+    if (FAILED(last_error_)) return last_error_;
+    command_list_->SetComputeRootSignature(compute_root_.Get());
+    command_list_->SetComputeRootShaderResourceView(0, src->host_gpu_va);
+    command_list_->SetComputeRootUnorderedAccessView(1, dst->host_gpu_va);
+    const uint32_t constants[]{count, seed};
+    command_list_->SetComputeRoot32BitConstants(2, 2, constants, 0);
+    command_list_->Dispatch((count + 63) / 64, 1, 1);
+
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = output.Get();
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    command_list_->ResourceBarrier(1, &barrier);
+    command_list_->CopyBufferRegion(readback.Get(), 0,
+                                    output.Get(), kOutputOffset, bytes);
+    last_error_ = command_list_->Close();
+    if (FAILED(last_error_)) return last_error_;
+    ID3D12CommandList* const submitted[]{command_list_.Get()};
+    queue_->ExecuteCommandLists(1, submitted);
+    ++submitted_;
+    const uint64_t signal = next_fence_++;
+    last_error_ = queue_->Signal(fence_.Get(), signal);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = wait_for_gpu(signal);
+    if (FAILED(last_error_)) {
+        const HRESULT removed = device_->GetDeviceRemovedReason();
+        if (FAILED(removed)) last_error_ = removed;
+        return last_error_;
+    }
+
+    void* readback_data = nullptr;
+    const D3D12_RANGE cpu_reads{0, static_cast<SIZE_T>(bytes)};
+    last_error_ = readback->Map(0, &cpu_reads, &readback_data);
+    if (FAILED(last_error_) || !readback_data) {
+        last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+        return last_error_;
+    }
+    std::memcpy(guest_output.data(), readback_data, static_cast<size_t>(bytes));
+    const D3D12_RANGE no_cpu_write{0, 0};
+    readback->Unmap(0, &no_cpu_write);
+    last_error_ = S_OK;
+    return last_error_;
+}
+
 } // namespace scarlett::gpu

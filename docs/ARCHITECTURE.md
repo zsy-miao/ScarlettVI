@@ -57,7 +57,10 @@ console code, keys or proprietary binary libraries belong in this repository.
    with exact pixel verification and completion fences. Original HLSL compilation
    into DXIL Shader Model 6, GPU compute-buffer dispatch, and descriptor-table
    SRV/UAV texture compute have since been verified; 2,048 computed integers
-   and 16,384 shader-written texture pixels checked. Remaining: Xbox D3D12/XG
+   and 16,384 shader-written texture pixels checked. A new verified synthetic
+    guest GPU VA registry now maps XMem-backed 64 KiB page data to real host
+    DXIL buffer compute and reads back 2,048 results through CPU VA aliases.
+    Remaining: Xbox D3D12/XG
    interfaces and console resource heaps/GPU VA, translating console descriptors,
    RDNA2 shader ISA to DXIL, Xbox tiling/texture conversion and title presentation.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
@@ -94,7 +97,9 @@ scatter mapping. Neither command executes game instructions.
 The `ScarlettVI.exe gpu-transfer`, `gpu-compute` and
 `gpu-texture-shader` commands exercise actual host D3D12 copies, DXIL shader
 compute execution and shader-visible texture descriptor binding respectively.
-All three use only independently generated data.
+The `gpu-memory-bridge` mode also verifies guest physical pages, synthetic
+GPU VA translation, actual host DXIL dispatch and aliased guest readback.
+All GPU modes use only independently generated test data.
 See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).
 
 Verified behavior should always be updated here based on concrete experiments.

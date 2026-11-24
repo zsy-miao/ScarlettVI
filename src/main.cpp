@@ -6,6 +6,7 @@
 #include "formats/rpf9_header.h"
 #include "gpu/host_backend.h"
 #include "gpu/device_context.h"
+#include "gpu/guest_address_space.h"
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
 #include "runtime/xmem_query.h"
@@ -103,6 +104,7 @@ void usage() {
                << L"  ScarlettVI.exe gpu-transfer\n"
                << L"  ScarlettVI.exe gpu-compute\n"
                << L"  ScarlettVI.exe gpu-texture-shader\n"
+               << L"  ScarlettVI.exe gpu-memory-bridge\n"
                << L"  ScarlettVI.exe memory\n"
                << L"  ScarlettVI.exe memory-scatter\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
@@ -113,6 +115,106 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-memory-bridge") {
+            if (argc != 2) { usage(); return 2; }
+            constexpr size_t kPageBytes = scarlett::memory::PhysicalMemory::page_bytes;
+            constexpr size_t kWords = 1024;
+            constexpr uint64_t kGuestInputVa = 0x400000000000ull;
+            constexpr uint64_t kGuestOutputVa = kGuestInputVa + kPageBytes;
+
+            uintptr_t pages[2]{};
+            uintptr_t count = 2;
+            if (!scarlett::xmem::XMemAllocatePhysicalPages(
+                    MEM_64K_PAGES, &count, pages) || count != 2) {
+                std::cerr << "Could not allocate independent guest physical pages\n";
+                return 3;
+            }
+            void* main_view = scarlett::xmem::XMemVirtualAlloc(
+                nullptr, kPageBytes * 2, MEM_RESERVE | MEM_64K_PAGES, 0, PAGE_READWRITE);
+            void* alias_view = scarlett::xmem::XMemVirtualAlloc(
+                nullptr, kPageBytes, MEM_RESERVE | MEM_64K_PAGES, 0, PAGE_READWRITE);
+            auto cleanup = [&]() {
+                bool ok = true;
+                if (main_view) ok = scarlett::xmem::VirtualFreeBridge(
+                    main_view, 0, MEM_RELEASE) != FALSE && ok;
+                if (alias_view) ok = scarlett::xmem::VirtualFreeBridge(
+                    alias_view, 0, MEM_RELEASE) != FALSE && ok;
+                return (scarlett::xmem::XMemFreePhysicalPages(2, pages) != FALSE) && ok;
+            };
+
+            bool ok = main_view && alias_view;
+            if (ok) {
+                ok = scarlett::xmem::XMemMapPhysicalPages(main_view, 2, pages) == main_view;
+                if (ok) {
+                    const uintptr_t output_page = pages[1];
+                    ok = scarlett::xmem::XMemMapPhysicalPages(
+                        alias_view, 1, &output_page) == alias_view;
+                }
+            }
+
+            scarlett::gpu::DeviceContext gpu;
+            scarlett::gpu::GuestAddressSpace gpu_space;
+            HRESULT hr = ok ? gpu.initialize() : E_FAIL;
+            constexpr uint32_t seeds[2]{0x13579BDFu, 0x2468ACE0u};
+            if (SUCCEEDED(hr)) {
+                auto* input = static_cast<uint32_t*>(main_view);
+                auto* output = reinterpret_cast<uint32_t*>(
+                    static_cast<uint8_t*>(main_view) + kPageBytes);
+                auto* alias = static_cast<uint32_t*>(alias_view);
+
+                for (uint32_t pass = 0; pass < 2 && ok; ++pass) {
+                    for (uint32_t i = 0; i < kWords; ++i) {
+                        input[i] = (i * 0x01010101u) ^ (i << (8 + pass)) ^ 0xA11CE55u;
+                        output[i] = 0;
+                    }
+                    hr = gpu.execute_guest_buffer(
+                        std::span<const uint32_t>(input, kWords),
+                        std::span<uint32_t>(output, kWords),
+                        gpu_space, kGuestInputVa, kGuestOutputVa, seeds[pass]);
+                    ok = SUCCEEDED(hr) && gpu_space.resource_count() == 0;
+                    for (uint32_t i = 0; i < kWords && ok; ++i) {
+                        const uint32_t expected =
+                            (input[i] ^ 0xA5A5A5A5u) + i * 7u + seeds[pass];
+                        ok = output[i] == expected && alias[i] == expected;
+                    }
+                }
+                if (ok) {
+                    // Incorrect or overlapping guest GPU VA reservations must
+                    // be rejected without retaining any partially registered
+                    // D3D12 resources or submitting extra GPU work.
+                    const HRESULT overlap = gpu.execute_guest_buffer(
+                        std::span<const uint32_t>(input, kWords),
+                        std::span<uint32_t>(output, kWords),
+                        gpu_space, kGuestInputVa, kGuestInputVa, seeds[0]);
+                    const HRESULT misaligned = gpu.execute_guest_buffer(
+                        std::span<const uint32_t>(input, kWords),
+                        std::span<uint32_t>(output, kWords),
+                        gpu_space, kGuestInputVa + 1, kGuestOutputVa, seeds[1]);
+                    ok = overlap == E_INVALIDARG && misaligned == E_INVALIDARG &&
+                         gpu_space.resource_count() == 0 && gpu.submitted_commands() == 2;
+                }
+            } else {
+                ok = false;
+            }
+            const bool freed = cleanup();
+            ok = ok && freed &&
+                scarlett::memory::PhysicalMemory::instance().allocated_page_count() == 0 &&
+                gpu_space.resource_count() == 0;
+            std::wcout << L"ScarlettVI | guest 64KiB pages -> host DXIL GPU compute -> guest aliases: "
+                       << (ok ? L"PASS" : L"FAIL") << L"\n";
+            std::wcout << L"Host GPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "GPU dispatches: " << gpu.submitted_commands()
+                      << " | fence completed: " << gpu.completed_fence()
+                      << " | verified guest output words: " << (ok ? 2 * kWords : 0)
+                      << " | GPU VA mappings left: " << gpu_space.resource_count()
+                      << " | physical pages left: "
+                      << scarlett::memory::PhysicalMemory::instance().allocated_page_count()
+                      << " | HRESULT: 0x" << std::hex
+                      << static_cast<uint32_t>(hr) << std::dec << "\n"
+                      << "Synthetic guest addresses and generated HLSL only. "
+                      << "Not Xbox GPU page tables or an executed game shader.\n";
+            return ok ? 0 : 3;
+        }
         if (verb == L"memory-scatter") {
             if (argc != 2) { usage(); return 2; }
             constexpr size_t stride = scarlett::memory::PhysicalMemory::page_bytes;

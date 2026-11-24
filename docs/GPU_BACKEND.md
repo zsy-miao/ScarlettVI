@@ -80,8 +80,23 @@ buffer compute dispatch verifying 1,024 results; three completed GPU
 submissions/fence value 3 on NVIDIA RTX 5060 Ti.
 
 These implementations are original, useful Windows D3D12 building blocks.
-They **do not decode Xbox RDNA2 ISA**, reproduce Xbox tile swizzles, expose
-console D3D12 COM vtables or render the Xbox title.
+
+### Connecting virtual Xbox physical pages to real host GPU execution
+
+The new original [guest GPU address-space and CPU/GPU memory bridge](GPU_ADDRESS_BRIDGE.md)
+adds 64 KiB-aligned synthetic GPU range registration, overlap/bounds validation,
+COM resource ownership, subrange-to-host-GPU-VA translation, and integration
+with ScarlettVI's existing XMem 64 KiB physical-memory aliases.
+
+`ScarlettVI.exe gpu-memory-bridge` verifies GPU execution using guest-mapped
+physical input pages, followed by readback to guest-mapped output pages and
+read-through of a second aliased virtual mapping. Two GPU dispatches produced
+**2,048/2,048** correct 32-bit results, with all host GPU address mappings
+and guest physical pages cleaned up. This is the first working integration
+between ScarlettVI's console memory and real Windows D3D12 compute resources.
+
+These implementations **do not decode Xbox RDNA2 ISA**, reproduce Xbox tile
+swizzles, expose console D3D12 COM vtables or render the Xbox title.
 
 ## Console API boundary
 
@@ -111,8 +126,11 @@ building block but cannot accept console GPU descriptors as-is.
    staging, GPU resource transitions, readback and fences.
 2. Console interface contract mapping (public and reverse-engineered
    data layouts) with explicit unsupported-function detection.
-3. **Still required:** Xbox GPU virtual address remapping into host resource
-   handles and translating console descriptors to host descriptor heaps.
+3. **Partly implemented:** synthetic 64 KiB guest GPU buffer-address range
+   translation into real host D3D12 resource handles and GPU addresses, with
+   tested XMem page CPU/GPU readback coherence. **Still required:** actual
+   Xbox GPU page-table semantics and translating console descriptors to host
+   descriptor heaps and texture resources.
 4. Xbox texture layout, swizzle and compression format conversion.
 5. Independently authored RDNA2 console shader translation into DXIL;
    validate against original generated shader fixtures.

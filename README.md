@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -48,7 +48,11 @@ The persistent Windows D3D12 context now executes GPU texture copies and
 compute shaders. Independently authored HLSL is compiled to DXIL Shader Model
 6 using the installed Windows SDK, with real SRV/UAV buffer and texture bindings.
 GPU tests verified **2,048 computed integers** and **16,384 generated RGBA8
-texture pixels** after GPU execution on an RTX 5060 Ti.
+texture pixels** after GPU execution on an RTX 5060 Ti. The new original
+[GPU memory bridge](docs/GPU_ADDRESS_BRIDGE.md) translates synthetic guest
+GPU addresses into D3D12 resources and executes DXIL compute directly from
+ScarlettVI-managed 64 KiB physical-page data; another guest alias verifies
+**2,048 GPU results** with no leaked mappings.
 
 These are verified host capabilities; the **Xbox-specific D3D12/XG device ABI,
 RDNA2 shader translation and actual title rendering are still missing**.
@@ -80,6 +84,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-transfer
 .\build\x64\Release\ScarlettVI.exe gpu-compute
 .\build\x64\Release\ScarlettVI.exe gpu-texture-shader
+.\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe memory
 .\build\x64\Release\ScarlettVI.exe memory-scatter
 ```

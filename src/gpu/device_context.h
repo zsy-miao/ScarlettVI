@@ -5,9 +5,11 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include <span>
 #include <string>
 
 namespace scarlett::gpu {
+class GuestAddressSpace;
 
 // Persistent, independent Windows D3D12 backend. This does not expose the
 // Xbox D3D12_XS COM ABI; console vtables are translated in a separate layer.
@@ -22,6 +24,13 @@ public:
     HRESULT texture_roundtrip_test();
     HRESULT compute_dispatch_test(uint32_t seed);
     HRESULT texture_shader_test();
+    // Submits host DXIL work between CPU-visible 64KiB console page views.
+    // Guest GPU VAs are synthetic and translated through GuestAddressSpace.
+    HRESULT execute_guest_buffer(std::span<const uint32_t> guest_input,
+                                 std::span<uint32_t> guest_output,
+                                 GuestAddressSpace& guest_gpu_va,
+                                 uint64_t input_guest_base, uint64_t output_guest_base,
+                                 uint32_t seed);
     uint32_t compiled_dxil_bytes() const noexcept { return compiled_dxil_bytes_; }
     uint32_t texture_dxil_bytes() const noexcept { return texture_dxil_bytes_; }
     const std::string& shader_diagnostics() const noexcept { return shader_diagnostics_; }
