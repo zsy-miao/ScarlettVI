@@ -161,6 +161,7 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
         report.nested_experimental_hle_bound += binding.experimental_hle_symbols_bound;
         report.nested_d3d12_exports_bound += binding.experimental_d3d12_exports_bound;
         report.nested_d3d12_device_bound += binding.experimental_d3d12_device_bound;
+        report.nested_gpu_va_config_bound += binding.experimental_gpu_va_config_bound;
         report.nested_unknown_pending += binding.unknown_symbols_pending;
         report.missing_nested_host.insert(report.missing_nested_host.end(),
             binding.missing_host_symbols.begin(), binding.missing_host_symbols.end());

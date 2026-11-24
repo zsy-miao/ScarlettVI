@@ -40,6 +40,8 @@ private:
         std::vector<uintptr_t> mapped_pages; // 0 means unoccupied placeholder
     };
     bool unmap_one_unlocked(void* address, Region& region, size_t index);
+    bool split_placeholder_slot_unlocked(void* address);
+    bool release_region_unlocked(void* address, Region& region);
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Page> pages_;
     std::unordered_map<void*, Region> regions_;

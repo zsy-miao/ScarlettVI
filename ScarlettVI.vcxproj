@@ -67,6 +67,7 @@
     <ClCompile Include="src\gpu\dxil_compiler.cpp" />
     <ClCompile Include="src\gpu\guest_address_space.cpp" />
     <ClCompile Include="src\gpu\xbox_device_factory.cpp" />
+    <ClCompile Include="src\gpu\sparse_gpu_windows.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\pe\pe_file.h" />
@@ -83,6 +84,7 @@
     <ClInclude Include="src\gpu\dxil_compiler.h" />
     <ClInclude Include="src\gpu\guest_address_space.h" />
     <ClInclude Include="src\gpu\xbox_device_factory.h" />
+    <ClInclude Include="src\gpu\sparse_gpu_windows.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

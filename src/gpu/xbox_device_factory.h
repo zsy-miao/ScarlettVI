@@ -20,6 +20,24 @@ static_assert(offsetof(XboxDeviceParametersObserved, graphics_queue_ring_bytes) 
 
 // Do not claim Xbox-only flags or memory policies are honored. This bridge
 // can be useful for standard COM methods but is not sufficient for title boot.
+// The supplied title zero-initializes exactly 32 bytes, then writes a
+// 32-bit mode at offset 4 (observed values: 3 or 4). Other semantics are
+// unknown; we accept only that demonstrated subset.
+struct XboxGpuVaConfigurationObserved {
+    uint32_t unused_00 = 0;
+    uint32_t mode_04 = 0;
+    uint32_t other_08_through_1c[6]{};
+};
+static_assert(sizeof(XboxGpuVaConfigurationObserved) == 32);
+static_assert(offsetof(XboxGpuVaConfigurationObserved, mode_04) == 4);
+
+// Reserves two real host D3D12 GPU virtual resource windows for the observed
+// mode (3->16GiB, 4->24GiB). Does not map Xbox physical GPU pages or reproduce
+// driver-specific console GPU VA rules.
+HRESULT WINAPI xbox_configure_virtual_memory_host(
+    const XboxGpuVaConfigurationObserved* configuration) noexcept;
+bool verify_xbox_gpu_virtual_memory_configuration(uint32_t mode) noexcept;
+
 HRESULT WINAPI xbox_create_device_host(
     void* xbox_adapter,
     const XboxDeviceParametersObserved* parameters,

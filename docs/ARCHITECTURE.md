@@ -26,9 +26,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   independently analysed `XMemVirtualQuery` and `XMemMapPhysicalPagesScatter`
   caller ABIs); a desktop D3D12 root-signature serialization bridge links **2**
   more; an original partial Xbox Device11 host COM factory links **1**
-  additional reference, leaving **26** Xbox import references unresolved.
-  The factory does not implement Xbox-specific creation flags or GPU VA. Import linking is not proof of
-  runtime correctness. The mapper applies final memory protection
+  additional reference; the original partial GPU VM configuration bridge
+  links **1** more, leaving **25** Xbox import references unresolved.
+  Xbox GPU page tables, tile mappings, coherency and creation flags remain
+  unsupported. Import linking is not proof of runtime correctness. The mapper applies final memory protection
   to **60** sections, registered **304274** x64 unwind function entries,
   installed **3** current-thread TLS templates (5776 bytes) and identified
   **2** callbacks (deferred, not executed). Proper other-thread TLS initialization,
@@ -51,7 +52,8 @@ console code, keys or proprietary binary libraries belong in this repository.
    VirtualAlloc2 placeholders and MapViewOfFile3, with a VirtualFree intercept.
      Non-contiguous 64 KiB scatter mapping between multiple reserved regions
    is also implemented and verified with the independently observed title call
-   convention. Remaining: console memory flags, 2 MiB pages, GPU-visible
+   convention. Large 16/24 GiB CPU virtual reservations now split 64 KiB
+    placeholders on demand. Remaining: console memory flags, 2 MiB pages, GPU-visible
    memory semantics, drive virtualization, package/save paths, services and jobs.
 4. **GPU:** native Windows D3D12 hardware creation/queue/command list/fence/upload/
    root-signature path verified on NVIDIA RTX 5060 Ti. Persistent device context
@@ -63,7 +65,7 @@ console code, keys or proprietary binary libraries belong in this repository.
     guest GPU VA registry now maps XMem-backed 64 KiB page data to real host
     DXIL buffer compute and reads back 2,048 results through CPU VA aliases.
     Remaining: Xbox D3D12/XG
-   interfaces and console resource heaps/GPU VA, translating console descriptors,
+   interfaces, actual console GPU tile maps/heaps, console descriptors,
    RDNA2 shader ISA to DXIL, Xbox tiling/texture conversion and title presentation.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
    diagnostics, audio device & codec bridges, controller input, frame presentation.
@@ -101,6 +103,9 @@ The `ScarlettVI.exe gpu-transfer`, `gpu-compute` and
 compute execution and shader-visible texture descriptor binding respectively.
 The `gpu-memory-bridge` mode also verifies guest physical pages, synthetic
 GPU VA translation, actual host DXIL dispatch and aliased guest readback.
+The `memory-sparse`, `gpu-sparse-va` and `gpu-vmem-config` modes verify
+16/24 GiB sparse CPU/GPU address windows and partial Xbox configuration.
+See [GPU_VIRTUAL_MEMORY.md](GPU_VIRTUAL_MEMORY.md).
 All GPU modes use only independently generated test data.
 See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).
 

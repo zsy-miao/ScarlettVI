@@ -131,29 +131,10 @@ void* PhysicalMemory::reserve_alias_region(void* requested_address, size_t size)
                                     PAGE_NOACCESS, nullptr, 0);
     if (!address) return nullptr;
     const size_t count = size / page_bytes;
-    // Splitting into 64KiB placeholder segments lets each physical page be
-    // independently mapped without any release/re-reserve race window.
-    size_t segments = 1;
-    for (size_t i = 1; i < count; ++i) {
-        void* next = static_cast<uint8_t*>(address) + (i - 1) * page_bytes;
-        if (!VirtualFree(next, page_bytes, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER))
-            break;
-        ++segments;
-    }
-    if (segments != count) {
-        const DWORD error = GetLastError();
-        // Every successful split separated ONE 64KiB placeholder from the
-        // still-contiguous remainder. The last allocation still covers
-        // (count - segments + 1) pages. Release each allocation base once
-        // rather than accidentally leaking that unsplit trailing region.
-        for (size_t i = 0; i + 1 < segments; ++i)
-            VirtualFree(static_cast<uint8_t*>(address) + i * page_bytes,
-                        0, MEM_RELEASE);
-        VirtualFree(static_cast<uint8_t*>(address) +
-                        (segments - 1) * page_bytes, 0, MEM_RELEASE);
-        SetLastError(error);
-        return nullptr;
-    }
+    // Do NOT split the entire reservation here. The title reserves virtual
+    // windows of 16-24 GiB, for which eager 64KiB splitting would invoke
+    // VirtualFree hundreds of thousands of times. A single Windows
+    // placeholder costs no committed RAM; split only pages when mapped.
     try {
         Region region;
         region.page_count = count;
@@ -161,18 +142,53 @@ void* PhysicalMemory::reserve_alias_region(void* requested_address, size_t size)
         std::lock_guard lock(mutex_);
         const auto [it, added] = regions_.emplace(address, std::move(region));
         if (!added) {
-            for (size_t i = 0; i < count; ++i)
-                VirtualFree(static_cast<uint8_t*>(address) + i * page_bytes, 0, MEM_RELEASE);
+            VirtualFree(address, 0, MEM_RELEASE);
             SetLastError(ERROR_ALREADY_EXISTS);
             return nullptr;
         }
     } catch (...) {
-        for (size_t i = 0; i < count; ++i)
-            VirtualFree(static_cast<uint8_t*>(address) + i * page_bytes, 0, MEM_RELEASE);
+        VirtualFree(address, 0, MEM_RELEASE);
         SetLastError(ERROR_OUTOFMEMORY);
         return nullptr;
     }
     return address;
+}
+
+// Separates a single 64KiB slot from its host placeholder allocation by at
+// most two O(1) splits, regardless of the size of the surrounding reservation.
+// Windows documents MEM_PRESERVE_PLACEHOLDER as never releasing the VA.
+bool PhysicalMemory::split_placeholder_slot_unlocked(void* address) {
+    MEMORY_BASIC_INFORMATION info{};
+    if (VirtualQuery(address, &info, sizeof(info)) != sizeof(info))
+        return false;
+    const uintptr_t location = reinterpret_cast<uintptr_t>(address);
+    const uintptr_t begin = reinterpret_cast<uintptr_t>(info.AllocationBase);
+    const uintptr_t reported_begin = reinterpret_cast<uintptr_t>(info.BaseAddress);
+    if (!begin || !aligned(location) || info.State != MEM_RESERVE ||
+        reported_begin > location || location < begin ||
+        info.RegionSize > std::numeric_limits<uintptr_t>::max() - reported_begin) {
+        SetLastError(ERROR_INVALID_ADDRESS);
+        return false;
+    }
+    const uintptr_t end = reported_begin + info.RegionSize;
+    if (location > end || end - location < page_bytes) {
+        SetLastError(ERROR_INVALID_ADDRESS);
+        return false;
+    }
+    if (location > begin) {
+        // Splitting at the BEGINNING of the current allocation yields
+        // [begin,location) and [location,end), preserving both placeholders.
+        if (!VirtualFree(reinterpret_cast<void*>(begin), location - begin,
+                         MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER))
+            return false;
+    }
+    if (end - location > page_bytes) {
+        // Isolate [location,location+64KiB) from the remaining range.
+        if (!VirtualFree(address, page_bytes,
+                         MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER))
+            return false;
+    }
+    return true;
 }
 
 bool PhysicalMemory::unmap_one_unlocked(void* address, Region& region, size_t index) {
@@ -231,6 +247,14 @@ void* PhysicalMemory::map_pages(void* target, size_t count,
     }
     for (size_t i = 0; i < count; ++i) {
         void* at = static_cast<uint8_t*>(target) + i * page_bytes;
+        if (!split_placeholder_slot_unlocked(at)) {
+            const DWORD error = GetLastError();
+            for (size_t j = 0; j < i; ++j)
+                unmap_one_unlocked(static_cast<uint8_t*>(target) + j * page_bytes,
+                                   *region, begin + j);
+            SetLastError(error);
+            return nullptr;
+        }
         const auto handle = pages_.at(numbers[i]).section;
         if (host().map(handle, GetCurrentProcess(), at, 0, page_bytes,
                        MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, nullptr, 0) != at) {
@@ -315,6 +339,15 @@ BOOL PhysicalMemory::map_scatter(void* const* destinations, size_t count,
     size_t mapped = 0;
     for (; mapped < entries.size(); ++mapped) {
         const auto& entry = entries[mapped];
+        if (!split_placeholder_slot_unlocked(entry.destination)) {
+            const DWORD error = GetLastError();
+            for (size_t rollback = mapped; rollback > 0; --rollback) {
+                const auto& done = entries[rollback - 1];
+                unmap_one_unlocked(done.destination, *done.region, done.index);
+            }
+            SetLastError(error);
+            return FALSE;
+        }
         const HANDLE section = pages_.at(entry.physical_frame).section;
         const void* result = host().map(section, GetCurrentProcess(),
                                         entry.destination, 0, page_bytes,
@@ -337,6 +370,42 @@ BOOL PhysicalMemory::map_scatter(void* const* destinations, size_t count,
     return TRUE;
 }
 
+bool PhysicalMemory::release_region_unlocked(void* address, Region& region) {
+    // Only mapped pages need UnmapViewOfFile2; unsplit placeholders do not
+    // create one allocation per page.
+    for (size_t i = 0; i < region.page_count; ++i) {
+        if (!region.mapped_pages[i]) continue;
+        void* at = static_cast<uint8_t*>(address) + i * page_bytes;
+        if (!unmap_one_unlocked(at, region, i)) return false;
+    }
+
+    uintptr_t cursor = reinterpret_cast<uintptr_t>(address);
+    const uintptr_t region_bytes = region.page_count * page_bytes;
+    if (region_bytes > std::numeric_limits<uintptr_t>::max() - cursor) {
+        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
+        return false;
+    }
+    const uintptr_t end = cursor + region_bytes;
+    // Each VirtualQuery allocation extent is one placeholder allocation.
+    // Once a page has been mapped and unmapped, it is still a 64KiB
+    // placeholder, so only touched pages create extra extents.
+    while (cursor < end) {
+        MEMORY_BASIC_INFORMATION info{};
+        if (VirtualQuery(reinterpret_cast<void*>(cursor), &info, sizeof(info)) != sizeof(info) ||
+            info.State != MEM_RESERVE ||
+            reinterpret_cast<uintptr_t>(info.AllocationBase) != cursor ||
+            info.RegionSize == 0 || info.RegionSize > end - cursor) {
+            SetLastError(ERROR_INVALID_ADDRESS);
+            return false;
+        }
+        const uintptr_t next = cursor + info.RegionSize;
+        if (!VirtualFree(reinterpret_cast<void*>(cursor), 0, MEM_RELEASE))
+            return false;
+        cursor = next;
+    }
+    return true;
+}
+
 BOOL PhysicalMemory::release_alias_region(void* address) {
     std::lock_guard lock(mutex_);
     auto it = regions_.find(address);
@@ -344,17 +413,7 @@ BOOL PhysicalMemory::release_alias_region(void* address) {
         SetLastError(ERROR_INVALID_ADDRESS);
         return FALSE;
     }
-    Region& region = it->second;
-    for (size_t i = 0; i < region.page_count; ++i) {
-        void* at = static_cast<uint8_t*>(address) + i * page_bytes;
-        if (!unmap_one_unlocked(at, region, i))
-            return FALSE;
-    }
-    for (size_t i = 0; i < region.page_count; ++i) {
-        void* at = static_cast<uint8_t*>(address) + i * page_bytes;
-        if (!VirtualFree(at, 0, MEM_RELEASE))
-            return FALSE;
-    }
+    if (!release_region_unlocked(address, it->second)) return FALSE;
     regions_.erase(it);
     return TRUE;
 }
@@ -370,15 +429,9 @@ size_t PhysicalMemory::allocated_page_count() const {
 }
 
 PhysicalMemory::~PhysicalMemory() {
-    // Clean up even when a title terminates before freeing its pages.
-    for (auto& [base, region] : regions_) {
-        for (size_t i = 0; i < region.page_count; ++i) {
-            void* at = static_cast<uint8_t*>(base) + i * page_bytes;
-            if (region.mapped_pages[i] && host().available())
-                host().unmap(GetCurrentProcess(), at, MEM_PRESERVE_PLACEHOLDER);
-            VirtualFree(at, 0, MEM_RELEASE);
-        }
-    }
+    // Clean up at process teardown, including unsplit large placeholders.
+    for (auto& [base, region] : regions_)
+        release_region_unlocked(base, region);
     for (auto& [frame, page] : pages_)
         if (page.section) CloseHandle(page.section);
 }

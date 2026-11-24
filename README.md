@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -30,7 +30,7 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **26 Xbox-specific import references remain unresolved.**
+title-local exports. **25 Xbox-specific import references remain unresolved.**
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 
@@ -45,7 +45,10 @@ real aliases and safe unmapping (see [call-site research](docs/XMEM_SCATTER.md))
 An experimental [Xbox Device11 factory bridge](docs/XBOX_DEVICE11.md) now
 recognizes the title's exact requested Windows `ID3D12Device11` GUID, and
 returns a real native COM interface for the independently observed factory
-parameters. Xbox-only creation settings and GPU VA features remain unsupported.
+parameters. The [partial Xbox GPU VA configuration bridge](docs/GPU_VIRTUAL_MEMORY.md)
+now reserves real 16/24 GiB Windows GPU virtual ranges and supports the game's
+huge 64 KiB-granular CPU virtual reservations through lazy placeholder splitting.
+Xbox-only tile mappings, GPU page tables, coherency and creation flags remain unsupported.
 The Windows D3D12 backend successfully initializes a real graphics queue,
 command list, upload resource, fence and root signature on an RTX 5060 Ti.
 The persistent Windows D3D12 context now executes GPU texture copies and
@@ -91,6 +94,10 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe gpu-device11
 .\build\x64\Release\ScarlettVI.exe gpu-device-factory
+.\build\x64\Release\ScarlettVI.exe gpu-sparse-va
+.\build\x64\Release\ScarlettVI.exe gpu-vmem-config 3
+.\build\x64\Release\ScarlettVI.exe gpu-vmem-config 4
+.\build\x64\Release\ScarlettVI.exe memory-sparse
 .\build\x64\Release\ScarlettVI.exe memory
 .\build\x64\Release\ScarlettVI.exe memory-scatter
 ```

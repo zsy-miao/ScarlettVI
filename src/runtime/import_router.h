@@ -30,6 +30,7 @@ struct BindingResult {
     size_t experimental_hle_symbols_bound = 0;
     size_t experimental_d3d12_exports_bound = 0;
     size_t experimental_d3d12_device_bound = 0;
+    size_t experimental_gpu_va_config_bound = 0;
     size_t xbox_symbols_pending = 0;
     size_t title_symbols_pending = 0;
     size_t unknown_symbols_pending = 0;

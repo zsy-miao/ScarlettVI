@@ -85,12 +85,15 @@ unrecognized GUIDs, and unsupported version/queue values.
 
 **Observed:** both commands returned `PASS` in the VS2026 x64 Release
 build. A read-only import map of the real executable reports **one new
-experimental device-factory binding**, leaving **26** unresolved Xbox
-import references. Game code was not executed.
+experimental device-factory binding**. The later experimental
+[GPU VM configuration bridge](GPU_VIRTUAL_MEMORY.md) links one more reference,
+leaving **25** unresolved Xbox import references. Game code was not executed.
 
 ## Still missing
 
-- `D3D12ConfigureVirtualMemoryX`: console GPU virtual-memory policies.
+- `D3D12ConfigureVirtualMemoryX` now has a **partial host reservation bridge**;
+  the console GPU's actual virtual page-map and physical-tile policies remain
+  unsupported (see [GPU virtual memory](GPU_VIRTUAL_MEMORY.md)).
 - Xbox-only device/queue/resource COM interface extensions and GPU VA mappings.
 - GPU tiling, heap residency, resource flags, RDNA2 shader ISA to DXIL
   conversion, presentation and game lifecycle services.

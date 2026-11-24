@@ -8,6 +8,7 @@
 #include "gpu/device_context.h"
 #include "gpu/guest_address_space.h"
 #include "gpu/xbox_device_factory.h"
+#include "gpu/sparse_gpu_windows.h"
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
 #include "runtime/xmem_query.h"
@@ -110,6 +111,9 @@ void usage() {
                << L"  ScarlettVI.exe gpu-device-factory\n"
                << L"  ScarlettVI.exe memory\n"
                << L"  ScarlettVI.exe memory-scatter\n"
+               << L"  ScarlettVI.exe memory-sparse\n"
+               << L"  ScarlettVI.exe gpu-sparse-va\n"
+               << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
 }
@@ -118,6 +122,151 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-vmem-config") {
+            if (argc != 2 && argc != 3) { usage(); return 2; }
+            uint32_t mode = 4;
+            if (argc == 3) {
+                if (std::wstring_view(argv[2]) == L"3") mode = 3;
+                else if (std::wstring_view(argv[2]) != L"4") { usage(); return 2; }
+            }
+            bool pass = scarlett::gpu::verify_xbox_gpu_virtual_memory_configuration(mode);
+            // The title performs CPU VA reservations immediately after its
+            // Xbox GPU configuration call; validate that full sequence using
+            // the same observed 24GiB range and 64KiB reserve flags.
+            const size_t window = static_cast<size_t>(mode == 3 ? 16 : 24) << 30;
+            void* cpu_a = pass ? scarlett::xmem::XMemVirtualAlloc(
+                nullptr, window, MEM_RESERVE | MEM_64K_PAGES, 0x21, 4) : nullptr;
+            void* cpu_b = pass ? scarlett::xmem::XMemVirtualAlloc(
+                nullptr, window, MEM_RESERVE | MEM_64K_PAGES, 0x3, 0x801) : nullptr;
+            pass = pass && cpu_a && cpu_b && cpu_a != cpu_b;
+            if (cpu_a) pass = scarlett::xmem::VirtualFreeBridge(
+                cpu_a, 0, MEM_RELEASE) && pass;
+            if (cpu_b) pass = scarlett::xmem::VirtualFreeBridge(
+                cpu_b, 0, MEM_RELEASE) && pass;
+            std::cout << "ScarlettVI | partial Xbox GPU VM config + native Device11"
+                      << " + real 2x" << (mode == 3 ? 16 : 24)
+                      << "GiB CPU/GPU sparse reservations: "
+                      << (pass ? "PASS" : "FAIL") << "\n"
+                      << "Observed 32-byte config mode=" << mode
+                      << "; host reserved GPU VA"
+                      << " without VRAM commit; host CPU VA reserved without RAM commit.\n"
+                      << "Tile mappings, Xbox protection rules, and console GPU"
+                      << " address-space identity are NOT implemented.\n";
+            return pass ? 0 : 3;
+        }
+        if (verb == L"gpu-sparse-va") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            HRESULT hr = gpu.initialize();
+            Microsoft::WRL::ComPtr<ID3D12Device11> device;
+            if (SUCCEEDED(hr)) hr = gpu.acquire_device11(device.GetAddressOf());
+            uint32_t process_bits = 0;
+            uint32_t resource_bits = 0;
+            for (uint64_t size_gib : {16ull, 24ull}) {
+                if (FAILED(hr)) break;
+                scarlett::gpu::SparseGpuWindows windows;
+                hr = windows.initialize(device.Get(), size_gib * (1ull << 30), 2);
+                process_bits = windows.gpu_va_bits_per_process();
+                resource_bits = windows.gpu_va_bits_per_resource();
+                if (SUCCEEDED(hr) && !windows.verify_boundaries()) hr = E_FAIL;
+                windows.clear();
+                if (SUCCEEDED(hr) && windows.window_count() != 0) hr = E_FAIL;
+            }
+            std::wcout << L"ScarlettVI | actual sparse D3D12 GPU VA reservations: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n"
+                       << L"Host GPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "GPU VA bits per process: " << process_bits
+                      << " | per resource: " << resource_bits
+                      << " | tested windows: 2 x 16GiB and 2 x 24GiB"
+                      << " | actual VRAM committed: 0"
+                      << " | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
+                      << std::dec << "\n"
+                      << "GPU address ranges are RESERVED only; page mappings and"
+                      << " Xbox GPU virtual-memory configuration remain unimplemented.\n";
+            return SUCCEEDED(hr) ? 0 : 3;
+        }
+        if (verb == L"memory-sparse") {
+            if (argc != 2) { usage(); return 2; }
+            constexpr size_t page = scarlett::memory::PhysicalMemory::page_bytes;
+            constexpr size_t gib = size_t{1024} * 1024 * 1024;
+            auto verify_case = [&](size_t gib_count) -> bool {
+                const size_t bytes = gib_count * gib;
+                const DWORD flags = MEM_RESERVE | MEM_64K_PAGES;
+                void* first = scarlett::xmem::XMemVirtualAlloc(
+                    nullptr, bytes, flags, 0, PAGE_READWRITE);
+                void* second = scarlett::xmem::XMemVirtualAlloc(
+                    nullptr, bytes, flags, 0, PAGE_READWRITE);
+                uintptr_t physical[3]{};
+                uintptr_t pages_allocated = 3;
+                bool pages_valid = scarlett::xmem::XMemAllocatePhysicalPages(
+                    MEM_64K_PAGES, &pages_allocated, physical) != 0 &&
+                    pages_allocated == 3;
+                bool ok = first && second && pages_valid;
+                auto* start = static_cast<uint8_t*>(first);
+                auto* another = static_cast<uint8_t*>(second);
+                void* destinations[5]{
+                    start,
+                    start ? start + bytes / 2 : nullptr,
+                    start ? start + bytes - page : nullptr,
+                    another ? another + bytes / 2 : nullptr,
+                    another ? another + bytes - page : nullptr
+                };
+                if (ok) {
+                    MEMORY_BASIC_INFORMATION a{}, b{};
+                    const bool sparse_first = VirtualQuery(first, &a, sizeof(a)) == sizeof(a) &&
+                        a.State == MEM_RESERVE && a.RegionSize >= bytes;
+                    const bool sparse_second = VirtualQuery(second, &b, sizeof(b)) == sizeof(b) &&
+                        b.State == MEM_RESERVE && b.RegionSize >= bytes;
+                    ok = sparse_first && sparse_second;
+                }
+                const uintptr_t page_ids[5]{
+                    physical[0], physical[1], physical[0], physical[0], physical[2]
+                };
+                bool mapped = false;
+                if (ok) {
+                    mapped = scarlett::xmem::XMemMapPhysicalPagesScatter(
+                        destinations, 5, page_ids) != FALSE;
+                    ok = mapped;
+                }
+                if (ok) {
+                    auto* a = static_cast<volatile uint8_t*>(destinations[0]);
+                    auto* b = static_cast<volatile uint8_t*>(destinations[2]);
+                    auto* c = static_cast<volatile uint8_t*>(destinations[3]);
+                    a[0] = 0xA3;
+                    a[page - 1] = 0x29;
+                    ok = b[0] == 0xA3 && c[0] == 0xA3 &&
+                         b[page - 1] == 0x29 && c[page - 1] == 0x29;
+                    MEMORY_BASIC_INFORMATION untouched{};
+                    void* empty = start + page;
+                    ok = ok && VirtualQuery(empty, &untouched, sizeof(untouched)) ==
+                               sizeof(untouched) && untouched.State == MEM_RESERVE &&
+                         untouched.RegionSize > (gib / 2);
+                    // Mapped pages remain owned until all aliases are removed.
+                    ok = ok && !scarlett::xmem::XMemFreePhysicalPages(
+                        1, physical);
+                }
+                bool unmapped = !mapped ||
+                    scarlett::xmem::XMemMapPhysicalPagesScatter(
+                        destinations, 5, nullptr) != FALSE;
+                bool released_first = !first || scarlett::xmem::VirtualFreeBridge(
+                    first, 0, MEM_RELEASE) != FALSE;
+                bool released_second = !second || scarlett::xmem::VirtualFreeBridge(
+                    second, 0, MEM_RELEASE) != FALSE;
+                bool freed = !pages_valid || scarlett::xmem::XMemFreePhysicalPages(
+                    pages_allocated, physical) != FALSE;
+                return ok && unmapped && released_first && released_second && freed &&
+                    scarlett::memory::PhysicalMemory::instance().allocated_page_count() == 0;
+            };
+            const bool first_case = verify_case(16);
+            const bool second_case = first_case && verify_case(24);
+            const bool pass = first_case && second_case;
+            std::cout << "ScarlettVI | sparse Xbox-sized placeholder reservations: "
+                      << (pass ? "PASS" : "FAIL") << "\n"
+                      << "Verified 2 x 16 GiB and 2 x 24 GiB VA windows, 64 KiB on-demand"
+                      << " mapping, cross-window physical aliases, 0 leaked pages."
+                      << "\nNo 16/24 GiB physical memory or VRAM was committed.\n";
+            return pass ? 0 : 3;
+        }
         if (verb == L"gpu-device-factory") {
             if (argc != 2) { usage(); return 2; }
             const bool pass = scarlett::gpu::verify_xbox_device_factory();
@@ -600,7 +749,10 @@ int wmain(int argc, wchar_t** argv) {
                       << " (desktop serializer ABI)\n";
             std::cout << "Experimental Xbox Device11 factory links: "
                       << (binding.experimental_d3d12_device_bound + local_report.nested_d3d12_device_bound)
-                      << " (native COM interface only; Xbox GPU VA/features unsupported)\n";
+                      << " (native COM interface only; Xbox-only features unsupported)\n";
+            std::cout << "Experimental Xbox GPU VA configuration links: "
+                      << (binding.experimental_gpu_va_config_bound + local_report.nested_gpu_va_config_bound)
+                      << " (real sparse host GPU VA, Xbox tile mapping unsupported)\n";
             std::cout << "Xbox HLE imports pending: "
                       << (binding.xbox_symbols_pending + local_report.nested_xbox_pending)
                       << " | unknown nested imports: " << local_report.nested_unknown_pending << "\n";

@@ -153,10 +153,14 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                         address = resolve_system_export("d3d12.dll", symbol);
                     else if (!symbol.by_ordinal && symbol.name == "D3D12XboxCreateDevice")
                         address = reinterpret_cast<FARPROC>(&gpu::xbox_create_device_host);
+                    else if (!symbol.by_ordinal && symbol.name == "D3D12ConfigureVirtualMemoryX")
+                        address = reinterpret_cast<FARPROC>(&gpu::xbox_configure_virtual_memory_host);
                     if (address) {
                         image.patch_iat(symbol.iat_rva, reinterpret_cast<uint64_t>(address));
                         if (symbol.name == "D3D12XboxCreateDevice")
                             ++result.experimental_d3d12_device_bound;
+                        else if (symbol.name == "D3D12ConfigureVirtualMemoryX")
+                            ++result.experimental_gpu_va_config_bound;
                         else
                             ++result.experimental_d3d12_exports_bound;
                     } else {

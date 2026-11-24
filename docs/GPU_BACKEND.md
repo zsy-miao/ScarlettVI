@@ -112,13 +112,17 @@ console-only semantics as interchangeable with Windows:
   the exact observed request for Windows `ID3D12Device11`; creates real
   native COM interfaces, but does not translate console creation parameters
   or memory/ring behavior. See [Xbox Device11 contract](XBOX_DEVICE11.md).
-- `D3D12ConfigureVirtualMemoryX`: console GPU virtual memory layout and
-  heaps require their own backend.
+- `D3D12ConfigureVirtualMemoryX`: **experimental, limited host bridge** for
+  the two observed 32-byte configuration modes. It creates two real sparse
+  D3D12 GPU VA reservations per mode and validates native VA capacity;
+  true Xbox page-table and tile-mapping rules remain unsupported. See
+  [GPU virtual memory research](GPU_VIRTUAL_MEMORY.md).
 - `XGCreateTextureComputer`, `XGSuggestSwizzleMode`: Xbox-specific tiled
   texture/resource geometry needs independent format/layout translation.
 
-The Xbox device factory is now **partly bound**, but console GPU virtual
-memory, texture tiling and custom device extensions remain unresolved. The
+The Xbox device factory and GPU VA configuration imports are now **partly
+bound**, but Xbox GPU page tables, tile mappings, texture tiling, memory
+coherency and custom device extensions remain unsupported. The
 native COM object cannot accept console GPU descriptors as-is.
 
 ## Implementation plan
@@ -132,10 +136,10 @@ native COM object cannot accept console GPU descriptors as-is.
    Device11 factory bridge. Remaining: Xbox configuration structure behavior,
    console-specific interface extensions and correct graphics lifecycle.
 3. **Partly implemented:** synthetic 64 KiB guest GPU buffer-address range
-   translation into real host D3D12 resource handles and GPU addresses, with
-   tested XMem page CPU/GPU readback coherence. **Still required:** actual
-   Xbox GPU page-table semantics and translating console descriptors to host
-   descriptor heaps and texture resources.
+   translation, host XMem CPU-page readback, plus observed 16/24 GiB sparse
+   Windows GPU reserved resources and real GPU VA capacity validation.
+   **Still required:** actual Xbox GPU page-table semantics, tile mappings,
+   coherent physical backing, console descriptor and texture translation.
 4. Xbox texture layout, swizzle and compression format conversion.
 5. Independently authored RDNA2 console shader translation into DXIL;
    validate against original generated shader fixtures.

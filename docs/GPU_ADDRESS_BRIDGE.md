@@ -25,8 +25,10 @@ are insufficient to assert the full configuration structure or the returned
 Xbox-specific configuration semantics or extra device extensions. ScarlettVI
 now patches the **device factory import only** with a constrained native
 `ID3D12Device11` bridge, described in [XBOX_DEVICE11.md](XBOX_DEVICE11.md).
-`D3D12ConfigureVirtualMemoryX` remains unimplemented; the bridge returns
-actual Windows COM objects rather than casting an Xbox object.
+`D3D12ConfigureVirtualMemoryX` now has a **partial host-side sparse VA
+reservation bridge**, documented in [GPU_VIRTUAL_MEMORY.md](GPU_VIRTUAL_MEMORY.md).
+It does not implement actual Xbox GPU tile mappings. The separate device
+factory returns real Windows COM objects rather than casting an Xbox object.
 
 ## Implemented host-side translation table
 
