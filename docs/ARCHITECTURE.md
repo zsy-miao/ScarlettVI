@@ -21,13 +21,24 @@ console code, keys or proprietary binary libraries belong in this repository.
 - Release-mode read-only probe on this machine: all **341/341** executable Windows
   import slots bound, all **489/489** nested Windows import slots bound, all
   **315/315** title-local DLL import slots linked across **7** mapped DLLs.
-  **41** remaining console-service import *references* span the executable
-  and its bundled libraries. This does not imply that their runtime behavior is correct.
+  **41** console-service import *references* span the executable and bundled
+  libraries. An original, **experimental XMem heap/VA adapter** now links **7**
+  of those references; **34** Xbox references remain without a target.
+  The XMem adapter supports CPU heap and ordinary Windows page mappings only;
+  it rejects unsupported physical/GPU-specific modes rather than spoofing
+  success. Import linking is not proof of runtime correctness.
+  The mapper also applied final memory protection
+  to **60** sections, registered **304274** x64 unwind function entries,
+  installed **3** current-thread TLS templates (5776 bytes) and identified
+  **2** callbacks (deferred, not executed). Proper other-thread TLS initialization,
+  loader callbacks, Xbox services and GPU translation remain to be implemented.
+  This does not imply that runtime behavior is correct.
 
 ## Native layer roadmap, in dependency order
 
 1. **PE parser & mapper (implemented):** robust x64 PE header/section/import/delay-import/export
-   inspection, data-only native image mapping, base relocation handling, report generation.
+   inspection, data-only native image mapping, base relocation handling, PE section
+   protection and x64 exception-function table registration, report generation.
 2. **ABI import bridge (partly implemented):** host API-set import patching, recursive
    title-local DLL mapping and export binding without DLL initialization. Remaining:
    forwarded exports, complete Xbox runtime HLE, TLS callbacks, exception registration,

@@ -26,8 +26,13 @@ You must supply your own legitimately obtained software.
 
 **Early development — not bootable or playable yet.** The working milestones include a native x64 PE inspector, data-only image mapper,
 Windows import-address-table binding and title-local DLL mapping/export linking.
-The tools enumerate imports, exports, sections and relocations and produce JSON
-dependency reports without executing game code. This establishes facts about the target before enabling
+The tools enumerate imports, exports, sections and relocations; resolve host and
+local DLL import tables; apply section protections; prepare initial-thread TLS
+and register x64 unwind functions. They generate JSON dependency reports
+without executing game code. An experimental XMem allocation bridge also links
+part of the Xbox API imports; physical/GPU memory semantics are not yet supported.
+Full runtime initialization, remaining Xbox HLE and graphics translation remain
+under development. This establishes facts about the target before enabling
 any execution.
 
 ## Build

@@ -1,5 +1,6 @@
 #include "import_router.h"
 #include "../loader/image_mapper.h"
+#include "xmem_bridge.h"
 #include <algorithm>
 #include <set>
 #include <string>
@@ -98,11 +99,23 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
     for (const auto& imported : pe.details().imports) {
         const auto route = classify_import(imported.name, title_directory);
         if (route != ImportRoute::Windows) {
-            switch (route) {
-            case ImportRoute::TitleLocal: result.title_symbols_pending += imported.symbols.size(); break;
-            case ImportRoute::XboxHle: result.xbox_symbols_pending += imported.symbols.size(); break;
-            case ImportRoute::Unresolved: result.unknown_symbols_pending += imported.symbols.size(); break;
-            default: break;
+            if (route == ImportRoute::XboxHle && lower(imported.name) == "xmem.dll") {
+                for (const auto& symbol : imported.symbols) {
+                    FARPROC address = symbol.by_ordinal ? nullptr : xmem::find_export(symbol.name);
+                    if (address) {
+                        image.patch_iat(symbol.iat_rva, reinterpret_cast<uint64_t>(address));
+                        ++result.experimental_hle_symbols_bound;
+                    } else {
+                        ++result.xbox_symbols_pending;
+                    }
+                }
+            } else {
+                switch (route) {
+                case ImportRoute::TitleLocal: result.title_symbols_pending += imported.symbols.size(); break;
+                case ImportRoute::XboxHle: result.xbox_symbols_pending += imported.symbols.size(); break;
+                case ImportRoute::Unresolved: result.unknown_symbols_pending += imported.symbols.size(); break;
+                default: break;
+                }
             }
             continue;
         }

@@ -57,12 +57,14 @@
     <ClCompile Include="src\loader\image_mapper.cpp" />
     <ClCompile Include="src\loader\title_modules.cpp" />
     <ClCompile Include="src\runtime\import_router.cpp" />
+    <ClCompile Include="src\runtime\xmem_bridge.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\pe\pe_file.h" />
     <ClInclude Include="src\loader\image_mapper.h" />
     <ClInclude Include="src\loader\title_modules.h" />
     <ClInclude Include="src\runtime\import_router.h" />
+    <ClInclude Include="src\runtime\xmem_bridge.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -87,7 +87,9 @@ void PeFile::parse() {
     details_.relocation_rva = relocation.VirtualAddress;
     details_.relocation_size = relocation.Size;
     details_.tls_rva = directory(IMAGE_DIRECTORY_ENTRY_TLS).VirtualAddress;
-    details_.exception_rva = directory(IMAGE_DIRECTORY_ENTRY_EXCEPTION).VirtualAddress;
+    const auto exceptions = directory(IMAGE_DIRECTORY_ENTRY_EXCEPTION);
+    details_.exception_rva = exceptions.VirtualAddress;
+    details_.exception_size = exceptions.Size;
     const size_t sections_start = static_cast<size_t>(dos->e_lfanew) +
         offsetof(IMAGE_NT_HEADERS64, OptionalHeader) + nt_->FileHeader.SizeOfOptionalHeader;
     if (sections_start > data_.size() ||

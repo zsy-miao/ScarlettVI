@@ -1,0 +1,168 @@
+#include "xmem_bridge.h"
+#include <malloc.h>
+#include <algorithm>
+#include <cstring>
+#include <mutex>
+#include <new>
+#include <unordered_map>
+
+namespace scarlett::xmem {
+namespace {
+enum class AllocationKind { AlignedHeap, ReservedPages };
+struct Allocation {
+    AllocationKind kind;
+    size_t bytes;
+    uint64_t attributes;
+};
+// One independent allocation registry for every title in the process.
+// Entries remain in the registry until explicitly released. This allows us
+// to reject unsupported frees without corrupting unrelated host allocations.
+class Registry final {
+public:
+    static Registry& get() {
+        static Registry instance;
+        return instance;
+    }
+    void* alloc(size_t requested, uint64_t attrs) noexcept {
+        const unsigned alignment_log2 = static_cast<unsigned>((attrs >> 24u) & 31u);
+        const unsigned memory_type = static_cast<unsigned>((attrs >> 29u) & 15u);
+        const unsigned page_type = static_cast<unsigned>((attrs >> 14u) & 3u);
+        // Physical and >64KB page allocations require a console page backend.
+        if (memory_type >= 7 || page_type >= 2 || alignment_log2 > 16) {
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return nullptr;
+        }
+        const size_t size = std::max<size_t>(requested, 1);
+        const size_t alignment = size_t(1) << std::max(4u, alignment_log2);
+        const bool use_pages = memory_type != 0 || alignment > 4096 || page_type == 1;
+        void* pointer = nullptr;
+        if (use_pages) {
+            pointer = VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            if (pointer && reinterpret_cast<uintptr_t>(pointer) % alignment) {
+                VirtualFree(pointer, 0, MEM_RELEASE);
+                pointer = nullptr;
+            }
+        } else {
+            pointer = _aligned_malloc(size, alignment);
+            if (pointer) memset(pointer, 0, size);
+        }
+        if (!pointer) {
+            SetLastError(ERROR_OUTOFMEMORY);
+            return nullptr;
+        }
+        try {
+            const std::lock_guard lock(mutex_);
+            allocations_.emplace(pointer, Allocation{use_pages ? AllocationKind::ReservedPages
+                                                              : AllocationKind::AlignedHeap,
+                                                      size, attrs});
+        } catch (...) {
+            if (use_pages) VirtualFree(pointer, 0, MEM_RELEASE);
+            else _aligned_free(pointer);
+            SetLastError(ERROR_OUTOFMEMORY);
+            return nullptr;
+        }
+        return pointer;
+    }
+
+    void free(void* ptr, uint64_t) noexcept {
+        if (!ptr) return;
+        Allocation allocation{};
+        {
+            const std::lock_guard lock(mutex_);
+            const auto found = allocations_.find(ptr);
+            if (found == allocations_.end()) {
+                SetLastError(ERROR_INVALID_ADDRESS);
+                return;
+            }
+            allocation = found->second;
+            allocations_.erase(found);
+        }
+        if (allocation.kind == AllocationKind::AlignedHeap) _aligned_free(ptr);
+        else VirtualFree(ptr, 0, MEM_RELEASE);
+    }
+
+    void* reserve(void* address, size_t size, DWORD allocation_type,
+                  uint64_t attributes, DWORD protection) noexcept {
+        if (size == 0) {
+            SetLastError(ERROR_INVALID_PARAMETER);
+            return nullptr;
+        }
+        const DWORD accepted_flags = MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN;
+        const DWORD type = allocation_type & accepted_flags;
+        if ((allocation_type & ~accepted_flags) != 0 ||
+            (type & (MEM_COMMIT | MEM_RESERVE)) == 0 ||
+            ((type & MEM_TOP_DOWN) && ((type & MEM_RESERVE) == 0))) {
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return nullptr;
+        }
+        const unsigned page_type = static_cast<unsigned>((attributes >> 14u) & 3u);
+        const unsigned memory_type = static_cast<unsigned>((attributes >> 29u) & 15u);
+        if (page_type >= 2 || memory_type >= 7) {
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return nullptr;
+        }
+        // Do not reinterpret console-specific GPU protection flags as
+        // equivalent desktop CPU flags. They need dedicated graphics HLE.
+        switch (protection) {
+        case PAGE_READWRITE:
+        case PAGE_READONLY:
+        case PAGE_EXECUTE_READ:
+        case PAGE_EXECUTE_READWRITE:
+        case PAGE_NOACCESS: break;
+        default:
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return nullptr;
+        }
+        void* pointer = VirtualAlloc(address, size, type, protection);
+        if (!pointer) return nullptr;
+        if ((type & MEM_RESERVE) != 0) {
+            try {
+                const std::lock_guard lock(mutex_);
+                allocations_.emplace(pointer, Allocation{AllocationKind::ReservedPages, size, attributes});
+            } catch (...) {
+                VirtualFree(pointer, 0, MEM_RELEASE);
+                SetLastError(ERROR_OUTOFMEMORY);
+                return nullptr;
+            }
+        }
+        return pointer;
+    }
+
+    ~Registry() {
+        // The compatibility layer owns only allocations present in this map.
+        for (const auto& [ptr, entry] : allocations_) {
+            if (entry.kind == AllocationKind::AlignedHeap) _aligned_free(ptr);
+            else VirtualFree(ptr, 0, MEM_RELEASE);
+        }
+    }
+private:
+    std::mutex mutex_;
+    std::unordered_map<void*, Allocation> allocations_;
+};
+} // namespace
+
+extern "C" void* WINAPI XMemAlloc(size_t size, uint64_t attrs) {
+    return Registry::get().alloc(size, attrs);
+}
+extern "C" void* WINAPI XMemAllocDefault(size_t size, uint64_t attrs) {
+    return Registry::get().alloc(size, attrs);
+}
+extern "C" void WINAPI XMemFree(void* ptr, uint64_t attrs) {
+    Registry::get().free(ptr, attrs);
+}
+extern "C" void WINAPI XMemFreeDefault(void* ptr, uint64_t attrs) {
+    Registry::get().free(ptr, attrs);
+}
+extern "C" void* WINAPI XMemVirtualAlloc(void* addr, size_t bytes,
+                                        DWORD flags, uint64_t attrs, DWORD protect) {
+    return Registry::get().reserve(addr, bytes, flags, attrs, protect);
+}
+FARPROC find_export(std::string_view symbol) noexcept {
+    if (symbol == "XMemAlloc") return reinterpret_cast<FARPROC>(&XMemAlloc);
+    if (symbol == "XMemAllocDefault") return reinterpret_cast<FARPROC>(&XMemAllocDefault);
+    if (symbol == "XMemFree") return reinterpret_cast<FARPROC>(&XMemFree);
+    if (symbol == "XMemFreeDefault") return reinterpret_cast<FARPROC>(&XMemFreeDefault);
+    if (symbol == "XMemVirtualAlloc") return reinterpret_cast<FARPROC>(&XMemVirtualAlloc);
+    return nullptr; // never mask an unknown API with a fake success stub
+}
+} // namespace scarlett::xmem

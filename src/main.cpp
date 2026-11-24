@@ -137,11 +137,27 @@ int wmain(int argc, wchar_t** argv) {
                       << binding.host_modules_loaded << "\n";
             scarlett::TitleModules local(title.parent_path(), pe);
             const auto local_report = local.bind(pe, image, router);
+            const auto finalized = image.finalize_image();
+            std::cout << "Mapped image sections protected: "
+                      << (local_report.protected_sections + finalized.sections_protected)
+                      << " | x64 unwind functions registered: "
+                      << (local_report.registered_unwind_functions + finalized.unwind_functions_registered)
+                      << "\n";
+            std::cout << "TLS slots prepared for current thread: "
+                      << (local_report.tls_slots_prepared + finalized.tls_slots_prepared)
+                      << " | template bytes: "
+                      << (local_report.tls_template_bytes + finalized.tls_template_bytes)
+                      << " | callbacks deferred: "
+                      << (local_report.deferred_tls_callbacks + finalized.deferred_tls_callbacks)
+                      << "\n";
             std::cout << "Local DLL images mapped: " << local_report.title_images_mapped
                       << " | title import slots linked: " << local_report.local_imports_bound
                       << "/" << local_report.local_imports_seen << "\n";
             std::cout << "Nested Windows imports patched: " << local_report.nested_host_bound
                       << "/" << local_report.nested_host_seen << "\n";
+            std::cout << "Experimental XMem exports linked: "
+                      << (binding.experimental_hle_symbols_bound + local_report.nested_experimental_hle_bound)
+                      << " (partial ABI support only)\n";
             std::cout << "Xbox HLE imports pending: "
                       << (binding.xbox_symbols_pending + local_report.nested_xbox_pending)
                       << " | unknown nested imports: " << local_report.nested_unknown_pending << "\n";

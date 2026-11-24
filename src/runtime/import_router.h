@@ -16,6 +16,7 @@ struct BindingResult {
     size_t host_symbols_seen = 0;
     size_t host_symbols_bound = 0;
     size_t host_modules_loaded = 0;
+    size_t experimental_hle_symbols_bound = 0;
     size_t xbox_symbols_pending = 0;
     size_t title_symbols_pending = 0;
     size_t unknown_symbols_pending = 0;

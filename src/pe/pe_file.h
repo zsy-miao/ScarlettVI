@@ -43,6 +43,7 @@ struct PeDetails {
     uint32_t relocation_size = 0;
     uint32_t tls_rva = 0;
     uint32_t exception_rva = 0;
+    uint32_t exception_size = 0;
     std::vector<SectionInfo> sections;
     std::vector<ImportedModule> imports;
     std::vector<ExportedSymbol> exports;

@@ -77,9 +77,16 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
         report.nested_host_seen += binding.host_symbols_seen;
         report.nested_host_bound += binding.host_symbols_bound;
         report.nested_xbox_pending += binding.xbox_symbols_pending;
+        report.nested_experimental_hle_bound += binding.experimental_hle_symbols_bound;
         report.nested_unknown_pending += binding.unknown_symbols_pending;
         report.missing_nested_host.insert(report.missing_nested_host.end(),
             binding.missing_host_symbols.begin(), binding.missing_host_symbols.end());
+        const ImageFinalizeReport finalized = module->image.finalize_image();
+        report.protected_sections += finalized.sections_protected;
+        report.registered_unwind_functions += finalized.unwind_functions_registered;
+        report.tls_slots_prepared += finalized.tls_slots_prepared;
+        report.tls_template_bytes += finalized.tls_template_bytes;
+        report.deferred_tls_callbacks += finalized.deferred_tls_callbacks;
     }
     // No entry point, TLS callback, or DLL initializer has been executed.
     // Module memory remains live until all import reports are complete.

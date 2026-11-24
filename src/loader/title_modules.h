@@ -16,7 +16,13 @@ struct TitleBindingReport {
     size_t nested_host_seen = 0;
     size_t nested_host_bound = 0;
     size_t nested_xbox_pending = 0;
+    size_t nested_experimental_hle_bound = 0;
     size_t nested_unknown_pending = 0;
+    size_t protected_sections = 0;
+    size_t registered_unwind_functions = 0;
+    size_t tls_slots_prepared = 0;
+    size_t tls_template_bytes = 0;
+    size_t deferred_tls_callbacks = 0;
     std::vector<std::string> missing_local_exports;
     std::vector<std::string> missing_nested_host;
 };
