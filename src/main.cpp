@@ -4,6 +4,7 @@
 #include "loader/title_modules.h"
 #include "formats/rpf9_header.h"
 #include "gpu/host_backend.h"
+#include "gpu/device_context.h"
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
 #include <Windows.h>
@@ -94,6 +95,7 @@ void usage() {
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
                << L"  ScarlettVI.exe gpu\n"
+               << L"  ScarlettVI.exe gpu-transfer\n"
                << L"  ScarlettVI.exe memory\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
@@ -103,6 +105,23 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-transfer") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext context;
+            HRESULT hr = context.initialize();
+            if (SUCCEEDED(hr)) hr = context.texture_roundtrip_test();
+            if (SUCCEEDED(hr)) hr = context.texture_roundtrip_test();
+            std::wcout << L"ScarlettVI | Windows D3D12 texture transfer: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n";
+            std::wcout << L"GPU: " << context.adapter_name() << L"\n";
+            std::wcout << L"Texture: 128x64 RGBA8 | generated pixels: 8192"
+                       << L" | queued submissions: " << context.submitted_commands()
+                       << L" | completed fence: " << context.completed_fence()
+                       << L" | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
+                       << std::dec << L"\n";
+            std::wcout << L"No Xbox shader or game instructions executed.\n";
+            return SUCCEEDED(hr) ? 0 : 3;
+        }
         if (verb == L"memory") {
             if (argc != 2) { usage(); return 2; }
             constexpr size_t page_bytes = scarlett::memory::PhysicalMemory::page_bytes;

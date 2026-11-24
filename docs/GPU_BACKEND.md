@@ -1,6 +1,6 @@
 # ScarlettVI desktop GPU backend
 
-**Status: native D3D12 bootstrap works; Xbox GPU command translation is not implemented.**
+**Status: native D3D12 initialization and GPU-executed texture upload/readback work; Xbox GPU command translation is not implemented.**
 
 ## Verified desktop result
 
@@ -16,9 +16,27 @@ adapter. On the development machine:
 - The software-only Microsoft Basic Render Driver was excluded from the
   hardware-backend success count.
 
-This proves the **host GPU initialization path**, not the Xbox title's
-rendering behavior. Device resources are currently scoped to the probe and
-are not used to present actual title frames.
+### Persistent context and GPU-executed transfers
+
+`src/gpu/device_context.cpp` now owns an independently implemented, persistent
+D3D12 device, graphics queue, allocator, list, fence and completion event.
+The `ScarlettVI.exe gpu-transfer` command uses that same context for **two**
+separate command submissions. Each submission:
+
+1. Builds original 128×64 RGBA8 pixel data on the CPU.
+2. Determines the correct D3D12 copyable texture footprints and row pitch.
+3. Writes into a CPU-mapped upload heap, copies to a GPU default-heap texture,
+   transitions its resource state, and copies back to a readback heap.
+4. Submits the command list, signals a GPU fence, waits for completion with a
+   timeout, and checks every byte of **8,192 returned pixels**.
+
+This command was run on an NVIDIA RTX 5060 Ti with exit status 0: two queued
+submissions, completed fence value 2, exact full-texture readback match.
+
+This proves actual host-side **GPU copy command execution and synchronization**.
+No Xbox shader programs, GPU tiling instructions or game code are executed, and
+none of the generated pixels are taken from the supplied game.
+The backend does not yet present actual title frames.
 
 ## Console API boundary
 
@@ -42,8 +60,8 @@ building block but cannot accept console GPU descriptors as-is.
 
 ## Implementation plan
 
-1. Persistent host GPU context, adapter selection and lifetime, and
-   command queue and fence ownership.
+1. **Implemented:** persistent host GPU context, adapter selection and
+   lifetime, GPU copy commands, texture staging and readback/fence ownership.
 2. Console interface contract mapping (public and reverse-engineered
    data layouts) with explicit unsupported-function detection.
 3. GPU virtual address remapping into host resources and descriptor heaps.

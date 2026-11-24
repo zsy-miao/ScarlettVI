@@ -61,6 +61,7 @@
     <ClCompile Include="src\runtime\physical_memory.cpp" />
     <ClCompile Include="src\formats\rpf9_header.cpp" />
     <ClCompile Include="src\gpu\host_backend.cpp" />
+    <ClCompile Include="src\gpu\device_context.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\pe\pe_file.h" />
@@ -71,6 +72,7 @@
     <ClInclude Include="src\runtime\physical_memory.h" />
     <ClInclude Include="src\formats\rpf9_header.h" />
     <ClInclude Include="src\gpu\host_backend.h" />
+    <ClInclude Include="src\gpu\device_context.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -36,6 +36,8 @@ The original experimental 64 KiB physical memory manager supports actual
 host memory aliasing through Windows placeholders, with a `VirtualFree` bridge.
 The Windows D3D12 backend successfully initializes a real graphics queue,
 command list, upload resource, fence and root signature on an RTX 5060 Ti.
+A persistent D3D12 context now performs two full GPU texture upload/readback
+passes (128x64 RGBA8) and verifies all 8,192 generated pixels using fences.
 These are independently verified host capabilities; the **Xbox-specific
 graphics device/command ABI and shader translation are still missing**.
 
@@ -61,6 +63,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe map "D:\Games\Title\title.exe"
 .\build\x64\Release\ScarlettVI.exe archives "D:\Games\Title"
 .\build\x64\Release\ScarlettVI.exe gpu
+.\build\x64\Release\ScarlettVI.exe gpu-transfer
 .\build\x64\Release\ScarlettVI.exe memory
 ```
 

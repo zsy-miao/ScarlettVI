@@ -48,7 +48,9 @@ console code, keys or proprietary binary libraries belong in this repository.
    Remaining: console memory flags, 2 MiB pages, scatter mappings, GPU-visible
    memory semantics, drive virtualization, package/save paths, services and jobs.
 4. **GPU:** native Windows D3D12 hardware creation/queue/command list/fence/upload/
-   root-signature path verified on NVIDIA RTX 5060 Ti. Remaining: Xbox D3D12/XG
+   root-signature path verified on NVIDIA RTX 5060 Ti. Persistent device context
+   also verified two GPU-executed 128×64 RGBA8 upload/default/readback transfers
+   with exact pixel verification and completion fences. Remaining: Xbox D3D12/XG
    interfaces and resource heaps, GPU VA, descriptors, commands, RDNA2 shader
    translation to DXIL, texture conversion, frame presentation.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
@@ -78,6 +80,8 @@ creates a precise machine-readable import/dependency inventory.
 resolution, unwind registration and TLS preparation. `ScarlettVI.exe gpu`
 probes desktop D3D12 capabilities. `ScarlettVI.exe memory` validates original
 64 KiB alias mappings. Neither command executes game instructions.
+The additional `ScarlettVI.exe gpu-transfer` command performs persistent
+D3D12 GPU texture upload/readback verification with generated data only.
 See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).
 
 Verified behavior should always be updated here based on concrete experiments.
