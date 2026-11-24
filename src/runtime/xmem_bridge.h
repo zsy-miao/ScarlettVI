@@ -20,6 +20,11 @@ BOOL WINAPI XMemAllocatePhysicalPages(uintptr_t flags, uintptr_t* inout_count,
 BOOL WINAPI XMemFreePhysicalPages(uintptr_t count, const uintptr_t* page_numbers);
 void* WINAPI XMemMapPhysicalPages(void* requested_address, uintptr_t page_count,
                                   const uintptr_t* page_numbers);
+// Xbox x64 call pattern independently observed in the supplied title:
+// RCX=address vector, RDX=count, R8=page frame vector (null to unmap);
+// returns nonzero on success. Console-specific flags remain unsupported.
+BOOL WINAPI XMemMapPhysicalPagesScatter(void* const* addresses,
+                                        uintptr_t count, const uintptr_t* page_numbers);
 // Only redirected into the mapped title's Windows IAT; the host application
 // continues to use ordinary Windows VirtualFree directly.
 BOOL WINAPI VirtualFreeBridge(void* base, size_t size, DWORD flags);

@@ -11,6 +11,7 @@
 #include "runtime/xmem_query.h"
 #include <Windows.h>
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -103,6 +104,7 @@ void usage() {
                << L"  ScarlettVI.exe gpu-compute\n"
                << L"  ScarlettVI.exe gpu-texture-shader\n"
                << L"  ScarlettVI.exe memory\n"
+               << L"  ScarlettVI.exe memory-scatter\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
 }
@@ -111,6 +113,89 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"memory-scatter") {
+            if (argc != 2) { usage(); return 2; }
+            constexpr size_t stride = scarlett::memory::PhysicalMemory::page_bytes;
+            std::array<uintptr_t, 3> pages{};
+            uintptr_t count = pages.size();
+            if (!scarlett::xmem::XMemAllocatePhysicalPages(
+                    MEM_64K_PAGES, &count, pages.data()) || count != pages.size()) {
+                std::cerr << "Scatter physical-page allocation failed: " << GetLastError() << "\n";
+                return 3;
+            }
+            void* first = scarlett::xmem::XMemVirtualAlloc(
+                nullptr, 3 * stride, MEM_RESERVE | MEM_64K_PAGES, 0, PAGE_READWRITE);
+            void* second = scarlett::xmem::XMemVirtualAlloc(
+                nullptr, 2 * stride, MEM_RESERVE | MEM_64K_PAGES, 0, PAGE_READWRITE);
+            // Release existing mappings even after an individual test fails.
+            auto cleanup = [&]() {
+                bool released = true;
+                if (first) released = scarlett::xmem::VirtualFreeBridge(first, 0, MEM_RELEASE) && released;
+                if (second) released = scarlett::xmem::VirtualFreeBridge(second, 0, MEM_RELEASE) && released;
+                return scarlett::xmem::XMemFreePhysicalPages(count, pages.data()) && released;
+            };
+            bool ok = first && second;
+            void* destinations[3]{
+                first,
+                second ? static_cast<uint8_t*>(second) + stride : nullptr,
+                first ? static_cast<uint8_t*>(first) + 2 * stride : nullptr
+            };
+            const uintptr_t page_order[3]{pages[0], pages[0], pages[1]};
+            if (ok) {
+                ok = scarlett::xmem::XMemMapPhysicalPagesScatter(
+                    destinations, 3, page_order) != FALSE;
+            }
+            if (ok) {
+                auto* view_a = static_cast<volatile uint8_t*>(destinations[0]);
+                auto* view_b = static_cast<volatile uint8_t*>(destinations[1]);
+                view_a[0] = 0x6D;
+                ok = view_b[0] == 0x6D; // physical alias across different regions
+                view_b[7] = 0xB7;
+                ok = ok && view_a[7] == 0xB7;
+            }
+            if (ok) {
+                // A mapped page cannot be freed while still aliased.
+                ok = !scarlett::xmem::XMemFreePhysicalPages(1, &pages[0]);
+                void* vacant = static_cast<uint8_t*>(first) + stride;
+                void* duplicates[2]{vacant, vacant};
+                const uintptr_t duplicate_pages[2]{pages[2], pages[1]};
+                const bool rejected_duplicates =
+                    !scarlett::xmem::XMemMapPhysicalPagesScatter(
+                        duplicates, 2, duplicate_pages);
+                void* invalid[2]{vacant, reinterpret_cast<void*>(uintptr_t{0x10000})};
+                const bool rejected_outside =
+                    !scarlett::xmem::XMemMapPhysicalPagesScatter(
+                        invalid, 2, duplicate_pages);
+                const bool vacant_still_available =
+                    scarlett::xmem::XMemMapPhysicalPagesScatter(
+                        &vacant, 1, &pages[2]) != FALSE;
+                ok = ok && rejected_duplicates && rejected_outside && vacant_still_available;
+                if (vacant_still_available) {
+                    auto* value = static_cast<volatile uint8_t*>(vacant);
+                    value[0] = 0x42;
+                    ok = ok && value[0] == 0x42;
+                    ok = ok && scarlett::xmem::XMemMapPhysicalPagesScatter(
+                        &vacant, 1, nullptr) != FALSE;
+                }
+            }
+            if (first && second) {
+                // nullptr PFNs are the title's observed scatter unmap path.
+                const bool unmapped = scarlett::xmem::XMemMapPhysicalPagesScatter(
+                    destinations, 3, nullptr) != FALSE;
+                ok = ok && unmapped;
+            }
+            const bool released = cleanup();
+            ok = ok && released &&
+                 scarlett::memory::PhysicalMemory::instance().allocated_page_count() == 0;
+            std::cout << "ScarlettVI | original 64KiB scatter VA remapping: "
+                      << (ok ? "PASS" : "FAIL") << "\n"
+                      << "VA regions: 2 | mapped scatter slots: 3 | physical aliases: 2"
+                      << " | invalid requests rejected: " << (ok ? "yes" : "not all")
+                      << " | total physical pages remaining: "
+                      << scarlett::memory::PhysicalMemory::instance().allocated_page_count()
+                      << "\n";
+            return ok ? 0 : 3;
+        }
         if (verb == L"gpu-texture-shader") {
             if (argc != 2) { usage(); return 2; }
             scarlett::gpu::DeviceContext context;

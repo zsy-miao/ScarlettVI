@@ -22,10 +22,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   import slots bound, all **489/489** nested Windows import slots bound, all
   **315/315** title-local DLL import slots linked across **7** mapped DLLs.
   **41** total console-specific import *references* were discovered.
-  The original experimental XMem bridge links **11** references (including the
-  independently analysed XboxBvhBuilder `XMemVirtualQuery` call ABI); a desktop
-  D3D12 root-signature serialization bridge links **2** more, leaving
-  **28** Xbox import references unresolved. Import linking is not proof of
+  The original experimental XMem bridge links **12** references (including
+  independently analysed `XMemVirtualQuery` and `XMemMapPhysicalPagesScatter`
+  caller ABIs); a desktop D3D12 root-signature serialization bridge links **2**
+  more, leaving **27** Xbox import references unresolved. Import linking is not proof of
   runtime correctness. The mapper applies final memory protection
   to **60** sections, registered **304274** x64 unwind function entries,
   installed **3** current-thread TLS templates (5776 bytes) and identified
@@ -47,7 +47,9 @@ console code, keys or proprietary binary libraries belong in this repository.
 3. **Console filesystem and runtime:** original experimental 64 KiB pagefile-backed
    physical-page alias virtualization implemented and verified using Windows
    VirtualAlloc2 placeholders and MapViewOfFile3, with a VirtualFree intercept.
-   Remaining: console memory flags, 2 MiB pages, scatter mappings, GPU-visible
+     Non-contiguous 64 KiB scatter mapping between multiple reserved regions
+   is also implemented and verified with the independently observed title call
+   convention. Remaining: console memory flags, 2 MiB pages, GPU-visible
    memory semantics, drive virtualization, package/save paths, services and jobs.
 4. **GPU:** native Windows D3D12 hardware creation/queue/command list/fence/upload/
    root-signature path verified on NVIDIA RTX 5060 Ti. Persistent device context
@@ -87,7 +89,8 @@ report, with an explicit BLOCKED state for execution. It never runs title code.
 `ScarlettVI.exe map <path-to-title-exe>` performs data-only mapping, import
 resolution, unwind registration and TLS preparation. `ScarlettVI.exe gpu`
 probes desktop D3D12 capabilities. `ScarlettVI.exe memory` validates original
-64 KiB alias mappings. Neither command executes game instructions.
+64 KiB alias mappings and `ScarlettVI.exe memory-scatter` validates cross-region
+scatter mapping. Neither command executes game instructions.
 The `ScarlettVI.exe gpu-transfer`, `gpu-compute` and
 `gpu-texture-shader` commands exercise actual host D3D12 copies, DXIL shader
 compute execution and shader-visible texture descriptor binding respectively.

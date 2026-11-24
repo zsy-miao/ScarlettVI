@@ -27,9 +27,14 @@ The independently authored `ScarlettVI.exe memory` fixture verified:
   bridge and verify real Windows commit/protection/accessibility state.
 - Confirm **zero leaked pages**.
 
-ScarlettVI now provides *experimental* links for **11 XMem references** involving
-heap allocation, virtual allocation, physical-page allocation/free/map and
-virtual-memory information queries.
+ScarlettVI now provides *experimental* links for **12 XMem references** involving
+heap allocation, virtual allocation, physical-page allocation/free/map,
+non-contiguous scatter mapping and virtual-memory information queries.
+
+The independently authored `ScarlettVI.exe memory-scatter` test validates two
+separate virtual reservations, a cross-region aliased physical page, rejection
+of duplicate/out-of-range destinations and freeing mapped pages, plus full
+unmapping and cleanup. See [XMem scatter call-site analysis](XMEM_SCATTER.md).
 The title's host import of `VirtualFree` is transparently routed through
 a local adapter which releases ScarlettVI-managed placeholder regions
 correctly and delegates all other allocations to Windows.
@@ -38,8 +43,10 @@ correctly and delegates all other allocations to Windows.
 
 - Synthetic page numbers are private identifiers in 4 KiB frame units;
   they are **not real physical addresses** and cannot be submitted to a GPU.
-- Only 64 KiB page mode is implemented; 2 MiB clusters, scatter mappings,
-  physical page transfer, and working-set statistics remain unsupported.
+- Only 64 KiB page mode is implemented; 2 MiB clusters, physical page
+  transfer, and working-set statistics remain unsupported. The scatter API
+  supports the observed 3-argument caller pattern only and remains unverified
+  under title execution.
 - Xbox memory allocation attributes are not exhaustively validated; the
   heap branch and ordinary virtual allocation branch remain experimental.
 - The current virtual mapping path recognizes

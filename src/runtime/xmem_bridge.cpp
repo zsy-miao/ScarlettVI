@@ -190,6 +190,12 @@ extern "C" void* WINAPI XMemMapPhysicalPages(void* address, uintptr_t count,
                                              const uintptr_t* numbers) {
     return memory::PhysicalMemory::instance().map_pages(address, count, numbers);
 }
+extern "C" BOOL WINAPI XMemMapPhysicalPagesScatter(void* const* addresses,
+                                                     uintptr_t count,
+                                                     const uintptr_t* numbers) {
+    return memory::PhysicalMemory::instance().map_scatter(
+        addresses, static_cast<size_t>(count), numbers);
+}
 FARPROC find_export(std::string_view symbol) noexcept {
     if (symbol == "XMemAlloc") return reinterpret_cast<FARPROC>(&XMemAlloc);
     if (symbol == "XMemAllocDefault") return reinterpret_cast<FARPROC>(&XMemAllocDefault);
@@ -199,6 +205,7 @@ FARPROC find_export(std::string_view symbol) noexcept {
     if (symbol == "XMemAllocatePhysicalPages") return reinterpret_cast<FARPROC>(&XMemAllocatePhysicalPages);
     if (symbol == "XMemFreePhysicalPages") return reinterpret_cast<FARPROC>(&XMemFreePhysicalPages);
     if (symbol == "XMemMapPhysicalPages") return reinterpret_cast<FARPROC>(&XMemMapPhysicalPages);
+    if (symbol == "XMemMapPhysicalPagesScatter") return reinterpret_cast<FARPROC>(&XMemMapPhysicalPagesScatter);
     if (symbol == "XMemVirtualQuery") return reinterpret_cast<FARPROC>(&XMemVirtualQuery);
     return nullptr; // never mask an unknown API with a fake success stub
 }

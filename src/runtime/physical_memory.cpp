@@ -142,11 +142,15 @@ void* PhysicalMemory::reserve_alias_region(void* requested_address, size_t size)
     }
     if (segments != count) {
         const DWORD error = GetLastError();
-        // Every segment is a unique allocation after a split, so release all.
-        for (size_t i = 0; i < segments; ++i) {
-            const size_t offset = i * page_bytes;
-            VirtualFree(static_cast<uint8_t*>(address) + offset, 0, MEM_RELEASE);
-        }
+        // Every successful split separated ONE 64KiB placeholder from the
+        // still-contiguous remainder. The last allocation still covers
+        // (count - segments + 1) pages. Release each allocation base once
+        // rather than accidentally leaking that unsplit trailing region.
+        for (size_t i = 0; i + 1 < segments; ++i)
+            VirtualFree(static_cast<uint8_t*>(address) + i * page_bytes,
+                        0, MEM_RELEASE);
+        VirtualFree(static_cast<uint8_t*>(address) +
+                        (segments - 1) * page_bytes, 0, MEM_RELEASE);
         SetLastError(error);
         return nullptr;
     }
@@ -241,6 +245,96 @@ void* PhysicalMemory::map_pages(void* target, size_t count,
         ++pages_.at(numbers[i]).aliases;
     }
     return target;
+}
+
+BOOL PhysicalMemory::map_scatter(void* const* destinations, size_t count,
+                                  const uintptr_t* numbers) {
+    if (!destinations || count == 0 || count > 65536 || !host().available()) {
+        SetLastError(!host().available() ? ERROR_NOT_SUPPORTED : ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    struct Mapping {
+        void* destination;
+        Region* region;
+        size_t index;
+        uintptr_t physical_frame;
+    };
+    std::lock_guard lock(mutex_);
+    std::vector<Mapping> entries;
+    std::unordered_set<uintptr_t> addresses;
+    try {
+        entries.reserve(count);
+        addresses.reserve(count);
+        // Validate every pointer, page number and destination before mapping
+        // anything. Scatter elements need not belong to the same reservation.
+        for (size_t i = 0; i < count; ++i) {
+            void* destination = destinations[i];
+            const uintptr_t value = reinterpret_cast<uintptr_t>(destination);
+            if (!destination || !aligned(value) || !addresses.insert(value).second) {
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return FALSE;
+            }
+            Region* selected = nullptr;
+            size_t index = 0;
+            for (auto& [base, region] : regions_) {
+                const uintptr_t first = reinterpret_cast<uintptr_t>(base);
+                if (value < first) continue;
+                const uintptr_t offset = value - first;
+                if (offset / page_bytes < region.page_count) {
+                    selected = &region;
+                    index = static_cast<size_t>(offset / page_bytes);
+                    break;
+                }
+            }
+            if (!selected) {
+                SetLastError(ERROR_INVALID_ADDRESS);
+                return FALSE;
+            }
+            if (numbers && (selected->mapped_pages[index] != 0 ||
+                            pages_.find(numbers[i]) == pages_.end())) {
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return FALSE;
+            }
+            entries.push_back({destination, selected, index,
+                               numbers ? numbers[i] : uintptr_t{0}});
+        }
+    } catch (...) {
+        SetLastError(ERROR_OUTOFMEMORY);
+        return FALSE;
+    }
+
+    if (!numbers) {
+        // Unmapping preserves each destination as a valid 64KiB placeholder.
+        for (const auto& entry : entries) {
+            if (!unmap_one_unlocked(entry.destination, *entry.region, entry.index))
+                return FALSE;
+        }
+        return TRUE;
+    }
+
+    size_t mapped = 0;
+    for (; mapped < entries.size(); ++mapped) {
+        const auto& entry = entries[mapped];
+        const HANDLE section = pages_.at(entry.physical_frame).section;
+        const void* result = host().map(section, GetCurrentProcess(),
+                                        entry.destination, 0, page_bytes,
+                                        MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE,
+                                        nullptr, 0);
+        if (result != entry.destination) {
+            const DWORD error = GetLastError();
+            // The host mapping step failed. Unwind every completed mapping,
+            // restoring the original placeholder state and reference counts.
+            for (size_t rollback = mapped; rollback > 0; --rollback) {
+                const auto& done = entries[rollback - 1];
+                unmap_one_unlocked(done.destination, *done.region, done.index);
+            }
+            SetLastError(error);
+            return FALSE;
+        }
+        entry.region->mapped_pages[entry.index] = entry.physical_frame;
+        ++pages_.at(entry.physical_frame).aliases;
+    }
+    return TRUE;
 }
 
 BOOL PhysicalMemory::release_alias_region(void* address) {

@@ -19,6 +19,9 @@ public:
     BOOL free_pages(size_t count, const uintptr_t* page_numbers);
     void* reserve_alias_region(void* requested_address, size_t bytes);
     void* map_pages(void* destination, size_t count, const uintptr_t* page_numbers);
+    // Map or unmap a scattered list of 64 KiB VA slots across reservations.
+    // All destinations must be ScarlettVI-managed, aligned placeholders.
+    BOOL map_scatter(void* const* destinations, size_t count, const uintptr_t* page_numbers);
     BOOL release_alias_region(void* base);
     bool owns_alias_region_base(void* base) const;
     size_t allocated_page_count() const;
