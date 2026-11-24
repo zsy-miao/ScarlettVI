@@ -37,10 +37,10 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
 | `xmem.dll` | 3 | Working sets, tools memory, physical memory transfer |
-| `d3d12_xs.dll` | 2 | Xbox device creation and GPU VA configuration |
+| `d3d12_xs.dll` | 1 | Xbox GPU VA configuration |
 | `xg_xs.dll` | 2 | Texture layout and swizzle mode |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **27** | |
+| **Total** | **26** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -49,13 +49,15 @@ Measured working address bindings:
   analysed `XMemVirtualQuery` in `XboxBvhBuilder.dll` and the main title's
   `XMemMapPhysicalPagesScatter` caller pattern
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
+- **1** experimental `D3D12XboxCreateDevice` import linked to a verified
+  Windows `ID3D12Device11` host COM factory; Xbox-only configuration ignored
 
 Counted address bindings do **not** guarantee ABI equivalence, correct
 component lifetime, graphics semantics or startup success.
 
 ## Mandatory runtime milestones beyond imports
 
-Even if all 27 outstanding references gain function addresses, startup
+Even if all 26 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

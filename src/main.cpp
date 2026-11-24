@@ -7,6 +7,7 @@
 #include "gpu/host_backend.h"
 #include "gpu/device_context.h"
 #include "gpu/guest_address_space.h"
+#include "gpu/xbox_device_factory.h"
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
 #include "runtime/xmem_query.h"
@@ -105,6 +106,8 @@ void usage() {
                << L"  ScarlettVI.exe gpu-compute\n"
                << L"  ScarlettVI.exe gpu-texture-shader\n"
                << L"  ScarlettVI.exe gpu-memory-bridge\n"
+               << L"  ScarlettVI.exe gpu-device11\n"
+               << L"  ScarlettVI.exe gpu-device-factory\n"
                << L"  ScarlettVI.exe memory\n"
                << L"  ScarlettVI.exe memory-scatter\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
@@ -115,6 +118,34 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-device-factory") {
+            if (argc != 2) { usage(); return 2; }
+            const bool pass = scarlett::gpu::verify_xbox_device_factory();
+            std::cout << "ScarlettVI | native Device11 Xbox-factory ABI-shaped bridge: "
+                      << (pass ? "PASS" : "FAIL") << "\n"
+                      << "Inputs: observed SDK 0x20004, 1MiB ring | real ID3D12Device11 COM"
+                      << " | native command queue | reference lifetime"
+                      << " | unsupported arguments rejected\n"
+                      << "Xbox memory/flags and title startup remain unsupported.\n";
+            return pass ? 0 : 3;
+        }
+        if (verb == L"gpu-device11") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            HRESULT hr = gpu.initialize();
+            if (SUCCEEDED(hr)) hr = gpu.device11_contract_test();
+            std::wcout << L"ScarlettVI | exact ID3D12Device11 COM host contract: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n"
+                       << L"GPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "Requested Xbox Device IID: "
+                      << "5405c344-d457-444e-b4dd-2366e45aee39"
+                      << " | host IID supports queue + allocation-info API: "
+                      << (SUCCEEDED(hr) ? "yes" : "no")
+                      << " | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
+                      << std::dec << "\n"
+                      << "Xbox creation options, GPU page tables and additional interfaces are NOT implemented.\n";
+            return SUCCEEDED(hr) ? 0 : 3;
+        }
         if (verb == L"gpu-memory-bridge") {
             if (argc != 2) { usage(); return 2; }
             constexpr size_t kPageBytes = scarlett::memory::PhysicalMemory::page_bytes;
@@ -566,7 +597,10 @@ int wmain(int argc, wchar_t** argv) {
                       << " (partial ABI support only)\n";
             std::cout << "D3D12 root-signature serializer exports linked: "
                       << (binding.experimental_d3d12_exports_bound + local_report.nested_d3d12_exports_bound)
-                      << " (desktop ABI bridge; GPU device HLE not implemented)\n";
+                      << " (desktop serializer ABI)\n";
+            std::cout << "Experimental Xbox Device11 factory links: "
+                      << (binding.experimental_d3d12_device_bound + local_report.nested_d3d12_device_bound)
+                      << " (native COM interface only; Xbox GPU VA/features unsupported)\n";
             std::cout << "Xbox HLE imports pending: "
                       << (binding.xbox_symbols_pending + local_report.nested_xbox_pending)
                       << " | unknown nested imports: " << local_report.nested_unknown_pending << "\n";

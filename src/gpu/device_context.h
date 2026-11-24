@@ -21,7 +21,12 @@ public:
     DeviceContext& operator=(const DeviceContext&) = delete;
 
     HRESULT initialize();
+    // Acquire the exact public ID3D12Device11 requested by the console title.
+    // QueryInterface preserves native COM ownership; unsupported host runtimes
+    // fail explicitly rather than fabricating a console vtable.
+    HRESULT acquire_device11(ID3D12Device11** out) const;
     HRESULT texture_roundtrip_test();
+    HRESULT device11_contract_test();
     HRESULT compute_dispatch_test(uint32_t seed);
     HRESULT texture_shader_test();
     // Submits host DXIL work between CPU-visible 64KiB console page views.

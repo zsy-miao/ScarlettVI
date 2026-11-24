@@ -1,6 +1,7 @@
 #include "import_router.h"
 #include "../loader/image_mapper.h"
 #include "xmem_bridge.h"
+#include "../gpu/xbox_device_factory.h"
 #include <algorithm>
 #include <set>
 #include <string>
@@ -141,15 +142,23 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
             } else if (route == ImportRoute::XboxHle && lower(imported.name) == "d3d12_xs.dll") {
                 // The desktop serializer has the same public ABI. We resolve it
                 // from the Windows module, not from a proprietary Xbox DLL.
-                // Xbox device creation and GPU VA configuration are NOT
-                // compatible with desktop D3D12 and remain unresolved.
+                // The Xbox device creation call uses the public
+                // ID3D12Device11 IID. An independent, limited bridge returns
+                // a real native Windows COM device for the observed version
+                // and ring-size configuration. Xbox-only features and virtual
+                // memory configuration remain unimplemented.
                 for (const auto& symbol : imported.symbols) {
                     FARPROC address = nullptr;
                     if (!symbol.by_ordinal && symbol.name == "D3D12SerializeVersionedRootSignature")
                         address = resolve_system_export("d3d12.dll", symbol);
+                    else if (!symbol.by_ordinal && symbol.name == "D3D12XboxCreateDevice")
+                        address = reinterpret_cast<FARPROC>(&gpu::xbox_create_device_host);
                     if (address) {
                         image.patch_iat(symbol.iat_rva, reinterpret_cast<uint64_t>(address));
-                        ++result.experimental_d3d12_exports_bound;
+                        if (symbol.name == "D3D12XboxCreateDevice")
+                            ++result.experimental_d3d12_device_bound;
+                        else
+                            ++result.experimental_d3d12_exports_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

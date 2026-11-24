@@ -25,7 +25,9 @@ console code, keys or proprietary binary libraries belong in this repository.
   The original experimental XMem bridge links **12** references (including
   independently analysed `XMemVirtualQuery` and `XMemMapPhysicalPagesScatter`
   caller ABIs); a desktop D3D12 root-signature serialization bridge links **2**
-  more, leaving **27** Xbox import references unresolved. Import linking is not proof of
+  more; an original partial Xbox Device11 host COM factory links **1**
+  additional reference, leaving **26** Xbox import references unresolved.
+  The factory does not implement Xbox-specific creation flags or GPU VA. Import linking is not proof of
   runtime correctness. The mapper applies final memory protection
   to **60** sections, registered **304274** x64 unwind function entries,
   installed **3** current-thread TLS templates (5776 bytes) and identified

@@ -17,6 +17,7 @@ struct StartupReadiness {
     size_t title_imports_total = 0;
     size_t xbox_experimental_memory_bindings = 0;
     size_t xbox_experimental_d3d12_bindings = 0;
+    size_t xbox_experimental_device11_bindings = 0;
     size_t registered_unwind_functions = 0;
     size_t tls_templates_prepared = 0;
     size_t tls_callbacks_deferred = 0;

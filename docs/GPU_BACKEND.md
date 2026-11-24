@@ -105,18 +105,21 @@ bridges its `D3D12SerializeVersionedRootSignature` symbol to the public
 Windows `d3d12.dll` function, with compatible exported signature. The target
 and bundled DLLs contain **two import references** to this symbol.
 
-The other Xbox GPU functions are deliberately **not** redirected to unrelated
-Windows functions:
+Other Xbox GPU functions are handled conservatively, without treating
+console-only semantics as interchangeable with Windows:
 
-- `D3D12XboxCreateDevice`: Xbox-specific parameter structure, device
-  capabilities, and object ABI must be decoded and implemented first.
+- `D3D12XboxCreateDevice`: **experimental partial bridge implemented** for
+  the exact observed request for Windows `ID3D12Device11`; creates real
+  native COM interfaces, but does not translate console creation parameters
+  or memory/ring behavior. See [Xbox Device11 contract](XBOX_DEVICE11.md).
 - `D3D12ConfigureVirtualMemoryX`: console GPU virtual memory layout and
   heaps require their own backend.
 - `XGCreateTextureComputer`, `XGSuggestSwizzleMode`: Xbox-specific tiled
   texture/resource geometry needs independent format/layout translation.
 
-All these remain unresolved. The native D3D12 device is an important
-building block but cannot accept console GPU descriptors as-is.
+The Xbox device factory is now **partly bound**, but console GPU virtual
+memory, texture tiling and custom device extensions remain unresolved. The
+native COM object cannot accept console GPU descriptors as-is.
 
 ## Implementation plan
 
@@ -124,8 +127,10 @@ building block but cannot accept console GPU descriptors as-is.
    lifetime, GPU copy commands, buffer/texture compute PSOs, original HLSL to
    DXIL compilation, shader-visible SRV/UAV descriptor tables, texture
    staging, GPU resource transitions, readback and fences.
-2. Console interface contract mapping (public and reverse-engineered
-   data layouts) with explicit unsupported-function detection.
+2. **Partly implemented:** verified the exact Xbox title device IID against
+   Microsoft's public Windows SDK and implemented a constrained, original
+   Device11 factory bridge. Remaining: Xbox configuration structure behavior,
+   console-specific interface extensions and correct graphics lifecycle.
 3. **Partly implemented:** synthetic 64 KiB guest GPU buffer-address range
    translation into real host D3D12 resource handles and GPU addresses, with
    tested XMem page CPU/GPU readback coherence. **Still required:** actual

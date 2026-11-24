@@ -17,13 +17,16 @@ then makes subsequent virtual-memory reservations. The game also calls
 | --- | --- |
 | RCX | Null |
 | RDX | Pointer to local configuration object, with fields initialized at offsets 0x00, 0x08, 0x20, 0x24, 0x28, 0x3C |
-| R8 | Pointer to global data (likely an interface identifier; not yet independently decoded) |
+| R8 | Pointer to the exact Windows `ID3D12Device11` GUID, independently verified against the installed SDK |
 | R9 | Pointer to a writable output device interface slot |
 
 The game checks the device-create result as an HRESULT. These observations
 are insufficient to assert the full configuration structure or the returned
-Xbox device object's vtable. **ScarlettVI does not patch either import** and
-does not cast Xbox objects to Windows D3D12 COM interfaces.
+Xbox-specific configuration semantics or extra device extensions. ScarlettVI
+now patches the **device factory import only** with a constrained native
+`ID3D12Device11` bridge, described in [XBOX_DEVICE11.md](XBOX_DEVICE11.md).
+`D3D12ConfigureVirtualMemoryX` remains unimplemented; the bridge returns
+actual Windows COM objects rather than casting an Xbox object.
 
 ## Implemented host-side translation table
 

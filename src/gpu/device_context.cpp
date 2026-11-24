@@ -100,6 +100,67 @@ HRESULT DeviceContext::initialize() {
     return S_OK;
 }
 
+HRESULT DeviceContext::acquire_device11(ID3D12Device11** out) const {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    if (!ready()) return E_UNEXPECTED;
+    return device_->QueryInterface(IID_PPV_ARGS(out));
+}
+
+HRESULT DeviceContext::device11_contract_test() {
+    if (!ready()) {
+        last_error_ = initialize();
+        if (FAILED(last_error_)) return last_error_;
+    }
+    Microsoft::WRL::ComPtr<ID3D12Device11> device11;
+    last_error_ = acquire_device11(device11.GetAddressOf());
+    if (FAILED(last_error_)) return last_error_;
+
+    // Verify interface identity and IUnknown's stable COM identity.
+    Microsoft::WRL::ComPtr<IUnknown> original_identity;
+    Microsoft::WRL::ComPtr<IUnknown> new_identity;
+    last_error_ = device_->QueryInterface(IID_PPV_ARGS(original_identity.GetAddressOf()));
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = device11->QueryInterface(IID_PPV_ARGS(new_identity.GetAddressOf()));
+    if (FAILED(last_error_)) return last_error_;
+    if (original_identity.Get() != new_identity.Get()) {
+        last_error_ = E_UNEXPECTED;
+        return last_error_;
+    }
+
+    // Use the standard base device methods whose offsets are independently
+    // seen in the user's title. A host device11 is NOT proof that all Xbox
+    // D3D12_XS extensions, resource flags or GPU page-table policies work.
+    if (device11->GetNodeCount() == 0) {
+        last_error_ = E_FAIL;
+        return last_error_;
+    }
+    D3D12_COMMAND_QUEUE_DESC queue_description{};
+    queue_description.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    queue_description.NodeMask = 0;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+    last_error_ = device11->CreateCommandQueue(
+        &queue_description, IID_PPV_ARGS(queue.GetAddressOf()));
+    if (FAILED(last_error_)) return last_error_;
+    if (!queue || queue->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        last_error_ = E_FAIL;
+        return last_error_;
+    }
+
+    constexpr uint64_t kTestBytes = 64 * 1024;
+    auto resource_description = buffer_description(kTestBytes);
+    const auto allocation = device11->GetResourceAllocationInfo(
+        0, 1, &resource_description);
+    if (allocation.SizeInBytes == UINT64_MAX ||
+        allocation.SizeInBytes < kTestBytes ||
+        allocation.Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT) {
+        last_error_ = E_FAIL;
+        return last_error_;
+    }
+    last_error_ = S_OK;
+    return last_error_;
+}
+
 HRESULT DeviceContext::create_buffer(D3D12_HEAP_TYPE heap, D3D12_RESOURCE_STATES state,
                                     uint64_t bytes,
                                     Microsoft::WRL::ComPtr<ID3D12Resource>& output) {

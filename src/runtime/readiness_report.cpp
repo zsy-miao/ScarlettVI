@@ -47,6 +47,8 @@ StartupReadiness assess_startup_readiness(const PeFile& executable,
         primary.experimental_hle_symbols_bound + nested.nested_experimental_hle_bound;
     report.xbox_experimental_d3d12_bindings =
         primary.experimental_d3d12_exports_bound + nested.nested_d3d12_exports_bound;
+    report.xbox_experimental_device11_bindings =
+        primary.experimental_d3d12_device_bound + nested.nested_d3d12_device_bound;
     report.registered_unwind_functions =
         primary_finalize.unwind_functions_registered + nested.registered_unwind_functions;
     report.tls_templates_prepared =
@@ -96,7 +98,8 @@ void print_startup_readiness(const StartupReadiness& report, std::ostream& outpu
            << report.title_imports_total << " across " << report.local_dlls << " DLLs\n"
            << "Experimental Xbox links: XMem=" << report.xbox_experimental_memory_bindings
            << ", D3D12 serializer=" << report.xbox_experimental_d3d12_bindings
-           << " (ABI/runtime equivalence NOT verified)\n"
+           << ", host Device11 factory=" << report.xbox_experimental_device11_bindings
+           << " (Xbox-only config/GPU VA are NOT implemented)\n"
            << "Remaining imports: " << report.pending.size()
            << " (Xbox=" << kind_count(report, PendingKind::XboxHle)
            << ", unknown=" << kind_count(report, PendingKind::UnknownModule)
@@ -143,6 +146,7 @@ void write_startup_readiness_json(const StartupReadiness& report,
         << "    \"title_total\": " << report.title_imports_total << ",\n"
         << "    \"experimental_xmem_bound\": " << report.xbox_experimental_memory_bindings << ",\n"
         << "    \"experimental_d3d12_bound\": " << report.xbox_experimental_d3d12_bindings << ",\n"
+        << "    \"experimental_device11_factory_bound\": " << report.xbox_experimental_device11_bindings << ",\n"
         << "    \"unresolved_references\": " << report.pending.size() << ",\n"
         << "    \"unresolved_xbox\": " << kind_count(report, PendingKind::XboxHle) << ",\n"
         << "    \"registered_unwind_functions\": " << report.registered_unwind_functions << ",\n"
