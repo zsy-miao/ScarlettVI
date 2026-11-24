@@ -36,10 +36,14 @@ The original experimental 64 KiB physical memory manager supports actual
 host memory aliasing through Windows placeholders, with a `VirtualFree` bridge.
 The Windows D3D12 backend successfully initializes a real graphics queue,
 command list, upload resource, fence and root signature on an RTX 5060 Ti.
-A persistent D3D12 context now performs two full GPU texture upload/readback
-passes (128x64 RGBA8) and verifies all 8,192 generated pixels using fences.
-These are independently verified host capabilities; the **Xbox-specific
-graphics device/command ABI and shader translation are still missing**.
+The persistent Windows D3D12 context now executes GPU texture copies and
+compute shaders. Independently authored HLSL is compiled to DXIL Shader Model
+6 using the installed Windows SDK, with real SRV/UAV buffer and texture bindings.
+GPU tests verified **2,048 computed integers** and **16,384 generated RGBA8
+texture pixels** after GPU execution on an RTX 5060 Ti.
+
+These are verified host capabilities; the **Xbox-specific D3D12/XG device ABI,
+RDNA2 shader translation and actual title rendering are still missing**.
 
 The `inspect`, `map` and `archives` modes are read-only with respect to the
 game and never execute its entry point or initializers.
@@ -48,6 +52,7 @@ game and never execute its entry point or initializers.
 
 - Windows 10/11 x64
 - Visual Studio 2026 with the C++ desktop workload (MSVC v145)
+- Windows SDK with DirectX Shader Compiler (DXC), required for GPU shader modes
 - Open `ScarlettVI.sln`, choose `x64` + `Release`, then Build Solution.
 
 Or build from a Developer PowerShell:
@@ -64,6 +69,8 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe archives "D:\Games\Title"
 .\build\x64\Release\ScarlettVI.exe gpu
 .\build\x64\Release\ScarlettVI.exe gpu-transfer
+.\build\x64\Release\ScarlettVI.exe gpu-compute
+.\build\x64\Release\ScarlettVI.exe gpu-texture-shader
 .\build\x64\Release\ScarlettVI.exe memory
 ```
 

@@ -96,6 +96,8 @@ void usage() {
                << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
                << L"  ScarlettVI.exe gpu\n"
                << L"  ScarlettVI.exe gpu-transfer\n"
+               << L"  ScarlettVI.exe gpu-compute\n"
+               << L"  ScarlettVI.exe gpu-texture-shader\n"
                << L"  ScarlettVI.exe memory\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
@@ -105,6 +107,56 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-texture-shader") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext context;
+            HRESULT hr = context.initialize();
+            if (SUCCEEDED(hr)) hr = context.texture_shader_test();
+            if (SUCCEEDED(hr)) hr = context.compute_dispatch_test(0x12345678u);
+            if (SUCCEEDED(hr)) hr = context.texture_shader_test();
+            std::wcout << L"ScarlettVI | D3D12 DXIL texture SRV/UAV processing: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n";
+            std::wcout << L"GPU: " << context.adapter_name() << L"\n";
+            std::cout << "Texture DXIL bytes: " << context.texture_dxil_bytes()
+                      << " | buffer DXIL bytes: " << context.compiled_dxil_bytes()
+                      << " | verified shader-processed RGBA8 pixels: "
+                      << (SUCCEEDED(hr) ? 16384 : 0)
+                      << " | interleaved buffer outputs: "
+                      << (SUCCEEDED(hr) ? 1024 : 0)
+                      << " | GPU submissions: " << context.submitted_commands()
+                      << " | completed fence: " << context.completed_fence()
+                      << " | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
+                      << std::dec << "\n";
+            if (!context.shader_diagnostics().empty())
+                std::cerr << "DXC: " << context.shader_diagnostics() << "\n";
+            std::cout << "Generated HLSL and textures only; no Xbox title shaders executed.\n";
+            return SUCCEEDED(hr) ? 0 : 3;
+        }
+        if (verb == L"gpu-compute") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext context;
+            HRESULT hr = context.initialize();
+            if (SUCCEEDED(hr)) hr = context.compute_dispatch_test(0x13579BDFu);
+            if (SUCCEEDED(hr)) hr = context.texture_roundtrip_test();
+            if (SUCCEEDED(hr)) hr = context.compute_dispatch_test(0x2468ACE0u);
+            std::wcout << L"ScarlettVI | real D3D12 DXIL compute dispatch: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n";
+            std::wcout << L"GPU: " << context.adapter_name() << L"\n";
+            std::cout << "Shader model: 6.0 | compiled DXIL bytes: "
+                      << context.compiled_dxil_bytes()
+                      << " | verified compute outputs: "
+                      << (SUCCEEDED(hr) ? 2048 : 0)
+                      << " | interleaved texture pixels: "
+                      << (SUCCEEDED(hr) ? 8192 : 0)
+                      << " | GPU submissions: " << context.submitted_commands()
+                      << " | completed fence: " << context.completed_fence()
+                      << " | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
+                      << std::dec << "\n";
+            if (!context.shader_diagnostics().empty())
+                std::cerr << "DXC: " << context.shader_diagnostics() << "\n";
+            std::cout << "Generated HLSL only; no Xbox shaders or title code executed.\n";
+            return SUCCEEDED(hr) ? 0 : 3;
+        }
         if (verb == L"gpu-transfer") {
             if (argc != 2) { usage(); return 2; }
             scarlett::gpu::DeviceContext context;

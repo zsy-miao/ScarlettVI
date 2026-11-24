@@ -50,9 +50,12 @@ console code, keys or proprietary binary libraries belong in this repository.
 4. **GPU:** native Windows D3D12 hardware creation/queue/command list/fence/upload/
    root-signature path verified on NVIDIA RTX 5060 Ti. Persistent device context
    also verified two GPU-executed 128×64 RGBA8 upload/default/readback transfers
-   with exact pixel verification and completion fences. Remaining: Xbox D3D12/XG
-   interfaces and resource heaps, GPU VA, descriptors, commands, RDNA2 shader
-   translation to DXIL, texture conversion, frame presentation.
+   with exact pixel verification and completion fences. Original HLSL compilation
+   into DXIL Shader Model 6, GPU compute-buffer dispatch, and descriptor-table
+   SRV/UAV texture compute have since been verified; 2,048 computed integers
+   and 16,384 shader-written texture pixels checked. Remaining: Xbox D3D12/XG
+   interfaces and console resource heaps/GPU VA, translating console descriptors,
+   RDNA2 shader ISA to DXIL, Xbox tiling/texture conversion and title presentation.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
    diagnostics, audio device & codec bridges, controller input, frame presentation.
 6. **Execution and diagnostics:** safe thread/exception state, fault collection,
@@ -80,8 +83,10 @@ creates a precise machine-readable import/dependency inventory.
 resolution, unwind registration and TLS preparation. `ScarlettVI.exe gpu`
 probes desktop D3D12 capabilities. `ScarlettVI.exe memory` validates original
 64 KiB alias mappings. Neither command executes game instructions.
-The additional `ScarlettVI.exe gpu-transfer` command performs persistent
-D3D12 GPU texture upload/readback verification with generated data only.
+The `ScarlettVI.exe gpu-transfer`, `gpu-compute` and
+`gpu-texture-shader` commands exercise actual host D3D12 copies, DXIL shader
+compute execution and shader-visible texture descriptor binding respectively.
+All three use only independently generated data.
 See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).
 
 Verified behavior should always be updated here based on concrete experiments.
