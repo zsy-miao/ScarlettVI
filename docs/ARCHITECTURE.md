@@ -17,15 +17,21 @@ console code, keys or proprietary binary libraries belong in this repository.
   an import table with both Windows API-set and Xbox-specific modules.
 - Confirmed Xbox-specific direct dependencies include `d3d12_xs.dll`,
   `xg_xs.dll`, `xmem.dll`, `xapu.dll`, `AcpHal.dll`, `XCRDAPI.dll`,
-  `chad.dll`. Some are not present in the supplied title directory.
+  `chad.dll`. These require custom console-service implementations.
+- Release-mode read-only probe on this machine: all **341/341** executable Windows
+  import slots bound, all **489/489** nested Windows import slots bound, all
+  **315/315** title-local DLL import slots linked across **7** mapped DLLs.
+  **41** remaining console-service import *references* span the executable
+  and its bundled libraries. This does not imply that their runtime behavior is correct.
 
 ## Native layer roadmap, in dependency order
 
-1. **PE parser & mapper (implemented):** robust x64 PE header/section/import/delay-import
+1. **PE parser & mapper (implemented):** robust x64 PE header/section/import/delay-import/export
    inspection, data-only native image mapping, base relocation handling, report generation.
-2. **ABI import bridge:** signature-correct API routing, host API sets and title-local DLL
-   dependency loading, independent Xbox runtime high-level emulation, TLS callbacks,
-   exception registration, thread process environment and platform handles.
+2. **ABI import bridge (partly implemented):** host API-set import patching, recursive
+   title-local DLL mapping and export binding without DLL initialization. Remaining:
+   forwarded exports, complete Xbox runtime HLE, TLS callbacks, exception registration,
+   thread process environment, platform handle semantics.
 3. **Console filesystem and runtime:** drive virtualization, package and saved-data paths,
    game-services and async job queues, heaps, virtual-memory allocation semantics,
    XGameRuntime and XMemory behavior.

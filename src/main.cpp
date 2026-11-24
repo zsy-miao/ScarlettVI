@@ -1,5 +1,7 @@
 #include "pe/pe_file.h"
 #include "loader/image_mapper.h"
+#include "runtime/import_router.h"
+#include "loader/title_modules.h"
 #include <Windows.h>
 #include <algorithm>
 #include <filesystem>
@@ -14,10 +16,6 @@
 
 namespace fs = std::filesystem;
 namespace {
-std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    return s;
-}
 std::string utf8(const std::wstring& wide) {
     if (wide.empty()) return {};
     int bytes = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
@@ -42,41 +40,6 @@ std::string escape(const std::string& raw) {
         }
     }
     return out;
-}
-enum class Origin { Host, Title, Xbox, Unresolved };
-std::string origin_name(Origin kind) {
-    switch (kind) {
-    case Origin::Host: return "windows";
-    case Origin::Title: return "title-local";
-    case Origin::Xbox: return "xbox-hle-required";
-    default: return "unresolved";
-    }
-}
-Origin classify(const std::string& dll, const fs::path& title_directory) {
-    const std::string name = lower(dll);
-    if (name.rfind("api-ms-win-", 0) == 0 || name.rfind("ext-ms-win-", 0) == 0)
-        return Origin::Host;
-    static const std::set<std::string> xbox = {
-        "d3d12_xs.dll", "xg_xs.dll", "xmem.dll", "xapu.dll", "acphal.dll",
-        "xcrdapi.dll", "chad.dll", "kernelx.dll", "xgameruntime.dll",
-        "xgamert.dll", "xdpp.dll", "xsystem.dll"
-    };
-    if (xbox.contains(name)) return Origin::Xbox;
-    static const std::set<std::string> host = {
-        "kernel32.dll", "kernelbase.dll", "ntdll.dll", "user32.dll",
-        "gdi32.dll", "ole32.dll", "oleaut32.dll", "combase.dll",
-        "advapi32.dll", "bcrypt.dll", "crypt32.dll", "d3d12.dll",
-        "dxgi.dll", "dxcompiler.dll", "gameinput.dll", "mfplat.dll",
-        "mfreadwrite.dll", "winhttp.dll", "ws2_32.dll",
-        "ucrtbase.dll", "vcruntime140.dll", "vcruntime140_1.dll",
-        "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll"
-    };
-    if (host.contains(name)) return Origin::Host;
-    std::error_code ec;
-    if (fs::is_regular_file(title_directory / fs::path(dll), ec)) return Origin::Title;
-    // Windows filename matching is case insensitive, and std::filesystem may not
-    // share that behavior on every host. Do not execute any game DLL while probing.
-    return Origin::Unresolved;
 }
 void write_json(const fs::path& path, const scarlett::PeDetails& d, const fs::path& directory) {
     if (!path.parent_path().empty()) fs::create_directories(path.parent_path());
@@ -103,7 +66,7 @@ void write_json(const fs::path& path, const scarlett::PeDetails& d, const fs::pa
     for (size_t i = 0; i < d.imports.size(); ++i) {
         const auto& module = d.imports[i];
         file << "    {\"module\": \"" << escape(module.name)
-             << "\", \"route\": \"" << origin_name(classify(module.name, directory))
+             << "\", \"route\": \"" << scarlett::route_name(scarlett::classify_import(module.name, directory))
              << "\", \"delay_load\": " << (module.delay_loaded ? "true" : "false")
              << ", \"symbols\": [";
         for (size_t j = 0; j < module.symbols.size(); ++j) {
@@ -143,7 +106,7 @@ int wmain(int argc, wchar_t** argv) {
         std::map<std::string, size_t> counts;
         size_t total_symbols = 0;
         for (const auto& module : d.imports) {
-            counts[origin_name(classify(module.name, title.parent_path()))]++;
+            counts[scarlett::route_name(scarlett::classify_import(module.name, title.parent_path()))]++;
             total_symbols += module.symbols.size();
         }
         std::cout << "ScarlettVI | PE32+ x64 compatibility analysis\n"
@@ -158,16 +121,46 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "  " << kind << ": " << count << " modules\n";
         std::cout << "\nImport routing:\n";
         for (const auto& module : d.imports) {
-            std::cout << "  [" << origin_name(classify(module.name, title.parent_path())) << "] "
+            std::cout << "  [" << scarlett::route_name(scarlett::classify_import(module.name, title.parent_path())) << "] "
                       << module.name << " (" << module.symbols.size() << " imports)"
                       << (module.delay_loaded ? " [delay]" : "") << "\n";
         }
         if (verb == L"map") {
             std::cout << "\nMapping PE image without executing code...\n";
-            const scarlett::MappedImage image(pe);
+            scarlett::MappedImage image(pe);
             std::cout << "Mapped at: 0x" << std::hex << image.base_address() << std::dec
                       << " | applied DIR64 relocations: " << image.applied_relocations() << "\n";
-            std::cout << "Import binding and execution are intentionally separate steps.\n";
+            scarlett::ImportRouter router;
+            const auto binding = router.bind_windows(pe, image, title.parent_path());
+            std::cout << "Windows imports patched: " << binding.host_symbols_bound << "/"
+                      << binding.host_symbols_seen << " | system modules loaded: "
+                      << binding.host_modules_loaded << "\n";
+            scarlett::TitleModules local(title.parent_path(), pe);
+            const auto local_report = local.bind(pe, image, router);
+            std::cout << "Local DLL images mapped: " << local_report.title_images_mapped
+                      << " | title import slots linked: " << local_report.local_imports_bound
+                      << "/" << local_report.local_imports_seen << "\n";
+            std::cout << "Nested Windows imports patched: " << local_report.nested_host_bound
+                      << "/" << local_report.nested_host_seen << "\n";
+            std::cout << "Xbox HLE imports pending: "
+                      << (binding.xbox_symbols_pending + local_report.nested_xbox_pending)
+                      << " | unknown nested imports: " << local_report.nested_unknown_pending << "\n";
+            if (!local_report.missing_local_exports.empty()) {
+                std::cout << "Unresolved local imports (" << local_report.missing_local_exports.size() << "):\n";
+                for (size_t i = 0; i < std::min<size_t>(20, local_report.missing_local_exports.size()); ++i)
+                    std::cout << "  " << local_report.missing_local_exports[i] << "\n";
+            }
+            if (!local_report.missing_nested_host.empty()) {
+                std::cout << "Unresolved nested Windows imports (" << local_report.missing_nested_host.size() << "):\n";
+                for (size_t i = 0; i < std::min<size_t>(20, local_report.missing_nested_host.size()); ++i)
+                    std::cout << "  " << local_report.missing_nested_host[i] << "\n";
+            }
+            if (!binding.missing_host_symbols.empty()) {
+                std::cout << "Unresolved Windows functions (" << binding.missing_host_symbols.size() << "):\n";
+                for (size_t i = 0; i < std::min<size_t>(30, binding.missing_host_symbols.size()); ++i)
+                    std::cout << "  " << binding.missing_host_symbols[i] << "\n";
+            }
+            std::cout << "Title entry point, TLS callbacks and game DLL code were NOT executed.\n";
         }
         if (argc > 3) {
             if (argc != 5 || std::wstring_view(argv[3]) != L"--json")

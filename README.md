@@ -24,10 +24,10 @@ You must supply your own legitimately obtained software.
 
 ## Status
 
-**Early development — not bootable or playable yet.** The working first milestone
-is a native x64 executable inspector and data-only PE image mapper, including
-import and delay-import enumeration, section mapping, relocation application and
-JSON dependency reports. This establishes facts about the target before enabling
+**Early development — not bootable or playable yet.** The working milestones include a native x64 PE inspector, data-only image mapper,
+Windows import-address-table binding and title-local DLL mapping/export linking.
+The tools enumerate imports, exports, sections and relocations and produce JSON
+dependency reports without executing game code. This establishes facts about the target before enabling
 any execution.
 
 ## Build

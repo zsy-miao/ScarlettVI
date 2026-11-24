@@ -110,6 +110,7 @@ void PeFile::parse() {
     }
     parse_imports();
     parse_delay_imports();
+    parse_exports();
 }
 
 std::vector<ImportedSymbol> PeFile::parse_thunks(uint32_t lookup_rva, uint32_t iat_rva) const {
@@ -132,6 +133,43 @@ std::vector<ImportedSymbol> PeFile::parse_thunks(uint32_t lookup_rva, uint32_t i
         symbols.push_back(std::move(symbol));
     }
     throw std::runtime_error("PE import thunk limit exceeded");
+}
+
+void PeFile::parse_exports() {
+    const auto& opt = nt_->OptionalHeader;
+    if (opt.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_EXPORT) return;
+    const auto dir = opt.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    if (!dir.VirtualAddress || dir.Size < sizeof(IMAGE_EXPORT_DIRECTORY)) return;
+    const auto export_header = *reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(
+        raw_rva(dir.VirtualAddress, sizeof(IMAGE_EXPORT_DIRECTORY)));
+    if (export_header.NumberOfFunctions > 1000000 || export_header.NumberOfNames > export_header.NumberOfFunctions)
+        throw std::runtime_error("Implausible PE export table size");
+    if (!export_header.NumberOfFunctions) return;
+    const auto* functions = reinterpret_cast<const uint32_t*>(
+        raw_rva(export_header.AddressOfFunctions, size_t(export_header.NumberOfFunctions) * sizeof(uint32_t)));
+    const uint32_t* names = nullptr;
+    const uint16_t* indexes = nullptr;
+    if (export_header.NumberOfNames) {
+        names = reinterpret_cast<const uint32_t*>(
+            raw_rva(export_header.AddressOfNames, size_t(export_header.NumberOfNames) * sizeof(uint32_t)));
+        indexes = reinterpret_cast<const uint16_t*>(
+            raw_rva(export_header.AddressOfNameOrdinals, size_t(export_header.NumberOfNames) * sizeof(uint16_t)));
+    }
+    details_.exports.reserve(export_header.NumberOfFunctions);
+    for (uint32_t i = 0; i < export_header.NumberOfFunctions; ++i) {
+        ExportedSymbol symbol;
+        symbol.ordinal = export_header.Base + i;
+        symbol.rva = functions[i];
+        if (symbol.rva && symbol.rva >= dir.VirtualAddress &&
+            uint64_t(symbol.rva) < uint64_t(dir.VirtualAddress) + dir.Size)
+            symbol.forwarder = string_rva(symbol.rva);
+        details_.exports.push_back(std::move(symbol));
+    }
+    for (uint32_t i = 0; i < export_header.NumberOfNames; ++i) {
+        if (indexes[i] >= details_.exports.size())
+            throw std::runtime_error("PE export ordinal index out of bounds");
+        details_.exports[indexes[i]].name = string_rva(names[i]);
+    }
 }
 
 void PeFile::parse_imports() {

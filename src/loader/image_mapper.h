@@ -14,6 +14,7 @@ public:
     uint64_t base_address() const noexcept { return reinterpret_cast<uint64_t>(base_); }
     size_t applied_relocations() const noexcept { return relocations_; }
     uint32_t entry_rva() const noexcept { return entry_rva_; }
+    void patch_iat(uint32_t rva, uint64_t absolute_address);
 private:
     uint8_t* base_ = nullptr;
     size_t size_ = 0;

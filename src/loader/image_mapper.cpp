@@ -60,6 +60,11 @@ MappedImage::MappedImage(const PeFile& pe) {
         throw;
     }
 }
+void MappedImage::patch_iat(uint32_t rva, uint64_t absolute_address) {
+    if (uint64_t(rva) + sizeof(uint64_t) > size_)
+        throw std::runtime_error("Import address table slot is outside the mapped image");
+    memcpy(base_ + rva, &absolute_address, sizeof(absolute_address));
+}
 MappedImage::~MappedImage() {
     if (base_) VirtualFree(base_, 0, MEM_RELEASE);
 }

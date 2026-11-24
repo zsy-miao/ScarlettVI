@@ -1,0 +1,40 @@
+#pragma once
+#include "../pe/pe_file.h"
+#include <Windows.h>
+#include <filesystem>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace scarlett {
+class MappedImage;
+enum class ImportRoute { Windows, TitleLocal, XboxHle, Unresolved };
+ImportRoute classify_import(const std::string& dll_name, const std::filesystem::path& title_dir);
+const char* route_name(ImportRoute route) noexcept;
+
+struct BindingResult {
+    size_t host_symbols_seen = 0;
+    size_t host_symbols_bound = 0;
+    size_t host_modules_loaded = 0;
+    size_t xbox_symbols_pending = 0;
+    size_t title_symbols_pending = 0;
+    size_t unknown_symbols_pending = 0;
+    std::vector<std::string> missing_host_symbols;
+};
+
+// Keeps Windows modules loaded for the lifetime of the mapped title. No target
+// code is executed here: only host system DLL imports are bound.
+class ImportRouter final {
+public:
+    ImportRouter() = default;
+    ~ImportRouter();
+    ImportRouter(const ImportRouter&) = delete;
+    ImportRouter& operator=(const ImportRouter&) = delete;
+
+    BindingResult bind_windows(const PeFile& pe, MappedImage& image,
+                               const std::filesystem::path& title_directory);
+private:
+    HMODULE system_module(const std::string& name);
+    std::map<std::string, HMODULE> modules_;
+};
+} // namespace scarlett

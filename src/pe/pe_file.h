@@ -17,6 +17,12 @@ struct ImportedModule {
     bool delay_loaded = false;
     std::vector<ImportedSymbol> symbols;
 };
+struct ExportedSymbol {
+    std::string name;
+    uint32_t ordinal = 0;
+    uint32_t rva = 0;
+    std::string forwarder;
+};
 struct SectionInfo {
     std::string name;
     uint32_t rva = 0;
@@ -39,6 +45,7 @@ struct PeDetails {
     uint32_t exception_rva = 0;
     std::vector<SectionInfo> sections;
     std::vector<ImportedModule> imports;
+    std::vector<ExportedSymbol> exports;
 };
 class PeFile final {
 public:
@@ -51,6 +58,7 @@ public:
 private:
     void parse();
     void parse_imports();
+    void parse_exports();
     void parse_delay_imports();
     std::vector<ImportedSymbol> parse_thunks(uint32_t int_rva, uint32_t iat_rva) const;
     std::vector<uint8_t> data_;
