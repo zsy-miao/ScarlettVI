@@ -23,10 +23,13 @@ The independently authored `ScarlettVI.exe memory` fixture verified:
 - Write through the first virtual address and immediately read the same byte
   through the alias at the third address.
 - Unmap, release the placeholder region, and free the physical backing.
+- Query the alias through the original experimental `XMemVirtualQuery`
+  bridge and verify real Windows commit/protection/accessibility state.
 - Confirm **zero leaked pages**.
 
-ScarlettVI now provides *experimental* links for 10 XMem references involving
-heap allocation, virtual allocation, physical-page allocation/free/map.
+ScarlettVI now provides *experimental* links for **11 XMem references** involving
+heap allocation, virtual allocation, physical-page allocation/free/map and
+virtual-memory information queries.
 The title's host import of `VirtualFree` is transparently routed through
 a local adapter which releases ScarlettVI-managed placeholder regions
 correctly and delegates all other allocations to Windows.
@@ -47,6 +50,9 @@ correctly and delegates all other allocations to Windows.
   the import table entries the custom loader actually patches.
 - The test demonstrates host CPU memory aliases, **not Xbox GPU memory
   equivalence** or title runtime stability.
+- The query result's +0x30 flags follow an explicitly labelled **desktop**
+  compatibility policy, not verified Xbox bit semantics. See the independently
+  derived [XMemVirtualQuery call-site analysis](XMEM_VIRTUAL_QUERY.md).
 - Xbox SDK implementation-specific details are not included.
 
 ## Source documentation

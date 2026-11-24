@@ -12,6 +12,16 @@ enum class ImportRoute { Windows, TitleLocal, XboxHle, Unresolved };
 ImportRoute classify_import(const std::string& dll_name, const std::filesystem::path& title_dir);
 const char* route_name(ImportRoute route) noexcept;
 
+enum class PendingKind { XboxHle, UnknownModule, WindowsExport, TitleExport };
+const char* pending_kind_name(PendingKind kind) noexcept;
+struct PendingImport {
+    std::string owner;
+    std::string module;
+    std::string symbol;
+    uint32_t iat_rva = 0;
+    PendingKind kind = PendingKind::XboxHle;
+    bool delay_loaded = false;
+};
 struct BindingResult {
     size_t host_symbols_seen = 0;
     size_t host_symbols_bound = 0;
@@ -23,6 +33,7 @@ struct BindingResult {
     size_t title_symbols_pending = 0;
     size_t unknown_symbols_pending = 0;
     std::vector<std::string> missing_host_symbols;
+    std::vector<PendingImport> pending;
 };
 
 // Keeps Windows modules loaded for the lifetime of the mapped title. No target

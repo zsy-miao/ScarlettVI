@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [GPU](docs/GPU_BACKEND.md) · [Memory](docs/MEMORY_BACKEND.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Memory](docs/MEMORY_BACKEND.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -30,10 +30,15 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. 29 Xbox-specific import references remain unresolved.
+title-local exports. **28 Xbox-specific import references remain unresolved.**
+The new `readiness` mode reports every missing symbol, owning module, IAT
+address and remaining process-initialization milestone. Execution is blocked.
 
 The original experimental 64 KiB physical memory manager supports actual
 host memory aliasing through Windows placeholders, with a `VirtualFree` bridge.
+An experimental `XMemVirtualQuery` bridge uses an ABI independently derived
+from read-only disassembly of the bundled Xbox BVH module, with host memory
+state queried through Windows (see [analysis](docs/XMEM_VIRTUAL_QUERY.md)).
 The Windows D3D12 backend successfully initializes a real graphics queue,
 command list, upload resource, fence and root signature on an RTX 5060 Ti.
 The persistent Windows D3D12 context now executes GPU texture copies and
@@ -66,6 +71,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 ```powershell
 .\build\x64\Release\ScarlettVI.exe inspect "D:\Games\Title\title.exe" --json "reports\imports.json"
 .\build\x64\Release\ScarlettVI.exe map "D:\Games\Title\title.exe"
+.\build\x64\Release\ScarlettVI.exe readiness "D:\Games\Title\title.exe" --json "reports\readiness.json"
 .\build\x64\Release\ScarlettVI.exe archives "D:\Games\Title"
 .\build\x64\Release\ScarlettVI.exe gpu
 .\build\x64\Release\ScarlettVI.exe gpu-transfer
@@ -78,7 +84,8 @@ The `map` mode maps the image into process memory, applies relocations,
 links Windows and available title-local imports, prepares TLS and registers
 unwind metadata. **It does not execute title code.** The `archives` command
 reads RPF9 container metadata only (first 64 bytes of each top-level archive),
-not its encrypted directory or contents.
+not its encrypted directory or contents. The `readiness` mode generates a
+machine-readable blocker inventory and **does not execute the title**.
 
 See [architecture](docs/ARCHITECTURE.md) and
 [asset format research](docs/ASSET_FORMATS.md) for implementation details.

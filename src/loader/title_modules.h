@@ -27,6 +27,7 @@ struct TitleBindingReport {
     size_t deferred_tls_callbacks = 0;
     std::vector<std::string> missing_local_exports;
     std::vector<std::string> missing_nested_host;
+    std::vector<PendingImport> pending;
 };
 
 // PE loader for the title's bundled DLLs, without LoadLibrary/DllMain/TLS.

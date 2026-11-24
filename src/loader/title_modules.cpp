@@ -133,6 +133,14 @@ void TitleModules::bind_local(const PeFile& pe, MappedImage& image,
                 ++report.local_imports_bound;
             } else {
                 report.missing_local_exports.push_back(module.name + "!" + symbol_description(imp));
+                report.pending.push_back(PendingImport{
+                    pe.path().filename().string(),
+                    module.name,
+                    symbol_description(imp),
+                    imp.iat_rva,
+                    PendingKind::TitleExport,
+                    module.delay_loaded
+                });
             }
         }
     }
@@ -155,6 +163,7 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
         report.nested_unknown_pending += binding.unknown_symbols_pending;
         report.missing_nested_host.insert(report.missing_nested_host.end(),
             binding.missing_host_symbols.begin(), binding.missing_host_symbols.end());
+        report.pending.insert(report.pending.end(), binding.pending.begin(), binding.pending.end());
         const ImageFinalizeReport finalized = module->image.finalize_image();
         report.protected_sections += finalized.sections_protected;
         report.registered_unwind_functions += finalized.unwind_functions_registered;

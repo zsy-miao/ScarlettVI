@@ -52,6 +52,7 @@ class PeFile final {
 public:
     explicit PeFile(const std::filesystem::path& path);
     const PeDetails& details() const noexcept { return details_; }
+    const std::filesystem::path& path() const noexcept { return path_; }
     const std::vector<uint8_t>& bytes() const noexcept { return data_; }
     const IMAGE_NT_HEADERS64& nt_headers() const noexcept { return *nt_; }
     const uint8_t* raw_rva(uint32_t rva, size_t byte_count = 1) const;
@@ -62,6 +63,7 @@ private:
     void parse_exports();
     void parse_delay_imports();
     std::vector<ImportedSymbol> parse_thunks(uint32_t int_rva, uint32_t iat_rva) const;
+    std::filesystem::path path_;
     std::vector<uint8_t> data_;
     const IMAGE_NT_HEADERS64* nt_ = nullptr;
     PeDetails details_;

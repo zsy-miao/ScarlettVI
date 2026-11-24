@@ -1,5 +1,6 @@
 #include "xmem_bridge.h"
 #include "physical_memory.h"
+#include "xmem_query.h"
 #include <malloc.h>
 #include <algorithm>
 #include <cstring>
@@ -198,6 +199,7 @@ FARPROC find_export(std::string_view symbol) noexcept {
     if (symbol == "XMemAllocatePhysicalPages") return reinterpret_cast<FARPROC>(&XMemAllocatePhysicalPages);
     if (symbol == "XMemFreePhysicalPages") return reinterpret_cast<FARPROC>(&XMemFreePhysicalPages);
     if (symbol == "XMemMapPhysicalPages") return reinterpret_cast<FARPROC>(&XMemMapPhysicalPages);
+    if (symbol == "XMemVirtualQuery") return reinterpret_cast<FARPROC>(&XMemVirtualQuery);
     return nullptr; // never mask an unknown API with a fake success stub
 }
 } // namespace scarlett::xmem

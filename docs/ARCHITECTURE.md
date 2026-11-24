@@ -22,9 +22,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   import slots bound, all **489/489** nested Windows import slots bound, all
   **315/315** title-local DLL import slots linked across **7** mapped DLLs.
   **41** total console-specific import *references* were discovered.
-  The original experimental XMem bridge links **10** references; an independent
-  desktop D3D12 root-signature serialization bridge links **2** more, leaving
-  **29** Xbox import references unresolved. Import linking is not proof of
+  The original experimental XMem bridge links **11** references (including the
+  independently analysed XboxBvhBuilder `XMemVirtualQuery` call ABI); a desktop
+  D3D12 root-signature serialization bridge links **2** more, leaving
+  **28** Xbox import references unresolved. Import linking is not proof of
   runtime correctness. The mapper applies final memory protection
   to **60** sections, registered **304274** x64 unwind function entries,
   installed **3** current-thread TLS templates (5776 bytes) and identified
@@ -37,7 +38,8 @@ console code, keys or proprietary binary libraries belong in this repository.
 1. **PE parser & mapper (implemented):** robust x64 PE header/section/import/delay-import/export
    inspection, data-only native image mapping, base relocation handling, PE section
    protection and x64 exception-function table registration, report generation.
-2. **ABI import bridge (partly implemented):** host API-set import patching,
+2. **ABI import bridge (partly implemented):** precise import-blocker attribution
+   and read-only startup-readiness report implemented. Host API-set import patching,
    recursive title-local DLL mapping, export forwarding (independent MSVC fixture
    verified), x64 unwind registration and partial current-thread TLS, without
    DLL initialization. Remaining: complete Xbox runtime HLE, TLS callbacks,
@@ -79,6 +81,9 @@ are eligible for the public repository.
 Open `ScarlettVI.sln` with Visual Studio 2026 (v145), x64 Debug or Release.
 `ScarlettVI.exe inspect <path-to-title-exe> --json <path-to-report.json>`
 creates a precise machine-readable import/dependency inventory.
+`ScarlettVI.exe readiness <path-to-title-exe> --json reports/readiness.json`
+generates an exhaustive, owner-attributed unresolved import and runtime gate
+report, with an explicit BLOCKED state for execution. It never runs title code.
 `ScarlettVI.exe map <path-to-title-exe>` performs data-only mapping, import
 resolution, unwind registration and TLS preparation. `ScarlettVI.exe gpu`
 probes desktop D3D12 capabilities. `ScarlettVI.exe memory` validates original

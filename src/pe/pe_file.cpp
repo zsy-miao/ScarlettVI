@@ -22,7 +22,7 @@ struct DelayImportDescriptor {
 };
 }
 
-PeFile::PeFile(const std::filesystem::path& path) {
+PeFile::PeFile(const std::filesystem::path& path) : path_(path) {
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input) throw std::runtime_error("Cannot open title executable");
     const auto length = input.tellg();

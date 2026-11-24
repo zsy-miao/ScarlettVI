@@ -1,12 +1,14 @@
 #include "pe/pe_file.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
+#include "runtime/readiness_report.h"
 #include "loader/title_modules.h"
 #include "formats/rpf9_header.h"
 #include "gpu/host_backend.h"
 #include "gpu/device_context.h"
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
+#include "runtime/xmem_query.h"
 #include <Windows.h>
 #include <algorithm>
 #include <filesystem>
@@ -14,6 +16,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -93,6 +96,7 @@ void usage() {
                << L"Usage:\n"
                << L"  ScarlettVI.exe inspect <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
+               << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
                << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
                << L"  ScarlettVI.exe gpu\n"
                << L"  ScarlettVI.exe gpu-transfer\n"
@@ -201,7 +205,41 @@ int wmain(int argc, wchar_t** argv) {
                 bytes[0] = 0xAB;
                 ok = second_view[0] == 0xAB; // true host memory alias, not a copy
                 bytes[0] = 0;
+                scarlett::xmem::VirtualQueryInfo query{};
+                const bool query_ok = scarlett::xmem::XMemVirtualQuery(
+                    GetCurrentProcess(), alias, &query) != 0;
+                const bool attributes_ok = query_ok &&
+                    query.basic.State == MEM_COMMIT &&
+                    (query.basic.Protect & PAGE_READWRITE) == PAGE_READWRITE &&
+                    (query.desktop_access_flags & 3) == 3;
+                ok = ok && attributes_ok;
             }
+            // The query bridge must distinguish read-only pages from
+            // genuinely inaccessible pages; returning all-access for every
+            // committed range would fool the Xbox BVH library's predicate.
+            void* probe = VirtualAlloc(nullptr, page_bytes,
+                                       MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            bool query_protection_ok = probe != nullptr;
+            if (probe) {
+                DWORD original_protection = 0;
+                scarlett::xmem::VirtualQueryInfo info{};
+                const bool readonly = VirtualProtect(probe, page_bytes,
+                                                     PAGE_READONLY, &original_protection) != 0;
+                const bool readonly_query = readonly &&
+                    scarlett::xmem::XMemVirtualQuery(GetCurrentProcess(), probe, &info) &&
+                    info.basic.State == MEM_COMMIT &&
+                    (info.desktop_access_flags & 3) == 1;
+                DWORD previous_protection = 0;
+                const bool inaccessible = VirtualProtect(probe, page_bytes,
+                                                          PAGE_NOACCESS, &previous_protection) != 0;
+                const bool inaccessible_query = inaccessible &&
+                    scarlett::xmem::XMemVirtualQuery(GetCurrentProcess(), probe, &info) &&
+                    info.basic.State == MEM_COMMIT &&
+                    info.desktop_access_flags == 0;
+                query_protection_ok = readonly_query && inaccessible_query;
+                VirtualFree(probe, 0, MEM_RELEASE);
+            }
+            ok = ok && query_protection_ok;
             const bool unmapped_primary =
                 scarlett::xmem::XMemMapPhysicalPages(region, 2, nullptr) == region;
             const bool unmapped_alias =
@@ -271,7 +309,7 @@ int wmain(int argc, wchar_t** argv) {
                       << "\nRead only: no content or decryption material accessed.\n";
             return 0;
         }
-        if (verb != L"inspect" && verb != L"map") {
+        if (verb != L"inspect" && verb != L"map" && verb != L"readiness") {
             usage();
             return 2;
         }
@@ -294,13 +332,16 @@ int wmain(int argc, wchar_t** argv) {
                   << " | x64 exception directory: " << (d.exception_rva ? "yes" : "no") << "\n";
         for (const auto& [kind, count] : counts)
             std::cout << "  " << kind << ": " << count << " modules\n";
-        std::cout << "\nImport routing:\n";
-        for (const auto& module : d.imports) {
-            std::cout << "  [" << scarlett::route_name(scarlett::classify_import(module.name, title.parent_path())) << "] "
-                      << module.name << " (" << module.symbols.size() << " imports)"
-                      << (module.delay_loaded ? " [delay]" : "") << "\n";
+        if (verb != L"readiness") {
+            std::cout << "\nImport routing:\n";
+            for (const auto& module : d.imports) {
+                std::cout << "  [" << scarlett::route_name(scarlett::classify_import(module.name, title.parent_path())) << "] "
+                          << module.name << " (" << module.symbols.size() << " imports)"
+                          << (module.delay_loaded ? " [delay]" : "") << "\n";
+            }
         }
-        if (verb == L"map") {
+        std::optional<scarlett::StartupReadiness> readiness;
+        if (verb == L"map" || verb == L"readiness") {
             std::cout << "\nMapping PE image without executing code...\n";
             scarlett::MappedImage image(pe);
             std::cout << "Mapped at: 0x" << std::hex << image.base_address() << std::dec
@@ -358,12 +399,19 @@ int wmain(int argc, wchar_t** argv) {
                     std::cout << "  " << binding.missing_host_symbols[i] << "\n";
             }
             std::cout << "Title entry point, TLS callbacks and game DLL code were NOT executed.\n";
+            if (verb == L"readiness") {
+                readiness = scarlett::assess_startup_readiness(pe, binding, local_report, finalized);
+                scarlett::print_startup_readiness(*readiness, std::cout);
+            }
         }
         if (argc > 3) {
             if (argc != 5 || std::wstring_view(argv[3]) != L"--json")
                 throw std::runtime_error("Expected only --json <output.json>");
             const fs::path report(argv[4]);
-            write_json(report, d, title.parent_path());
+            if (readiness)
+                scarlett::write_startup_readiness_json(*readiness, report);
+            else
+                write_json(report, d, title.parent_path());
             std::cout << "Wrote report: " << utf8(report.wstring()) << "\n";
         }
         return 0;

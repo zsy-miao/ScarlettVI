@@ -64,6 +64,16 @@ ImportRoute classify_import(const std::string& dll_name, const std::filesystem::
     return ImportRoute::Unresolved;
 }
 
+const char* pending_kind_name(PendingKind kind) noexcept {
+    switch (kind) {
+    case PendingKind::XboxHle: return "xbox-hle";
+    case PendingKind::UnknownModule: return "unknown-module";
+    case PendingKind::WindowsExport: return "missing-host-export";
+    case PendingKind::TitleExport: return "missing-title-export";
+    }
+    return "unknown";
+}
+
 const char* route_name(ImportRoute route) noexcept {
     switch (route) {
     case ImportRoute::Windows: return "windows";
@@ -105,6 +115,15 @@ FARPROC ImportRouter::resolve_system_export(const std::string& dll, const Import
 BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                                         const std::filesystem::path& title_directory) {
     BindingResult result;
+    const auto owner = pe.path().filename().string();
+    auto add_pending = [&](const ImportedModule& module,
+                           const ImportedSymbol& symbol, PendingKind kind) {
+        result.pending.push_back(PendingImport{
+            owner, module.name,
+            symbol.by_ordinal ? "#" + std::to_string(symbol.ordinal) : symbol.name,
+            symbol.iat_rva, kind, module.delay_loaded
+        });
+    };
     for (const auto& imported : pe.details().imports) {
         const auto route = classify_import(imported.name, title_directory);
         if (route != ImportRoute::Windows) {
@@ -116,6 +135,7 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                         ++result.experimental_hle_symbols_bound;
                     } else {
                         ++result.xbox_symbols_pending;
+                        add_pending(imported, symbol, PendingKind::XboxHle);
                     }
                 }
             } else if (route == ImportRoute::XboxHle && lower(imported.name) == "d3d12_xs.dll") {
@@ -132,6 +152,7 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                         ++result.experimental_d3d12_exports_bound;
                     } else {
                         ++result.xbox_symbols_pending;
+                        add_pending(imported, symbol, PendingKind::XboxHle);
                     }
                 }
             } else {
@@ -141,6 +162,11 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                 case ImportRoute::Unresolved: result.unknown_symbols_pending += imported.symbols.size(); break;
                 default: break;
                 }
+                if (route == ImportRoute::XboxHle || route == ImportRoute::Unresolved)
+                    for (const auto& symbol : imported.symbols)
+                        add_pending(imported, symbol,
+                            route == ImportRoute::XboxHle
+                                ? PendingKind::XboxHle : PendingKind::UnknownModule);
             }
             continue;
         }
@@ -168,6 +194,7 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
             } else {
                 const auto identifier = symbol.by_ordinal ? "#" + std::to_string(symbol.ordinal) : symbol.name;
                 result.missing_host_symbols.push_back(imported.name + "!" + identifier);
+                add_pending(imported, symbol, PendingKind::WindowsExport);
             }
         }
     }
