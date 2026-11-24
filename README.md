@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Asset Formats](docs/ASSET_FORMATS.md) · [Source](src) · [Build](#build)
+[Architecture](docs/ARCHITECTURE.md) · [GPU](docs/GPU_BACKEND.md) · [Memory](docs/MEMORY_BACKEND.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -24,16 +24,23 @@ You must supply your own legitimately obtained software.
 
 ## Status
 
-**Early development — not bootable or playable yet.** The working milestones include a native x64 PE inspector, data-only image mapper,
-Windows import-address-table binding and title-local DLL mapping/export linking.
-The tools enumerate imports, exports, sections and relocations; resolve host and
-local DLL import tables; apply section protections; prepare initial-thread TLS
-and register x64 unwind functions. They generate JSON dependency reports
-without executing game code. An experimental XMem allocation bridge also links
-part of the Xbox API imports; physical/GPU memory semantics are not yet supported.
-Full runtime initialization, remaining Xbox HLE and graphics translation remain
-under development. This establishes facts about the target before enabling
-any execution.
+**Early development — not bootable or playable yet.**
+
+The native x64 PE mapper now supports recursive DLL dependencies, forwarded
+exports, host import routing, original XMem HLE, section protections, initial
+TLS and x64 unwind registration. On the current target, it binds 341/341
+executable Windows imports, 489/489 nested Windows imports and 315/315
+title-local exports. 29 Xbox-specific import references remain unresolved.
+
+The original experimental 64 KiB physical memory manager supports actual
+host memory aliasing through Windows placeholders, with a `VirtualFree` bridge.
+The Windows D3D12 backend successfully initializes a real graphics queue,
+command list, upload resource, fence and root signature on an RTX 5060 Ti.
+These are independently verified host capabilities; the **Xbox-specific
+graphics device/command ABI and shader translation are still missing**.
+
+The `inspect`, `map` and `archives` modes are read-only with respect to the
+game and never execute its entry point or initializers.
 
 ## Build
 
@@ -53,6 +60,8 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe inspect "D:\Games\Title\title.exe" --json "reports\imports.json"
 .\build\x64\Release\ScarlettVI.exe map "D:\Games\Title\title.exe"
 .\build\x64\Release\ScarlettVI.exe archives "D:\Games\Title"
+.\build\x64\Release\ScarlettVI.exe gpu
+.\build\x64\Release\ScarlettVI.exe memory
 ```
 
 The `map` mode maps the image into process memory, applies relocations,

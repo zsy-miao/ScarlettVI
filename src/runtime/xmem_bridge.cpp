@@ -1,4 +1,5 @@
 #include "xmem_bridge.h"
+#include "physical_memory.h"
 #include <malloc.h>
 #include <algorithm>
 #include <cstring>
@@ -87,6 +88,15 @@ public:
             SetLastError(ERROR_INVALID_PARAMETER);
             return nullptr;
         }
+        // Xbox's 64KiB virtual physical mappings are backed by Windows
+        // placeholder ranges, not committed private CPU memory.
+        if ((allocation_type & MEM_64K_PAGES) == MEM_64K_PAGES) {
+            if (allocation_type != (MEM_64K_PAGES | MEM_RESERVE)) {
+                SetLastError(ERROR_NOT_SUPPORTED);
+                return nullptr;
+            }
+            return memory::PhysicalMemory::instance().reserve_alias_region(address, size);
+        }
         const DWORD accepted_flags = MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN;
         const DWORD type = allocation_type & accepted_flags;
         if ((allocation_type & ~accepted_flags) != 0 ||
@@ -157,12 +167,37 @@ extern "C" void* WINAPI XMemVirtualAlloc(void* addr, size_t bytes,
                                         DWORD flags, uint64_t attrs, DWORD protect) {
     return Registry::get().reserve(addr, bytes, flags, attrs, protect);
 }
+extern "C" BOOL WINAPI VirtualFreeBridge(void* base, size_t size, DWORD flags) {
+    auto& physical = memory::PhysicalMemory::instance();
+    if (physical.owns_alias_region_base(base)) {
+        if (size != 0 || flags != MEM_RELEASE) {
+            SetLastError(ERROR_INVALID_PARAMETER);
+            return FALSE;
+        }
+        return physical.release_alias_region(base);
+    }
+    return ::VirtualFree(base, size, flags);
+}
+extern "C" BOOL WINAPI XMemAllocatePhysicalPages(uintptr_t flags, uintptr_t* count,
+                                                 uintptr_t* numbers) {
+    return memory::PhysicalMemory::instance().allocate_pages(flags, count, numbers);
+}
+extern "C" BOOL WINAPI XMemFreePhysicalPages(uintptr_t count, const uintptr_t* numbers) {
+    return memory::PhysicalMemory::instance().free_pages(count, numbers);
+}
+extern "C" void* WINAPI XMemMapPhysicalPages(void* address, uintptr_t count,
+                                             const uintptr_t* numbers) {
+    return memory::PhysicalMemory::instance().map_pages(address, count, numbers);
+}
 FARPROC find_export(std::string_view symbol) noexcept {
     if (symbol == "XMemAlloc") return reinterpret_cast<FARPROC>(&XMemAlloc);
     if (symbol == "XMemAllocDefault") return reinterpret_cast<FARPROC>(&XMemAllocDefault);
     if (symbol == "XMemFree") return reinterpret_cast<FARPROC>(&XMemFree);
     if (symbol == "XMemFreeDefault") return reinterpret_cast<FARPROC>(&XMemFreeDefault);
     if (symbol == "XMemVirtualAlloc") return reinterpret_cast<FARPROC>(&XMemVirtualAlloc);
+    if (symbol == "XMemAllocatePhysicalPages") return reinterpret_cast<FARPROC>(&XMemAllocatePhysicalPages);
+    if (symbol == "XMemFreePhysicalPages") return reinterpret_cast<FARPROC>(&XMemFreePhysicalPages);
+    if (symbol == "XMemMapPhysicalPages") return reinterpret_cast<FARPROC>(&XMemMapPhysicalPages);
     return nullptr; // never mask an unknown API with a fake success stub
 }
 } // namespace scarlett::xmem

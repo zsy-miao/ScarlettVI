@@ -15,8 +15,10 @@ const char* route_name(ImportRoute route) noexcept;
 struct BindingResult {
     size_t host_symbols_seen = 0;
     size_t host_symbols_bound = 0;
+    size_t memory_release_hooks_bound = 0;
     size_t host_modules_loaded = 0;
     size_t experimental_hle_symbols_bound = 0;
+    size_t experimental_d3d12_exports_bound = 0;
     size_t xbox_symbols_pending = 0;
     size_t title_symbols_pending = 0;
     size_t unknown_symbols_pending = 0;
@@ -34,6 +36,9 @@ public:
 
     BindingResult bind_windows(const PeFile& pe, MappedImage& image,
                                const std::filesystem::path& title_directory);
+    // Resolves a Windows API-set or system export for local PE export forwarding.
+    // Loads only from Windows System32; never loads arbitrary game directory DLLs.
+    FARPROC resolve_system_export(const std::string& dll, const ImportedSymbol& symbol);
 private:
     HMODULE system_module(const std::string& name);
     std::map<std::string, HMODULE> modules_;

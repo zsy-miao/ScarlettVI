@@ -1,7 +1,9 @@
 #include "title_modules.h"
 #include <algorithm>
+#include <charconv>
 #include <cctype>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace scarlett {
@@ -15,6 +17,34 @@ std::string lower(std::string name) {
 std::string symbol_description(const ImportedSymbol& symbol) {
     return symbol.by_ordinal ? "#" + std::to_string(symbol.ordinal) : symbol.name;
 }
+std::string normalize_dll(std::string name) {
+    name = lower(std::move(name));
+    if (name.find_first_of("/\\:") != std::string::npos)
+        throw std::runtime_error("Invalid DLL dependency name");
+    if (!name.ends_with(".dll"))
+        name += ".dll";
+    return name;
+}
+// PE forwarder string grammar: targetdll.ExportName or targetdll.#Ordinal.
+// Split at the LAST '.', to accept a redundant '.dll' suffix.
+bool forward_target(const std::string& text, std::string& dll, ImportedSymbol& symbol) {
+    const size_t pos = text.rfind('.');
+    if (pos == std::string::npos || pos == 0 || pos + 1 == text.size())
+        return false;
+    dll = normalize_dll(text.substr(0, pos));
+    const std::string raw = text.substr(pos + 1);
+    if (raw[0] == '#') {
+        unsigned ordinal = 0;
+        const auto [last, ec] = std::from_chars(raw.data() + 1, raw.data() + raw.size(), ordinal);
+        if (ec != std::errc{} || last != raw.data() + raw.size() || ordinal > 65535)
+            return false;
+        symbol.by_ordinal = true;
+        symbol.ordinal = static_cast<uint16_t>(ordinal);
+    } else {
+        symbol.name = raw;
+    }
+    return true;
+}
 }
 
 TitleModules::TitleModules(std::filesystem::path title_directory, const PeFile& executable)
@@ -23,44 +53,86 @@ TitleModules::TitleModules(std::filesystem::path title_directory, const PeFile& 
 }
 
 void TitleModules::find_dependencies(const PeFile& pe) {
-    for (const auto& imp : pe.details().imports) {
-        if (classify_import(imp.name, directory_) != ImportRoute::TitleLocal)
-            continue;
-        const std::string key = lower(imp.name);
-        if (modules_.contains(key)) continue;
-        const std::filesystem::path path = directory_ / imp.name;
-        auto loaded = std::make_unique<Record>(path);
-        const PeFile* recurse = &loaded->pe;
-        modules_.emplace(key, std::move(loaded)); // insert before recursion: handles cycles
+    auto require = [&](const std::string& original) {
+        const std::string key = normalize_dll(original);
+        if (classify_import(key, directory_) != ImportRoute::TitleLocal || modules_.contains(key))
+            return;
+        const std::filesystem::path file = directory_ / key;
+        auto record = std::make_unique<Record>(file);
+        const PeFile* recurse = &record->pe;
+        modules_.emplace(key, std::move(record)); // before recursion: permits cyclic imports
         find_dependencies(*recurse);
+    };
+    for (const auto& imp : pe.details().imports)
+        require(imp.name);
+    // Export forwarders can reference local modules absent from direct imports.
+    for (const auto& exp : pe.details().exports) {
+        if (exp.forwarder.empty()) continue;
+        std::string dll;
+        ImportedSymbol target;
+        if (forward_target(exp.forwarder, dll, target))
+            require(dll);
     }
 }
 
-void TitleModules::bind_local(const PeFile& pe, MappedImage& image, TitleBindingReport& report) {
+uint64_t TitleModules::resolve_export(const std::string& module_name,
+                                      const ImportedSymbol& imported,
+                                      ImportRouter& router,
+                                      std::vector<std::string>& visited) const {
+    if (visited.size() >= 32) return 0;
+    const auto key = normalize_dll(module_name);
+    const auto item = key + "!" + lower(symbol_description(imported));
+    if (std::find(visited.begin(), visited.end(), item) != visited.end())
+        return 0; // cyclic forwarders
+    visited.push_back(item);
+
+    if (classify_import(key, directory_) == ImportRoute::Windows) {
+        FARPROC proc = router.resolve_system_export(key, imported);
+        visited.pop_back();
+        return reinterpret_cast<uint64_t>(proc);
+    }
+    const auto module = modules_.find(key);
+    if (module == modules_.end()) {
+        visited.pop_back();
+        return 0;
+    }
+    const auto& exports = module->second->pe.details().exports;
+    const auto found = std::find_if(exports.begin(), exports.end(), [&](const ExportedSymbol& exp) {
+        return imported.by_ordinal ? exp.ordinal == imported.ordinal
+                                   : !exp.name.empty() && exp.name == imported.name;
+    });
+    if (found == exports.end() || found->rva == 0) {
+        visited.pop_back();
+        return 0;
+    }
+    uint64_t address = 0;
+    if (found->forwarder.empty()) {
+        if (found->rva < module->second->pe.details().image_size)
+            address = module->second->image.base_address() + found->rva;
+    } else {
+        std::string dll;
+        ImportedSymbol forwarded;
+        if (forward_target(found->forwarder, dll, forwarded))
+            address = resolve_export(dll, forwarded, router, visited);
+    }
+    visited.pop_back();
+    return address;
+}
+
+void TitleModules::bind_local(const PeFile& pe, MappedImage& image,
+                              ImportRouter& router, TitleBindingReport& report) {
     for (const auto& module : pe.details().imports) {
         if (classify_import(module.name, directory_) != ImportRoute::TitleLocal)
             continue;
-        const auto it = modules_.find(lower(module.name));
-        if (it == modules_.end())
-            throw std::runtime_error("Internal error: local dependency not mapped");
-        const auto& target = *it->second;
         for (const auto& imp : module.symbols) {
             ++report.local_imports_seen;
-            const auto found = std::find_if(target.pe.details().exports.begin(),
-                target.pe.details().exports.end(), [&](const ExportedSymbol& exp) {
-                    if (imp.by_ordinal) return exp.ordinal == imp.ordinal;
-                    return !exp.name.empty() && exp.name == imp.name;
-                });
-            if (found != target.pe.details().exports.end() &&
-                found->rva != 0 && found->forwarder.empty() &&
-                found->rva < target.pe.details().image_size) {
-                image.patch_iat(imp.iat_rva, target.image.base_address() + found->rva);
+            std::vector<std::string> visited;
+            const uint64_t address = resolve_export(module.name, imp, router, visited);
+            if (address) {
+                image.patch_iat(imp.iat_rva, address);
                 ++report.local_imports_bound;
             } else {
-                std::string detail = module.name + "!" + symbol_description(imp);
-                if (found != target.pe.details().exports.end() && !found->forwarder.empty())
-                    detail += " (forwarded to " + found->forwarder + ")";
-                report.missing_local_exports.push_back(std::move(detail));
+                report.missing_local_exports.push_back(module.name + "!" + symbol_description(imp));
             }
         }
     }
@@ -70,14 +142,16 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
                                       ImportRouter& router) {
     TitleBindingReport report;
     report.title_images_mapped = modules_.size();
-    bind_local(executable, executable_image, report);
+    bind_local(executable, executable_image, router, report);
     for (auto& [name, module] : modules_) {
-        bind_local(module->pe, module->image, report);
+        bind_local(module->pe, module->image, router, report);
         const BindingResult binding = router.bind_windows(module->pe, module->image, directory_);
         report.nested_host_seen += binding.host_symbols_seen;
         report.nested_host_bound += binding.host_symbols_bound;
+        report.nested_release_hooks_bound += binding.memory_release_hooks_bound;
         report.nested_xbox_pending += binding.xbox_symbols_pending;
         report.nested_experimental_hle_bound += binding.experimental_hle_symbols_bound;
+        report.nested_d3d12_exports_bound += binding.experimental_d3d12_exports_bound;
         report.nested_unknown_pending += binding.unknown_symbols_pending;
         report.missing_nested_host.insert(report.missing_nested_host.end(),
             binding.missing_host_symbols.begin(), binding.missing_host_symbols.end());
@@ -88,8 +162,6 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
         report.tls_template_bytes += finalized.tls_template_bytes;
         report.deferred_tls_callbacks += finalized.deferred_tls_callbacks;
     }
-    // No entry point, TLS callback, or DLL initializer has been executed.
-    // Module memory remains live until all import reports are complete.
     return report;
 }
 } // namespace scarlett

@@ -21,13 +21,11 @@ console code, keys or proprietary binary libraries belong in this repository.
 - Release-mode read-only probe on this machine: all **341/341** executable Windows
   import slots bound, all **489/489** nested Windows import slots bound, all
   **315/315** title-local DLL import slots linked across **7** mapped DLLs.
-  **41** console-service import *references* span the executable and bundled
-  libraries. An original, **experimental XMem heap/VA adapter** now links **7**
-  of those references; **34** Xbox references remain without a target.
-  The XMem adapter supports CPU heap and ordinary Windows page mappings only;
-  it rejects unsupported physical/GPU-specific modes rather than spoofing
-  success. Import linking is not proof of runtime correctness.
-  The mapper also applied final memory protection
+  **41** total console-specific import *references* were discovered.
+  The original experimental XMem bridge links **10** references; an independent
+  desktop D3D12 root-signature serialization bridge links **2** more, leaving
+  **29** Xbox import references unresolved. Import linking is not proof of
+  runtime correctness. The mapper applies final memory protection
   to **60** sections, registered **304274** x64 unwind function entries,
   installed **3** current-thread TLS templates (5776 bytes) and identified
   **2** callbacks (deferred, not executed). Proper other-thread TLS initialization,
@@ -39,15 +37,20 @@ console code, keys or proprietary binary libraries belong in this repository.
 1. **PE parser & mapper (implemented):** robust x64 PE header/section/import/delay-import/export
    inspection, data-only native image mapping, base relocation handling, PE section
    protection and x64 exception-function table registration, report generation.
-2. **ABI import bridge (partly implemented):** host API-set import patching, recursive
-   title-local DLL mapping and export binding without DLL initialization. Remaining:
-   forwarded exports, complete Xbox runtime HLE, TLS callbacks, exception registration,
-   thread process environment, platform handle semantics.
-3. **Console filesystem and runtime:** drive virtualization, package and saved-data paths,
-   game-services and async job queues, heaps, virtual-memory allocation semantics,
-   XGameRuntime and XMemory behavior.
-4. **GPU:** Xbox D3D12/XG interfaces and resource heaps, GPU VA, descriptors, command
-   streams, RDNA2 shader decompilation/recompilation to DXIL, format/texture conversion.
+2. **ABI import bridge (partly implemented):** host API-set import patching,
+   recursive title-local DLL mapping, export forwarding (independent MSVC fixture
+   verified), x64 unwind registration and partial current-thread TLS, without
+   DLL initialization. Remaining: complete Xbox runtime HLE, TLS callbacks,
+   other-thread TLS, process environment and platform handle semantics.
+3. **Console filesystem and runtime:** original experimental 64 KiB pagefile-backed
+   physical-page alias virtualization implemented and verified using Windows
+   VirtualAlloc2 placeholders and MapViewOfFile3, with a VirtualFree intercept.
+   Remaining: console memory flags, 2 MiB pages, scatter mappings, GPU-visible
+   memory semantics, drive virtualization, package/save paths, services and jobs.
+4. **GPU:** native Windows D3D12 hardware creation/queue/command list/fence/upload/
+   root-signature path verified on NVIDIA RTX 5060 Ti. Remaining: Xbox D3D12/XG
+   interfaces and resource heaps, GPU VA, descriptors, commands, RDNA2 shader
+   translation to DXIL, texture conversion, frame presentation.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
    diagnostics, audio device & codec bridges, controller input, frame presentation.
 6. **Execution and diagnostics:** safe thread/exception state, fault collection,
@@ -71,6 +74,10 @@ are eligible for the public repository.
 Open `ScarlettVI.sln` with Visual Studio 2026 (v145), x64 Debug or Release.
 `ScarlettVI.exe inspect <path-to-title-exe> --json <path-to-report.json>`
 creates a precise machine-readable import/dependency inventory.
-`ScarlettVI.exe map <path-to-title-exe>` performs a data-only relocation probe.
+`ScarlettVI.exe map <path-to-title-exe>` performs data-only mapping, import
+resolution, unwind registration and TLS preparation. `ScarlettVI.exe gpu`
+probes desktop D3D12 capabilities. `ScarlettVI.exe memory` validates original
+64 KiB alias mappings. Neither command executes game instructions.
+See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).
 
 Verified behavior should always be updated here based on concrete experiments.

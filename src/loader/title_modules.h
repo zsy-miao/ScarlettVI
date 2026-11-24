@@ -15,8 +15,10 @@ struct TitleBindingReport {
     size_t local_imports_bound = 0;
     size_t nested_host_seen = 0;
     size_t nested_host_bound = 0;
+    size_t nested_release_hooks_bound = 0;
     size_t nested_xbox_pending = 0;
     size_t nested_experimental_hle_bound = 0;
+    size_t nested_d3d12_exports_bound = 0;
     size_t nested_unknown_pending = 0;
     size_t protected_sections = 0;
     size_t registered_unwind_functions = 0;
@@ -41,7 +43,10 @@ private:
         MappedImage image;
     };
     void find_dependencies(const PeFile& pe);
-    void bind_local(const PeFile& pe, MappedImage& image, TitleBindingReport& report);
+    void bind_local(const PeFile& pe, MappedImage& image, ImportRouter& router,
+                    TitleBindingReport& report);
+    uint64_t resolve_export(const std::string& module_name, const ImportedSymbol& imported,
+                            ImportRouter& router, std::vector<std::string>& visited) const;
     std::filesystem::path directory_;
     std::map<std::string, std::unique_ptr<Record>> modules_;
 };

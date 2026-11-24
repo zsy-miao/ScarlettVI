@@ -15,6 +15,14 @@ void WINAPI XMemFree(void* ptr, uint64_t attributes);
 void WINAPI XMemFreeDefault(void* ptr, uint64_t attributes);
 void* WINAPI XMemVirtualAlloc(void* address, size_t bytes,
                               DWORD allocation_type, uint64_t attributes, DWORD protection);
+BOOL WINAPI XMemAllocatePhysicalPages(uintptr_t flags, uintptr_t* inout_count,
+                                      uintptr_t* page_numbers);
+BOOL WINAPI XMemFreePhysicalPages(uintptr_t count, const uintptr_t* page_numbers);
+void* WINAPI XMemMapPhysicalPages(void* requested_address, uintptr_t page_count,
+                                  const uintptr_t* page_numbers);
+// Only redirected into the mapped title's Windows IAT; the host application
+// continues to use ordinary Windows VirtualFree directly.
+BOOL WINAPI VirtualFreeBridge(void* base, size_t size, DWORD flags);
 }
 FARPROC find_export(std::string_view name) noexcept;
 } // namespace scarlett::xmem

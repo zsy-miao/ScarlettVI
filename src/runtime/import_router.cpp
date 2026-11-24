@@ -93,6 +93,15 @@ HMODULE ImportRouter::system_module(const std::string& name) {
     return module;
 }
 
+FARPROC ImportRouter::resolve_system_export(const std::string& dll, const ImportedSymbol& symbol) {
+    if (classify_import(dll, {}) != ImportRoute::Windows)
+        return nullptr;
+    HMODULE module = system_module(dll);
+    if (!module) return nullptr;
+    return symbol.by_ordinal ? GetProcAddress(module, MAKEINTRESOURCEA(symbol.ordinal))
+                             : GetProcAddress(module, symbol.name.c_str());
+}
+
 BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                                         const std::filesystem::path& title_directory) {
     BindingResult result;
@@ -105,6 +114,22 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                     if (address) {
                         image.patch_iat(symbol.iat_rva, reinterpret_cast<uint64_t>(address));
                         ++result.experimental_hle_symbols_bound;
+                    } else {
+                        ++result.xbox_symbols_pending;
+                    }
+                }
+            } else if (route == ImportRoute::XboxHle && lower(imported.name) == "d3d12_xs.dll") {
+                // The desktop serializer has the same public ABI. We resolve it
+                // from the Windows module, not from a proprietary Xbox DLL.
+                // Xbox device creation and GPU VA configuration are NOT
+                // compatible with desktop D3D12 and remain unresolved.
+                for (const auto& symbol : imported.symbols) {
+                    FARPROC address = nullptr;
+                    if (!symbol.by_ordinal && symbol.name == "D3D12SerializeVersionedRootSignature")
+                        address = resolve_system_export("d3d12.dll", symbol);
+                    if (address) {
+                        image.patch_iat(symbol.iat_rva, reinterpret_cast<uint64_t>(address));
+                        ++result.experimental_d3d12_exports_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                     }
@@ -130,6 +155,14 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                     address = GetProcAddress(module, symbol.name.c_str());
             }
             if (address) {
+                if (!symbol.by_ordinal && symbol.name == "VirtualFree") {
+                    // The title's XMemVirtualAlloc can reserve 64 KiB placeholder
+                    // regions; normal Win32 VirtualFree cannot release an entire
+                    // split/aliased region. Intercept only this well-known host
+                    // API, forwarding all other addresses to Windows untouched.
+                    address = reinterpret_cast<FARPROC>(&xmem::VirtualFreeBridge);
+                    ++result.memory_release_hooks_bound;
+                }
                 image.patch_iat(symbol.iat_rva, reinterpret_cast<uint64_t>(address));
                 ++result.host_symbols_bound;
             } else {

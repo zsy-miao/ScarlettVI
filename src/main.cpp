@@ -3,6 +3,9 @@
 #include "runtime/import_router.h"
 #include "loader/title_modules.h"
 #include "formats/rpf9_header.h"
+#include "gpu/host_backend.h"
+#include "runtime/physical_memory.h"
+#include "runtime/xmem_bridge.h"
 #include <Windows.h>
 #include <algorithm>
 #include <filesystem>
@@ -90,14 +93,90 @@ void usage() {
                << L"  ScarlettVI.exe inspect <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
+               << L"  ScarlettVI.exe gpu\n"
+               << L"  ScarlettVI.exe memory\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
 }
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc < 3) { usage(); return argc == 1 ? 0 : 2; }
+    if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"memory") {
+            if (argc != 2) { usage(); return 2; }
+            constexpr size_t page_bytes = scarlett::memory::PhysicalMemory::page_bytes;
+            uintptr_t pages[2] = {};
+            uintptr_t count = 2;
+            const bool allocated = scarlett::xmem::XMemAllocatePhysicalPages(
+                MEM_64K_PAGES, &count, pages) && count == 2;
+            if (!allocated) {
+                std::cerr << "64KiB page allocation failed, Win32 error: " << GetLastError() << "\n";
+                return 3;
+            }
+            void* region = scarlett::xmem::XMemVirtualAlloc(
+                nullptr, 3 * page_bytes, MEM_RESERVE | MEM_64K_PAGES, 0, PAGE_READWRITE);
+            if (!region) {
+                std::cerr << "Physical page placeholder reservation failed: " << GetLastError() << "\n";
+                scarlett::xmem::XMemFreePhysicalPages(2, pages);
+                return 3;
+            }
+            bool ok = scarlett::xmem::XMemMapPhysicalPages(region, 2, pages) == region;
+            auto* alias = static_cast<uint8_t*>(region) + 2 * page_bytes;
+            ok = ok && scarlett::xmem::XMemMapPhysicalPages(alias, 1, pages) == alias;
+            if (ok) {
+                auto* bytes = static_cast<volatile uint8_t*>(region);
+                auto* second_view = static_cast<volatile uint8_t*>(static_cast<void*>(alias));
+                bytes[0] = 0xAB;
+                ok = second_view[0] == 0xAB; // true host memory alias, not a copy
+                bytes[0] = 0;
+            }
+            const bool unmapped_primary =
+                scarlett::xmem::XMemMapPhysicalPages(region, 2, nullptr) == region;
+            const bool unmapped_alias =
+                scarlett::xmem::XMemMapPhysicalPages(alias, 1, nullptr) == alias;
+            const bool freed_region =
+                scarlett::xmem::VirtualFreeBridge(region, 0, MEM_RELEASE) != 0;
+            const bool freed_pages = scarlett::xmem::XMemFreePhysicalPages(2, pages) != 0;
+            ok = ok && unmapped_primary && unmapped_alias && freed_region && freed_pages;
+            std::cout << "ScarlettVI | 64KiB physical-page aliasing check: "
+                      << (ok ? "PASS" : "FAIL") << "\n"
+                      << "Allocated pages: 2 | alias views: 3 | "
+                      << "free/unmap: " << (freed_region && freed_pages ? "PASS" : "FAIL")
+                      << " | remaining pages: "
+                      << scarlett::memory::PhysicalMemory::instance().allocated_page_count()
+                      << "\n";
+            return ok ? 0 : 3;
+        }
+        if (verb == L"gpu") {
+            if (argc != 2) { usage(); return 2; }
+            const auto adapters = scarlett::gpu::probe_host_adapters();
+            std::wcout << L"ScarlettVI | native Windows D3D12 backend probe\n";
+            std::wcout << L"Adapters detected: " << adapters.size() << L"\n";
+            bool working = false;
+            for (const auto& adapter : adapters) {
+                std::wcout << L"  GPU: " << adapter.adapter_name
+                           << L" | VID: 0x" << std::hex << adapter.vendor_id
+                           << L" DID: 0x" << adapter.device_id << std::dec
+                           << L" | VRAM: " << (adapter.dedicated_video_memory_bytes / 1048576)
+                           << L" MiB | FL12_0: " << (adapter.level_12_0 ? L"yes" : L"no") << L"\n";
+                std::cout << "    D3D12 device: " << adapter.device_created
+                          << " | queue: " << adapter.queue_created
+                          << " | command list: " << adapter.command_list_created
+                          << " | fence: " << adapter.fence_created
+                          << " | upload buffer: " << adapter.upload_buffer_created
+                          << " | root signature: " << adapter.root_signature_created
+                          << " | nodes: " << adapter.node_count
+                          << " | HRESULT: 0x" << std::hex
+                          << static_cast<uint32_t>(adapter.result) << std::dec << "\n";
+                working |= adapter.level_12_0 && adapter.command_list_created &&
+                           adapter.fence_created && adapter.upload_buffer_created &&
+                           adapter.root_signature_created;
+            }
+            std::cout << "Note: this tests Windows GPU capabilities, NOT Xbox D3D12_XS compatibility.\n";
+            return working ? 0 : 3;
+        }
+        if (argc < 3) { usage(); return 2; }
         if (verb == L"archives") {
             if (argc != 3) { usage(); return 2; }
             const fs::path folder = fs::absolute(argv[2]);
@@ -180,9 +259,15 @@ int wmain(int argc, wchar_t** argv) {
                       << "/" << local_report.local_imports_seen << "\n";
             std::cout << "Nested Windows imports patched: " << local_report.nested_host_bound
                       << "/" << local_report.nested_host_seen << "\n";
+            std::cout << "VirtualFree placeholder-aware import hooks: "
+                      << (binding.memory_release_hooks_bound + local_report.nested_release_hooks_bound)
+                      << "\n";
             std::cout << "Experimental XMem exports linked: "
                       << (binding.experimental_hle_symbols_bound + local_report.nested_experimental_hle_bound)
                       << " (partial ABI support only)\n";
+            std::cout << "D3D12 root-signature serializer exports linked: "
+                      << (binding.experimental_d3d12_exports_bound + local_report.nested_d3d12_exports_bound)
+                      << " (desktop ABI bridge; GPU device HLE not implemented)\n";
             std::cout << "Xbox HLE imports pending: "
                       << (binding.xbox_symbols_pending + local_report.nested_xbox_pending)
                       << " | unknown nested imports: " << local_report.nested_unknown_pending << "\n";
