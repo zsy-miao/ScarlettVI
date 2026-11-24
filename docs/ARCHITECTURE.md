@@ -48,7 +48,7 @@ console code, keys or proprietary binary libraries belong in this repository.
    XGameRuntime and XMemory behavior.
 4. **GPU:** Xbox D3D12/XG interfaces and resource heaps, GPU VA, descriptors, command
    streams, RDNA2 shader decompilation/recompilation to DXIL, format/texture conversion.
-5. **Title features:** RPF streaming, BCPack where applicable, shaders and render-target
+5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
    diagnostics, audio device & codec bridges, controller input, frame presentation.
 6. **Execution and diagnostics:** safe thread/exception state, fault collection,
    frame-by-frame runtime validation on user-owned copies.

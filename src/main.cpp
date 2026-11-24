@@ -2,6 +2,7 @@
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "loader/title_modules.h"
+#include "formats/rpf9_header.h"
 #include <Windows.h>
 #include <algorithm>
 #include <filesystem>
@@ -88,7 +89,8 @@ void usage() {
                << L"Usage:\n"
                << L"  ScarlettVI.exe inspect <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
-               << L"\nmap is a data-only PE memory mapping/relocation probe; it DOES NOT execute title code.\n";
+               << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
+               << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
 }
 
@@ -96,6 +98,29 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 3) { usage(); return argc == 1 ? 0 : 2; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"archives") {
+            if (argc != 3) { usage(); return 2; }
+            const fs::path folder = fs::absolute(argv[2]);
+            const auto archives = scarlett::formats::enumerate_rpf9(folder);
+            std::cout << "ScarlettVI | RPF9 metadata inventory (no data extraction)\n"
+                      << "Archive count: " << archives.size() << "\n";
+            uint64_t total_bytes = 0;
+            uint64_t total_entries = 0;
+            for (const auto& archive : archives) {
+                total_bytes += archive.archive_bytes;
+                total_entries += archive.entry_count;
+                std::cout << "  " << utf8(archive.path.filename().wstring())
+                          << " | size: " << std::fixed << std::setprecision(1)
+                          << (double(archive.archive_bytes) / (1024.0 * 1024.0)) << " MiB"
+                          << " | TOC end: 0x" << std::hex << archive.toc_end
+                          << " | index variant: 0x" << archive.index_variant << std::dec
+                          << " | header entries: " << archive.entry_count << "\n";
+            }
+            std::cout << "Total archive bytes: " << total_bytes
+                      << " | sum of header entry counts: " << total_entries
+                      << "\nRead only: no content or decryption material accessed.\n";
+            return 0;
+        }
         if (verb != L"inspect" && verb != L"map") {
             usage();
             return 2;

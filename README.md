@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Source](src) · [Build](#build)
+[Architecture](docs/ARCHITECTURE.md) · [Asset Formats](docs/ASSET_FORMATS.md) · [Source](src) · [Build](#build)
 
 </div>
 
@@ -52,11 +52,17 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 ```powershell
 .\build\x64\Release\ScarlettVI.exe inspect "D:\Games\Title\title.exe" --json "reports\imports.json"
 .\build\x64\Release\ScarlettVI.exe map "D:\Games\Title\title.exe"
+.\build\x64\Release\ScarlettVI.exe archives "D:\Games\Title"
 ```
 
-The `map` mode only maps the image into process memory and handles relocations;
-**it does not run the game**. See [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-for the implementation plan and current constraints.
+The `map` mode maps the image into process memory, applies relocations,
+links Windows and available title-local imports, prepares TLS and registers
+unwind metadata. **It does not execute title code.** The `archives` command
+reads RPF9 container metadata only (first 64 bytes of each top-level archive),
+not its encrypted directory or contents.
+
+See [architecture](docs/ARCHITECTURE.md) and
+[asset format research](docs/ASSET_FORMATS.md) for implementation details.
 
 ## Independence and acknowledgements
 
