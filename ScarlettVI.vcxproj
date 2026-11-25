@@ -116,6 +116,8 @@
     <ClCompile Include="src\storage\dstorage_factory_host_test.cpp" />
     <ClCompile Include="src\storage\dstorage_file_host.cpp" />
     <ClCompile Include="src\storage\dstorage_file_host_test.cpp" />
+    <ClCompile Include="src\storage\dstorage_queue_host.cpp" />
+    <ClCompile Include="src\storage\dstorage_queue_host_test.cpp" />
     <ClCompile Include="src\storage\dstorage_async_queue.cpp" />
     <ClCompile Include="src\storage\dstorage_async_queue_test.cpp" />
     <ClCompile Include="src\storage\dstorage_submit_gate_test.cpp" />
@@ -151,6 +153,7 @@
     <ClInclude Include="src\gpu\host_backend.h" />
     <ClInclude Include="src\storage\dstorage_factory_host.h" />
     <ClInclude Include="src\storage\dstorage_file_host.h" />
+    <ClInclude Include="src\storage\dstorage_queue_host.h" />
     <ClInclude Include="src\storage\dstorage_async_queue.h" />
     <ClInclude Include="src\storage\dstorage_status_host.h" />
     <ClInclude Include="src\gpu\device_context.h" />

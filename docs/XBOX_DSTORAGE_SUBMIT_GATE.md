@@ -1,6 +1,6 @@
 # Host DirectStorage-style enqueue/submit gate and FIFO completion
 
-**Status: original real Win32 I/O scheduling in a host-only queue. NOT an Xbox IDStorageQueueX COM implementation, NOT a DSTORAGE_REQUEST parser or guest asset streamer.** ScarlettVI still rejects Xbox guest CreateQueue/CreateQueue1/OpenFile with E_NOTIMPL; title execution is BLOCKED.
+**Status: original real Win32 I/O scheduling in a host-only queue. now also used by a [fixture-only queue COM wrapper](XBOX_DSTORAGE_QUEUE_COM.md), but NOT a DSTORAGE_REQUEST parser or guest asset streamer.** ScarlettVI rejects CreateQueue and ordinary title CreateQueue1/OpenFile calls with E_NOTIMPL; only explicit test-root operations are implemented. Title execution is BLOCKED.
 
 ## Verified public contract
 
@@ -45,6 +45,6 @@ The established `storage-async-fixture`, `storage-factory-fixture`, CPU/loader/a
 
 ## Xbox-facing limitations and readiness
 
-The real game `XCRDAPI.dll!DStorageGetFactory` still binds a **partial host COM factory** only. `IDStorageFactoryX2::CreateQueue1`, `IDStorageFactoryX::CreateQueue`, `OpenFile` and status-array methods still fail E_NOTIMPL. The real console request structure, interface IIDs, file lifecycle, compression/decompression, signal/status/event ownership, Xbox memory destination, cancellation tag semantics and guest paths remain unverified. Therefore host `enqueue` and `submit_pending` are **not guest exports**.
+The real game `XCRDAPI.dll!DStorageGetFactory` still binds a **partial host COM factory** only. `IDStorageFactoryX::CreateQueue` remains E_NOTIMPL; `CreateQueue1` and `OpenFile` have explicitly fixture-rooted partial adapters, while status-array COM already runs real host-worker markers. The real console request structure, queue vtable order, compression/decompression, GPU signal/guest event ownership, Xbox destination memory, cancellation tags and title file routing remain unverified. Therefore host `enqueue` and `submit_pending` are **not guest exports**.
 
 The read-only import inventory remains **8 Xbox references unresolved**, with Windows **830/830**, title-local **315/315**, and `TITLE EXECUTION: BLOCKED`. No game binaries, shaders or assets are executed or copied.

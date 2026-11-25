@@ -110,9 +110,13 @@ bool HostAsyncFileQueue::allowed_leaf(
 
 HRESULT HostAsyncFileQueue::admit(
     const HostFileReadRequest& request, bool staged,
-    HostDStorageStatusArrayX* status, uint32_t status_index) noexcept {
+    HostDStorageStatusArrayX* status, uint32_t status_index,
+    HRESULT injected_failure) noexcept {
     if (!request.token) return E_INVALIDARG;
-    if (status) {
+    if (FAILED(injected_failure)) {
+        if (!staged || status || !request.filename.empty() ||
+            request.offset || request.bytes) return E_INVALIDARG;
+    } else if (status) {
         if (!staged || !request.filename.empty() ||
             request.offset || request.bytes) return E_INVALIDARG;
     } else if (!allowed_leaf(request.filename) ||
@@ -133,6 +137,7 @@ HRESULT HostAsyncFileQueue::admit(
         job.request = request; // copy guest-independent host leaf
         job.status = status;
         job.status_index = status_index;
+        job.injected_failure = injected_failure;
         job.result.token = request.token;
         job.result.sequence = next_sequence_;
         const auto [it, inserted] =
@@ -186,6 +191,11 @@ HRESULT HostAsyncFileQueue::admit(
 HRESULT HostAsyncFileQueue::enqueue(
     const HostFileReadRequest& request) noexcept {
     return admit(request, true);
+}
+HRESULT HostAsyncFileQueue::enqueue_unsupported(
+    uint64_t token, HRESULT error) noexcept {
+    if (!FAILED(error)) return E_INVALIDARG;
+    return admit({token, L"", 0, 0}, true, nullptr, 0, error);
 }
 HRESULT HostAsyncFileQueue::enqueue_status(
     uint64_t token, HostDStorageStatusArrayX* status,
@@ -317,6 +327,7 @@ void HostAsyncFileQueue::run() noexcept {
         uint64_t sequence = 0;
         HostDStorageStatusArrayX* status = nullptr;
         uint32_t status_index = 0;
+        HRESULT injected_failure = S_OK;
         {
             std::unique_lock lock(mutex_);
             ready_.wait(lock, [&]{ return stopped_ || !fifo_.empty(); });
@@ -335,6 +346,7 @@ void HostAsyncFileQueue::run() noexcept {
             sequence = found->second.result.sequence;
             status = found->second.status;
             status_index = found->second.status_index;
+            injected_failure = found->second.injected_failure;
         }
         HostFileReadCompletion completion;
         if (status) {
@@ -347,7 +359,13 @@ void HostAsyncFileQueue::run() noexcept {
                 status, status_index, completion.status);
             first_unreported_failure_ = S_OK;
         } else {
-            completion = execute(request, sequence);
+            if (FAILED(injected_failure)) {
+                completion.token = token;
+                completion.sequence = sequence;
+                completion.status = injected_failure;
+            } else {
+                completion = execute(request, sequence);
+            }
             if (FAILED(completion.status) &&
                 SUCCEEDED(first_unreported_failure_))
                 first_unreported_failure_ = completion.status;

@@ -55,6 +55,10 @@ public:
 
     // Hold work without touching a file until submit_pending() commits it.
     HRESULT enqueue(const HostFileReadRequest& request) noexcept;
+    // Internal-only failed-operation token: guest requests with unknown ABI
+    // become visible asynchronous failures, never fake successful reads.
+    HRESULT enqueue_unsupported(uint64_t token,
+                                HRESULT error) noexcept;
     // Host-only FIFO status barrier. It is NOT IDStorageQueueX::EnqueueStatus;
     // the worker finishes it with the first real preceding read error.
     HRESULT enqueue_status(uint64_t token,
@@ -86,12 +90,14 @@ private:
         HostFileReadRequest request;
         HostDStorageStatusArrayX* status = nullptr;
         uint32_t status_index = 0;
+        HRESULT injected_failure = S_OK;
         HostFileReadCompletion result;
         bool ready = false;
     };
     HRESULT admit(const HostFileReadRequest& request,
                   bool staged, HostDStorageStatusArrayX* status = nullptr,
-                  uint32_t status_index = 0) noexcept;
+                  uint32_t status_index = 0,
+                  HRESULT injected_failure = S_OK) noexcept;
     void run() noexcept;
     HostFileReadCompletion execute(
         const HostFileReadRequest& request, uint64_t sequence) noexcept;

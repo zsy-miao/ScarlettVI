@@ -3,19 +3,27 @@
 #include <limits>
 #include <mutex>
 #include <new>
+#include <unordered_set>
 #include <vector>
 
 namespace scarlett::storage {
 namespace {
 std::atomic<uint32_t> live_status_arrays{0};
+std::mutex live_registry_mutex;
+std::unordered_set<HostDStorageStatusArrayX*> live_registry;
 
 class HostStatusArray final : public HostDStorageStatusArrayX {
 public:
     explicit HostStatusArray(uint32_t capacity)
         : statuses_(capacity) {
+        // Register only after the owned slot allocation succeeds.
+        const std::lock_guard lock(live_registry_mutex);
+        live_registry.insert(this);
         live_status_arrays.fetch_add(1, std::memory_order_relaxed);
     }
     ~HostStatusArray() {
+        const std::lock_guard lock(live_registry_mutex);
+        live_registry.erase(this);
         live_status_arrays.fetch_sub(1, std::memory_order_relaxed);
     }
     HRESULT STDMETHODCALLTYPE QueryInterface(
@@ -123,6 +131,16 @@ HRESULT finish_host_dstorage_status(
     HRESULT result) noexcept {
     if (!object) return E_POINTER;
     return static_cast<HostStatusArray*>(object)->finish(index, result);
+}
+bool retain_owned_dstorage_status_array(
+    HostDStorageStatusArrayX* candidate) noexcept {
+    if (!candidate) return false;
+    // Match by address before DEREFERENCING: arbitrary guest pointers or
+    // external COM objects are not safe for internal HostStatusArray casts.
+    const std::lock_guard lock(live_registry_mutex);
+    if (!live_registry.contains(candidate)) return false;
+    // The registry lock also excludes the destructor while AddRef runs.
+    return candidate->AddRef() != 0;
 }
 uint32_t live_host_dstorage_status_arrays() noexcept {
     return live_status_arrays.load(std::memory_order_relaxed);

@@ -136,6 +136,18 @@ void clear_dstorage_file_fixture_root() noexcept {
     const std::lock_guard lock(root_mutex);
     configured_root.clear();
 }
+HRESULT snapshot_dstorage_file_fixture_root(
+    std::filesystem::path& output) noexcept {
+    try {
+        const std::lock_guard lock(root_mutex);
+        output.clear();
+        if (configured_root.empty()) return E_NOTIMPL;
+        output = configured_root;
+        return S_OK;
+    } catch (...) {
+        return E_OUTOFMEMORY;
+    }
+}
 
 HRESULT open_host_dstorage_file(
     const wchar_t* leaf, REFIID iid, void** output) noexcept {

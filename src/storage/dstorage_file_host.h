@@ -19,6 +19,9 @@ struct HostDStorageFileX : public IUnknown {
 HRESULT configure_dstorage_file_fixture_root(
     const std::filesystem::path& trusted_root) noexcept;
 void clear_dstorage_file_fixture_root() noexcept;
+// Internal snapshot for fixture-only queue construction; not an Xbox API.
+HRESULT snapshot_dstorage_file_fixture_root(
+    std::filesystem::path& output) noexcept;
 HRESULT open_host_dstorage_file(
     const wchar_t* leaf, REFIID iid, void** output) noexcept;
 uint32_t live_host_dstorage_files() noexcept;

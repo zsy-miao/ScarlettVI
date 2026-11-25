@@ -37,6 +37,10 @@ HRESULT finish_host_dstorage_status(
     HostDStorageStatusArrayX* object, uint32_t index,
     HRESULT result) noexcept;
 
+// Safe producer-side ownership check: returns an owned AddRef only for a
+// still-live status object allocated by ScarlettVI. Caller must Release.
+bool retain_owned_dstorage_status_array(
+    HostDStorageStatusArrayX* candidate) noexcept;
 uint32_t live_host_dstorage_status_arrays() noexcept;
 bool verify_dstorage_status_array_fixture() noexcept;
 

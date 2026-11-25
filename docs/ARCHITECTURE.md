@@ -76,8 +76,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   host-only FIFO barriers. An explicitly [fixture-rooted read-only file COM
   adapter](XBOX_DSTORAGE_FILE_HOST.md) now opens genuine generated files,
   duplicates read handles and holds staging leases until final Release;
-  normal guest paths remain disabled. Xbox guest COM queues, game file/asset
-  streaming, decompression and guest completions remain missing.
+  normal guest paths remain disabled. A [fixture-only queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md)
+  now links the observed `CreateQueue1` IID to the real host worker and
+  status-array barriers. Unsupported guest requests complete as errors,
+  not fake reads; full console queues, game asset streaming, decompression
+  and real Xbox destination buffers remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not

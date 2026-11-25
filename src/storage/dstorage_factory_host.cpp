@@ -1,6 +1,7 @@
 #include "dstorage_factory_host.h"
 #include "dstorage_status_host.h"
 #include "dstorage_file_host.h"
+#include "dstorage_queue_host.h"
 #include <atomic>
 #include <limits>
 #include <mutex>
@@ -103,10 +104,10 @@ public:
         // caller buffer pretending to supply hardware stats.
     }
     HRESULT STDMETHODCALLTYPE CreateQueue1(
-        const void*, REFIID, void** output) noexcept override {
-        if (!output) return E_POINTER;
-        *output = nullptr;
-        return E_NOTIMPL;
+        const void* desc, REFIID iid, void** output) noexcept override {
+        // Only a generated host fixture root enables this partial COM queue.
+        // Unverified Xbox request/asset access remains explicitly unsupported.
+        return create_host_dstorage_queue1(desc, iid, output);
     }
 
     HRESULT initialize_default() noexcept {

@@ -1,6 +1,6 @@
 # Partial Xbox DirectStorage factory and real host staging
 
-**Status: guest-facing COM factory partly implemented, with genuine staging and status-array objects, but no Xbox guest queue, file open, game asset streaming or decompression.** The import XCRDAPI.dll!DStorageGetFactory is linked, with a separately labeled partial count. TITLE EXECUTION: BLOCKED remains enforced.
+**Status: guest-facing COM factory partly implemented, with genuine staging and status-array objects, but only test-rooted queue/file COM and no game asset streaming or decompression.** The import XCRDAPI.dll!DStorageGetFactory is linked, with a separately labeled partial count. TITLE EXECUTION: BLOCKED remains enforced.
 
 ## Independently verified caller and public ABI
 
@@ -17,11 +17,11 @@ Sources: src/storage/dstorage_factory_host.h, src/storage/dstorage_factory_host.
 - Exact guest-observed IID is recognized, along with IUnknown for QueryInterface. Unknown IIDs fail E_NOINTERFACE. The original host factory is process-static and maintains synchronized COM reference counts.
 - The first successful factory lookup obtains **real, zeroed 32-MiB host staging storage**. Page touches are verified across the full allocation, not merely accounted as a number.
 - SetStagingBufferSize supports only the six documented sizes, preparing a new owned host allocation before atomically installing it. Invalid sizes fail E_INVALIDARG, allocation errors fail E_OUTOFMEMORY, preserving the previously installed buffer.
-- `CreateStatusArray` now returns a [real guest-IID status COM object](XBOX_DSTORAGE_STATUS_ARRAY.md) with host-worker-backed completion barriers. An important **factory ABI correction** also puts `OpenFile` at vtable `+0x20` and `CreateStatusArray` at `+0x28`, as verified by actual title caller arguments and raw slot tests. `CreateQueue` and `CreateQueue1` still return **E_NOTIMPL**. `OpenFile` now supports a [real read-only file COM object](XBOX_DSTORAGE_FILE_HOST.md) only under an explicitly configured generated fixture directory; normal title paths remain unsupported and protected assets are not accessed.
+- `CreateStatusArray` now returns a [real guest-IID status COM object](XBOX_DSTORAGE_STATUS_ARRAY.md) with host-worker-backed completion barriers. An important **factory ABI correction** also puts `OpenFile` at vtable `+0x20` and `CreateStatusArray` at `+0x28`, as verified by actual title caller arguments and raw slot tests. `CreateQueue` still returns **E_NOTIMPL**. `CreateQueue1` now has a [fixture-rooted queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md) with a provisional guest vtable, but rejects ordinary title use. `OpenFile` now supports a [real read-only file COM object](XBOX_DSTORAGE_FILE_HOST.md) only under an explicitly configured generated fixture directory; normal title paths remain unsupported and protected assets are not accessed.
 - SetCpuAffinity returns E_NOTIMPL, and console SetDebugFlags has no claimed guest effect. GetStats is void and leaves unknown-sized guest output untouched, rather than inventing a console statistics structure.
 - Staging storage and COM reference changes are synchronized. The later [host-only async queue](XBOX_DSTORAGE_HOST_ASYNC.md) now holds an explicit factory staging lease: any live host queue blocks stage reconfiguration (including a same-size request). This does not provide guest Xbox queue objects.
 
-**Limitations:** The separate [host-only async worker](XBOX_DSTORAGE_HOST_ASYNC.md) now performs real bounded Win32 reads and produces independently verified host completions. Its [enqueue/submit gate](XBOX_DSTORAGE_SUBMIT_GATE.md) models hold-until-Submit and half-capacity auto-submit, but no Xbox queue object is exposed. The guest-IID [status array](XBOX_DSTORAGE_STATUS_ARRAY.md) is functional, but this COM factory is still not an NVMe driver, Xbox DirectStorage guest queue, file-system mount, guest asynchronous completion service, decryption/decompression engine or Xbox memory partition. It handles only the observed factory startup subset; the other methods explicitly remain unimplemented.
+**Limitations:** The separate [host-only async worker](XBOX_DSTORAGE_HOST_ASYNC.md) now performs real bounded Win32 reads and produces independently verified host completions. Its [enqueue/submit gate](XBOX_DSTORAGE_SUBMIT_GATE.md) models hold-until-Submit and half-capacity auto-submit, and is now also wrapped by a fixture-only [guest-IID queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md), not a functional title request parser. The guest-IID [status array](XBOX_DSTORAGE_STATUS_ARRAY.md) is functional, but this COM factory is still not an NVMe driver, Xbox DirectStorage guest queue, file-system mount, guest asynchronous completion service, decryption/decompression engine or Xbox memory partition. It handles only the observed factory startup subset; the other methods explicitly remain unimplemented.
 
 ## Executable regression
 
@@ -30,6 +30,7 @@ Sources: src/storage/dstorage_factory_host.h, src/storage/dstorage_factory_host.
     .\build\x64\Release\ScarlettVI.exe storage-submit-fixture
     .\build\x64\Release\ScarlettVI.exe storage-status-fixture
     .\build\x64\Release\ScarlettVI.exe storage-file-fixture
+    .\build\x64\Release\ScarlettVI.exe storage-queue-fixture
     .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 
 The generated host-only fixture exercises the exact exported function pointer, raw COM **vtable slot +0x40**, singleton and IUnknown identity, unknown-IID rejection, supported staging sizes, invalid-size rollback, real 64-KiB page writes/readback, E_NOTIMPL for unconfigured file/queue calls, no output buffer writes for unknown-sized stats, and **4 workers ×48 GetFactory/reconfigure/Release calls**. No title code executes.

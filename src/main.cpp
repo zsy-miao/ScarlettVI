@@ -33,6 +33,7 @@
 #include "storage/dstorage_async_queue.h"
 #include "storage/dstorage_status_host.h"
 #include "storage/dstorage_file_host.h"
+#include "storage/dstorage_queue_host.h"
 #include <Windows.h>
 #include <algorithm>
 #include <array>
@@ -139,6 +140,7 @@ void usage() {
                << L"  ScarlettVI.exe storage-submit-fixture\n"
                << L"  ScarlettVI.exe storage-status-fixture\n"
                << L"  ScarlettVI.exe storage-file-fixture\n"
+               << L"  ScarlettVI.exe storage-queue-fixture\n"
                << L"  ScarlettVI.exe audio-memory-fixture\n"
                << L"  ScarlettVI.exe audio-address-fixture\n"
                << L"  ScarlettVI.exe audio-shape-fixture\n"
@@ -180,6 +182,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"storage-queue-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::storage::verify_dstorage_queue_com_fixture();
+            std::cout << "ScarlettVI | fixture-rooted Xbox-IID DirectStorage "
+                      << "queue COM and real FIFO status barriers: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nGenerated reads only; guest request ABI and title "
+                      << "execution remain blocked.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"storage-file-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -199,7 +212,7 @@ int wmain(int argc, wchar_t** argv) {
                       << "and real host read barriers: "
                       << (passed ? "PASS" : "FAIL")
                       << "\nCOM GetHResult/IsComplete + host completion ownership;"
-                      << " guest queue and game asset streaming remain blocked.\n";
+                      << " full Xbox request/asset streaming remains blocked.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"storage-submit-fixture") {
@@ -210,7 +223,7 @@ int wmain(int argc, wchar_t** argv) {
                       << "half-capacity policy: " << (passed ? "PASS" : "FAIL")
                       << "\nNo read before Submit; real 32-request auto-submit, "
                       << "FIFO, cancellation and concurrent producers. "
-                      << "Xbox queue COM remains unsupported.\n";
+                      << "Full Xbox request parsing remains unsupported.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"storage-async-fixture") {
@@ -221,7 +234,7 @@ int wmain(int argc, wchar_t** argv) {
                       << (passed ? "PASS" : "FAIL")
                       << "\nExact generated file readbacks, FIFO completions, "
                       << "concurrent admissions, factory staging lease."
-                      << " Xbox COM queues and title code remain unsupported.\n";
+                      << " Full Xbox request parsing and title code remain unsupported.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"storage-factory-fixture") {
@@ -232,7 +245,7 @@ int wmain(int argc, wchar_t** argv) {
                       << " / real owned host staging: "
                       << (passed ? "PASS" : "FAIL") << "\n"
                       << "Public COM slot +0x40 and 32MiB allocation;"
-                      << " guest queues, title-path file IO and decompression remain unsupported.\n";
+                      << " full Xbox requests, title-path file IO and decompression remain unsupported.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"synthetic-dll-fixture") {
