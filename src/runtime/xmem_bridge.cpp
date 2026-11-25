@@ -164,6 +164,20 @@ extern "C" void* WINAPI XMemAllocDefault(size_t size, uint64_t attrs) {
 extern "C" BOOL WINAPI XMemIsToolsMemAvailable(void) {
     return FALSE;
 }
+// The host has no Xbox working-set budget service. Unlike a fabricated
+// success, this deterministic failure cannot overrun an unknown-version
+// output structure or advertise graphics RAM we cannot back.
+// This is an intentionally incomplete host error path.
+extern "C" BOOL WINAPI XMemGetWorkingSetStatistics(
+    uint32_t selector, void* output) {
+    if (!output) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    (void)selector; // no Xbox memory selectors have verified host semantics
+    SetLastError(ERROR_NOT_SUPPORTED);
+    return FALSE;
+}
 extern "C" void WINAPI XMemFree(void* ptr, uint64_t attrs) {
     Registry::get().free(ptr, attrs);
 }
@@ -207,6 +221,8 @@ FARPROC find_export(std::string_view symbol) noexcept {
     if (symbol == "XMemAllocDefault") return reinterpret_cast<FARPROC>(&XMemAllocDefault);
     if (symbol == "XMemIsToolsMemAvailable")
         return reinterpret_cast<FARPROC>(&XMemIsToolsMemAvailable);
+    if (symbol == "XMemGetWorkingSetStatistics")
+        return reinterpret_cast<FARPROC>(&XMemGetWorkingSetStatistics);
     if (symbol == "XMemFree") return reinterpret_cast<FARPROC>(&XMemFree);
     if (symbol == "XMemFreeDefault") return reinterpret_cast<FARPROC>(&XMemFreeDefault);
     if (symbol == "XMemVirtualAlloc") return reinterpret_cast<FARPROC>(&XMemVirtualAlloc);

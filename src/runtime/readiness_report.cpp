@@ -45,6 +45,9 @@ StartupReadiness assess_startup_readiness(const PeFile& executable,
     report.title_imports_total = nested.local_imports_seen;
     report.xbox_experimental_memory_bindings =
         primary.experimental_hle_symbols_bound + nested.nested_experimental_hle_bound;
+    report.xbox_xmem_error_only_bindings =
+        primary.experimental_xmem_error_only_bound +
+        nested.nested_xmem_error_only_bound;
     report.xbox_experimental_d3d12_bindings =
         primary.experimental_d3d12_exports_bound + nested.nested_d3d12_exports_bound;
     report.xbox_experimental_device11_bindings =
@@ -99,6 +102,7 @@ void print_startup_readiness(const StartupReadiness& report, std::ostream& outpu
            << "Title-local import slots: " << report.title_imports_bound << "/"
            << report.title_imports_total << " across " << report.local_dlls << " DLLs\n"
            << "Experimental Xbox links: XMem=" << report.xbox_experimental_memory_bindings
+           << " (error-only=" << report.xbox_xmem_error_only_bindings << ")"
            << ", D3D12 serializer=" << report.xbox_experimental_d3d12_bindings
            << ", host Device11 factory=" << report.xbox_experimental_device11_bindings
            << ", sparse GPU VA policy=" << report.xbox_experimental_gpu_va_config_bindings
@@ -148,6 +152,7 @@ void write_startup_readiness_json(const StartupReadiness& report,
         << "    \"title_bound\": " << report.title_imports_bound << ",\n"
         << "    \"title_total\": " << report.title_imports_total << ",\n"
         << "    \"experimental_xmem_bound\": " << report.xbox_experimental_memory_bindings << ",\n"
+        << "    \"experimental_xmem_error_only_bound\": " << report.xbox_xmem_error_only_bindings << ",\n"
         << "    \"experimental_d3d12_bound\": " << report.xbox_experimental_d3d12_bindings << ",\n"
         << "    \"experimental_device11_factory_bound\": " << report.xbox_experimental_device11_bindings << ",\n"
         << "    \"experimental_gpu_va_config_bound\": " << report.xbox_experimental_gpu_va_config_bindings << ",\n"

@@ -28,6 +28,7 @@ struct BindingResult {
     size_t memory_release_hooks_bound = 0;
     size_t host_modules_loaded = 0;
     size_t experimental_hle_symbols_bound = 0;
+    size_t experimental_xmem_error_only_bound = 0;
     size_t experimental_d3d12_exports_bound = 0;
     size_t experimental_d3d12_device_bound = 0;
     size_t experimental_gpu_va_config_bound = 0;

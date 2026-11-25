@@ -36,19 +36,25 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `AcpHal.dll` | 9 | Audio processing, heap and shape contexts |
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
-| `xmem.dll` | 2 | Working-set statistics and memory-budget transfer (Xbox ABI remains unresolved) |
+| `xmem.dll` | 1 | `XMemTransferMemory` memory-budget transfer semantics remain unknown |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **24** | |
+| **Total** | **23** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
 - **315/315** title-local DLL import references across 7 local DLL images
-- **13** experimental Xbox XMem reference bindings, including independently
+- **14** experimental Xbox XMem reference bindings, including independently
   analysed `XMemVirtualQuery` in `XboxBvhBuilder.dll` and the main title's
   `XMemMapPhysicalPagesScatter` caller pattern, plus the host-only
   [`XMemIsToolsMemAvailable` FALSE capability policy](XMEM_TOOLS_CAPABILITY.md)
-  (it does **not** provide an Xbox tools-memory partition)
+  (it does **not** provide an Xbox tools-memory partition), plus the
+  [XMem working-set safe failure path](XMEM_WORKING_SET_FAILURE.md) which
+  returns FALSE without writing to an unknown-sized output buffer;
+  **neither is full Xbox memory-budget emulation**. Readiness explicitly
+  reports `XMem=14 (error-only=1)` and the JSON summary includes
+  `experimental_xmem_error_only_bound` so failure-only bindings are not
+  confused with functioning console services.
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
 - **1** experimental `D3D12XboxCreateDevice` import linked to a verified
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
@@ -58,12 +64,15 @@ Measured working address bindings:
   Native host [D3D12 tile backing](GPU_TILES.md) is tested separately;
   it does not bind additional Xbox imports
 
-Counted address bindings do **not** guarantee ABI equivalence, correct
+A [public compatibility-project comparison](PUBLIC_COMPATIBILITY_RESEARCH.md)
+identifies additional implementation work and licenses to review. The
+working-set import is bound to an explicit **unsupported** response, not
+working Xbox statistics. Counted address bindings do **not** guarantee ABI equivalence, correct
 component lifetime, graphics semantics or startup success.
 
 ## Mandatory runtime milestones beyond imports
 
-Even if all 24 outstanding references gain function addresses, startup
+Even if all 23 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

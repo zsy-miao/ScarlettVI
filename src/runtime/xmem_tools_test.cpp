@@ -30,7 +30,6 @@ bool verify_xmem_tools_capability_fixture() noexcept {
 
     // The router must continue refusing unknown and higher-risk exports.
     for (const std::string_view missing : std::array{
-             std::string_view{"XMemGetWorkingSetStatistics"},
              std::string_view{"XMemTransferMemory"},
              std::string_view{"XMemIsToolsMemAvailableByOrdinal"},
              std::string_view{"xmemistoolsmemavailable"},
@@ -43,6 +42,7 @@ bool verify_xmem_tools_capability_fixture() noexcept {
              std::string_view{"XMemAlloc"},
              std::string_view{"XMemVirtualAlloc"},
              std::string_view{"XMemVirtualQuery"},
+             std::string_view{"XMemGetWorkingSetStatistics"},
              std::string_view{"XMemMapPhysicalPagesScatter"}}) {
         if (!find_export(present))
             return false;

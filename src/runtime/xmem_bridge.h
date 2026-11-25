@@ -15,6 +15,11 @@ void* WINAPI XMemAllocDefault(size_t size, uint64_t attributes);
 // memory partition. Report FALSE; do not allocate/move memory as a side
 // effect. This is not a verified Xbox developer-kit memory-service model.
 BOOL WINAPI XMemIsToolsMemAvailable(void);
+// Fail-closed host capability query, not a memory budget emulation.
+// Xbox callers have been observed passing (selector, output pointer),
+// but the output buffer size/layout varies by GDK version. We must not
+// overwrite caller-owned memory with an invented console structure.
+BOOL WINAPI XMemGetWorkingSetStatistics(uint32_t selector, void* output);
 void WINAPI XMemFree(void* ptr, uint64_t attributes);
 void WINAPI XMemFreeDefault(void* ptr, uint64_t attributes);
 void* WINAPI XMemVirtualAlloc(void* address, size_t bytes,
@@ -36,4 +41,5 @@ BOOL WINAPI VirtualFreeBridge(void* base, size_t size, DWORD flags);
 FARPROC find_export(std::string_view name) noexcept;
 // Generated host-only fixture, never calls or loads any title executable.
 bool verify_xmem_tools_capability_fixture() noexcept;
+bool verify_xmem_stats_failure_fixture() noexcept;
 } // namespace scarlett::xmem

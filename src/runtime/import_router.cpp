@@ -134,6 +134,8 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                     if (address) {
                         image.patch_iat(symbol.iat_rva, reinterpret_cast<uint64_t>(address));
                         ++result.experimental_hle_symbols_bound;
+                        if (symbol.name == "XMemGetWorkingSetStatistics")
+                            ++result.experimental_xmem_error_only_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

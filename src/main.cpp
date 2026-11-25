@@ -122,6 +122,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-vcall-followups-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-reads-fixture\n"
                << L"  ScarlettVI.exe xmem-tools-fixture\n"
+               << L"  ScarlettVI.exe xmem-stats-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -153,6 +154,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xmem-stats-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::xmem::verify_xmem_stats_failure_fixture();
+            std::cout << "ScarlettVI | safe XMem statistics failure-path fixture: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nNo Xbox budget is provided, output storage remains untouched; "
+                      << "title startup still BLOCKED.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xmem-tools-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

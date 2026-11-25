@@ -29,6 +29,11 @@ The `xmem-tools-fixture` test invokes the function through the same type of C fu
 
 ## Readiness impact on the inspected build
 
+The table below records the **original tools-query milestone** (25 to 24).
+A [subsequent safe working-set statistics error path](XMEM_WORKING_SET_FAILURE.md)
+reduces the latest unresolved address count further to **23**, without
+claiming an Xbox memory-budget implementation.
+
 | Import reference family | Before | After |
 | --- | ---: | ---: |
 | `xmem.dll` pending | 3 | 2 |
