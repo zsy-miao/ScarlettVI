@@ -44,6 +44,6 @@ Only generated samples and buffers are used. This does not read or execute any g
 
 ## Readiness and priorities
 
-Current readiness is **5 pending Xbox import addresses**, all from CHAD DSP. `XApuEnqueueCommand` is bound only for ScarlettVI-generated XMem host FIR commands; real Xbox packets remain unsupported. The other four XAPU connection/result imports remain partial and both XG bindings are error-only. **`TITLE EXECUTION: BLOCKED` remains unchanged.**
+Current readiness has **zero unresolved Xbox import addresses**, but this is not functional completion. `XApuEnqueueCommand` is bound only for ScarlettVI-generated XMem host FIR commands; CHAD now has a [separate partial client and host FIR bridge](CHAD_HOST_CLIENT.md) with two error-only stream calls. The other four XAPU connection/result imports remain partial and both XG bindings are error-only. **`TITLE EXECUTION: BLOCKED` remains unchanged.**
 
 The next productive step is determining real guest XAPU command sizes, field ownership, IDs and completion semantics, mapping the supported processing subset to this host filter, and separately completing CHAD stream activation and lifecycle. None of these interfaces should claim `S_OK` without performing the corresponding operation.

@@ -34,12 +34,12 @@ real game binaries, shader assets, extracted archive contents or title data.
 | Dependency | Unresolved import references | Workstream |
 | --- | ---: | --- |
 | `AcpHal.dll` | 0 | Eight functional host APU memory/SHAPE bindings and one partial HAL factory; DSP configuration remains unsupported |
-| `chad.dll` | 5 | Connection, activation and command dispatch are not bound; original CPU FIR DSP processing is independently tested, but the guest command/stream ABI is unverified |
+| `chad.dll` | 0 | Five [partial host CHAD links](CHAD_HOST_CLIENT.md): two real owned client operations, one tagged XMem CPU FIR-only submit and two **error-only** stream activation operations. Guest Xbox DSP remains unsupported |
 | `xapu.dll` | 0 | Four partial connection/result-queue bindings; `XApuEnqueueCommand` now links to a [strict XMem host FIR command bridge](XAPU_XMEM_GUEST_FIR.md) that returns `E_NOTIMPL` for real unknown Xbox commands |
 | `xmem.dll` | 0 | One **partial** `XMemTransferMemory` host quota binding; only title-observed direction and host XMemAlloc budget admission are implemented |
 | `xg_xs.dll` | 0 | Both symbols now link to [explicit error-only XG functions](XG_IMPORT_FAILURE_BRIDGE.md); **both remain functionally unsupported**. Host Morton GPU detiling is NOT Xbox swizzle |
 | `XCRDAPI.dll` | 0 | [Partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md) binds one symbol and real staging. The [host-only async Win32 queue](XBOX_DSTORAGE_HOST_ASYNC.md), [enqueue/submit scheduler](XBOX_DSTORAGE_SUBMIT_GATE.md) and [guest-IID status arrays](XBOX_DSTORAGE_STATUS_ARRAY.md) now work; an [explicitly fixture-rooted file COM adapter](XBOX_DSTORAGE_FILE_HOST.md) performs real read-only opens, and a [fixture-rooted queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md) processes real host barriers; general guest asset access remains unsupported |
-| **Total** | **5** | All five pending symbols are CHAD DSP; XAPU host FIR and XG error-only links do not satisfy real console semantics |
+| **Total** | **0** | **Zero missing IAT addresses is NOT functional Xbox support.** The experimental audio and graphics interfaces remain incomplete and native execution is BLOCKED |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -63,10 +63,13 @@ Measured working address bindings:
   Real aligned CPU allocations and quotas are tested; arbitrary game memory,
   physical APU RAM, actual SHAPE processing and audio command/result queues
   remain unsupported
-- **0 bound CHAD imports**; the [original host FIR convolution backend](DSP_CPU_CONVOLUTION.md)
-  now performs real generated multichannel signal processing. This is a
-  numerical audio primitive only: no guest DSP queue, packet handling,
-  codec, sound output or CHAD lifecycle has been linked
+- **5 CHAD imports linked**, classified separately as
+  `CHAD client partial=2, CHAD host FIR-only=1, CHAD error-only=2`.
+  The [bounded client bridge](CHAD_HOST_CLIENT.md) owns real host handles
+  and executes the original CPU FIR on strictly tagged, XMem-owned test
+  packets, while actual Xbox DSP stream activation/deactivation always
+  returns `E_NOTIMPL`. No Xbox stream processing, guest packet decoding,
+  console codec, audio playback, or DSP callbacks are implemented
 - **4** [partial XAPU connection/result queue bindings](XAPU_QUEUE_HOST.md):
   bounded host-owned connections, result count and FIFO dequeue are real.
   The [host-only FIR-to-XAPU integration](XAPU_DSP_INTEGRATION.md) now
@@ -133,8 +136,9 @@ managed worker threads. Only generated test callbacks are executed. Neither
 fixture invokes the original title, any game DLL or their callbacks;
 this is **not** proof of full guest loader lifecycle correctness.
 
-Even if all 5 outstanding references gain function addresses, startup
-remains blocked until:
+Even with **all currently observed import addresses now linked**, startup
+remains blocked because most Xbox-specific services are partial or error-only,
+and the following runtime requirements are still unmet:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation
 2. Xbox memory heap and graphics virtual-address semantics

@@ -161,6 +161,9 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
         report.nested_experimental_hle_bound += binding.experimental_hle_symbols_bound;
         report.nested_apu_host_alloc_bound += binding.experimental_apu_host_alloc_bound;
         report.nested_apu_hal_partial_bound += binding.experimental_apu_hal_partial_bound;
+        report.nested_chad_client_bound += binding.experimental_chad_client_bound;
+        report.nested_chad_host_fir_bound += binding.experimental_chad_host_fir_bound;
+        report.nested_chad_error_only_bound += binding.experimental_chad_error_only_bound;
         report.nested_xapu_partial_bound += binding.experimental_xapu_partial_bound;
         report.nested_xapu_host_fir_bound += binding.experimental_xapu_host_fir_bound;
         report.nested_dstorage_factory_partial_bound += binding.experimental_dstorage_factory_partial_bound;

@@ -89,6 +89,8 @@
     <ClCompile Include="src\audio\apu_shape_test.cpp" />
     <ClCompile Include="src\audio\acp_hal_host.cpp" />
     <ClCompile Include="src\audio\acp_hal_host_test.cpp" />
+    <ClCompile Include="src\audio\chad_host.cpp" />
+    <ClCompile Include="src\audio\chad_host_test.cpp" />
     <ClCompile Include="src\audio\xapu_host.cpp" />
     <ClCompile Include="src\audio\xapu_guest_fir.cpp" />
     <ClCompile Include="src\audio\xapu_guest_fir_test.cpp" />
@@ -150,6 +152,7 @@
     <ClInclude Include="src\audio\apu_memory.h" />
     <ClInclude Include="src\audio\apu_shape.h" />
     <ClInclude Include="src\audio\acp_hal_host.h" />
+    <ClInclude Include="src\audio\chad_host.h" />
     <ClInclude Include="src\audio\xapu_host.h" />
     <ClInclude Include="src\audio\dsp_convolution.h" />
     <ClInclude Include="src\runtime\physical_memory.h" />

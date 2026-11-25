@@ -48,7 +48,7 @@ The synthetic fixture validates the four exact exported C signatures; verifies `
 | Functional real Xbox XAPU command formats | **0 implemented** |
 | Host XAPU connection/result imports | **4 partial bindings** |
 | `XApuEnqueueCommand` host FIR-only import | **1 restricted binding** |
-| Pending Xbox import addresses across title | **5 (all CHAD)** |
+| Pending Xbox import addresses across title | **0** (CHAD now partially linked) |
 | Actual Xbox audio and native title execution | **BLOCKED** |
 
 Earlier XAPU connection-only milestones left one XAPU import

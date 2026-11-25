@@ -28,6 +28,7 @@
 #include "audio/apu_shape.h"
 #include "audio/acp_hal_host.h"
 #include "audio/xapu_host.h"
+#include "audio/chad_host.h"
 #include "audio/dsp_convolution.h"
 #include "runtime/xmem_query.h"
 #include "storage/dstorage_factory_host.h"
@@ -148,6 +149,7 @@ void usage() {
                << L"  ScarlettVI.exe audio-shape-fixture\n"
                << L"  ScarlettVI.exe audio-hal-fixture\n"
                << L"  ScarlettVI.exe audio-xapu-fixture\n"
+               << L"  ScarlettVI.exe audio-chad-fixture\n"
                << L"  ScarlettVI.exe audio-dsp-fixture\n"
                << L"  ScarlettVI.exe audio-xapu-dsp-fixture\n"
                << L"  ScarlettVI.exe audio-xapu-guest-fir-fixture\n"
@@ -269,6 +271,16 @@ int wmain(int argc, wchar_t** argv) {
                       << (passed ? "PASS" : "FAIL")
                       << "\nGenerated code only; imported Kernel32 API, relocations, "
                       << "TLS and entrypoint verified. Original title not executed.\n";
+            return passed ? 0 : 3;
+        }
+        if (verb == L"audio-chad-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed = scarlett::audio::verify_chad_host_fixture();
+            std::cout << "ScarlettVI | bounded CHAD client lifecycle and "
+                      << "XMem host FIR command: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nReal generated CPU FIR only; Xbox streams "
+                      << "and native title execution remain BLOCKED.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"audio-xapu-guest-fir-fixture") {

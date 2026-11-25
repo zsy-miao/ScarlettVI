@@ -20,6 +20,9 @@ struct StartupReadiness {
     size_t xbox_xmem_budget_partial_bindings = 0;
     size_t xbox_apu_host_alloc_bindings = 0;
     size_t xbox_apu_hal_partial_bindings = 0;
+    size_t xbox_chad_client_bindings = 0;
+    size_t xbox_chad_host_fir_bindings = 0;
+    size_t xbox_chad_error_only_bindings = 0;
     size_t xbox_xapu_partial_bindings = 0;
     size_t xbox_xapu_host_fir_bindings = 0;
     size_t xbox_dstorage_factory_partial_bindings = 0;

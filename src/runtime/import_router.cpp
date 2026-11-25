@@ -3,6 +3,7 @@
 #include "xmem_bridge.h"
 #include "../audio/apu_memory.h"
 #include "../audio/xapu_host.h"
+#include "../audio/chad_host.h"
 #include "../storage/dstorage_factory_host.h"
 #include "../gpu/xbox_device_factory.h"
 #include "../gpu/xg_import_host.h"
@@ -164,6 +165,31 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                             ++result.experimental_apu_hal_partial_bound;
                         else
                             ++result.experimental_apu_host_alloc_bound;
+                    } else {
+                        ++result.xbox_symbols_pending;
+                        add_pending(imported, symbol, PendingKind::XboxHle);
+                    }
+                }
+            } else if (route == ImportRoute::XboxHle &&
+                       lower(imported.name) == "chad.dll") {
+                // Connect/disconnect manage original bounded host client
+                // handles. Submit executes only a generated, tagged XMem
+                // FIR command; the Xbox command ABI remains unknown.
+                // The two stream lifecycle imports explicitly fail
+                // E_NOTIMPL rather than reporting fake activation.
+                for (const auto& symbol : imported.symbols) {
+                    FARPROC address = symbol.by_ordinal ? nullptr
+                        : audio::find_chad_export(symbol.name);
+                    if (address) {
+                        image.patch_iat(symbol.iat_rva,
+                                        reinterpret_cast<uint64_t>(address));
+                        if (symbol.name == "XDspConnectWithMaximumStreamLimit" ||
+                            symbol.name == "XDspDisconnect")
+                            ++result.experimental_chad_client_bound;
+                        else if (symbol.name == "XDspSubmitCommand")
+                            ++result.experimental_chad_host_fir_bound;
+                        else
+                            ++result.experimental_chad_error_only_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

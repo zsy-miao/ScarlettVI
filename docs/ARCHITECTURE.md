@@ -55,8 +55,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   The original [CPU FIR DSP backend](DSP_CPU_CONVOLUTION.md) now computes
   real, bounded interleaved floating-point convolution with streaming
   history and independent multichannel state, tested on generated samples.
-  It is deliberately not bound to `chad.dll` while the guest buffer,
-  stream activation and command contracts remain incomplete.
+  It is now linked to a [strict CHAD host-client bridge](CHAD_HOST_CLIENT.md):
+  two client lifecycle bindings, one ScarlettVI-generated XMem FIR
+  command subset, and two explicit error-only stream operations.
+  Xbox buffer formats, stream activation and command contracts remain
+  incomplete; native game audio is not produced.
   The [host-typed XAPU-to-DSP bridge](XAPU_DSP_INTEGRATION.md) now
   actually filters input samples through a connection's FIR state and
   atomically queues a host-defined completion only on success, including

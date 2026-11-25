@@ -57,6 +57,12 @@ StartupReadiness assess_startup_readiness(const PeFile& executable,
     report.xbox_apu_hal_partial_bindings =
         primary.experimental_apu_hal_partial_bound +
         nested.nested_apu_hal_partial_bound;
+    report.xbox_chad_client_bindings =
+        primary.experimental_chad_client_bound + nested.nested_chad_client_bound;
+    report.xbox_chad_host_fir_bindings =
+        primary.experimental_chad_host_fir_bound + nested.nested_chad_host_fir_bound;
+    report.xbox_chad_error_only_bindings =
+        primary.experimental_chad_error_only_bound + nested.nested_chad_error_only_bound;
     report.xbox_xapu_partial_bindings =
         primary.experimental_xapu_partial_bound +
         nested.nested_xapu_partial_bound;
@@ -126,6 +132,9 @@ void print_startup_readiness(const StartupReadiness& report, std::ostream& outpu
            << ", budget-partial=" << report.xbox_xmem_budget_partial_bindings << ")"
            << ", APU host memory=" << report.xbox_apu_host_alloc_bindings
            << ", HAL factory partial=" << report.xbox_apu_hal_partial_bindings
+           << ", CHAD client partial=" << report.xbox_chad_client_bindings
+           << ", CHAD host FIR-only=" << report.xbox_chad_host_fir_bindings
+           << ", CHAD error-only=" << report.xbox_chad_error_only_bindings
            << ", XAPU queue partial=" << report.xbox_xapu_partial_bindings
            << ", XAPU XMem host FIR-only=" << report.xbox_xapu_host_fir_bindings
            << ", DirectStorage factory partial=" << report.xbox_dstorage_factory_partial_bindings
@@ -183,6 +192,9 @@ void write_startup_readiness_json(const StartupReadiness& report,
         << "    \"experimental_xmem_budget_partial_bound\": " << report.xbox_xmem_budget_partial_bindings << ",\n"
         << "    \"experimental_apu_host_alloc_bound\": " << report.xbox_apu_host_alloc_bindings << ",\n"
         << "    \"experimental_apu_hal_partial_bound\": " << report.xbox_apu_hal_partial_bindings << ",\n"
+        << "    \"experimental_chad_client_bound\": " << report.xbox_chad_client_bindings << ",\n"
+        << "    \"experimental_chad_host_fir_bound\": " << report.xbox_chad_host_fir_bindings << ",\n"
+        << "    \"experimental_chad_error_only_bound\": " << report.xbox_chad_error_only_bindings << ",\n"
         << "    \"experimental_xapu_partial_bound\": " << report.xbox_xapu_partial_bindings << ",\n"
         << "    \"experimental_xapu_host_fir_bound\": " << report.xbox_xapu_host_fir_bindings << ",\n"
         << "    \"experimental_dstorage_factory_partial_bound\": " << report.xbox_dstorage_factory_partial_bindings << ",\n"

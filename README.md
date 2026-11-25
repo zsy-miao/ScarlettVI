@@ -105,10 +105,14 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **5 Xbox-specific import references remain unresolved** (all CHAD audio);
-the two XG imports remain error-only, and `XApuEnqueueCommand` is now linked
-only for ScarlettVI-generated XMem host FIR commands. Neither represents
-full Xbox graphics/audio emulation.
+title-local exports. **All current Xbox import addresses are now linked**,
+but this is NOT evidence that the title can start. Five CHAD entry points
+use a [bounded host-client and generated FIR bridge](docs/CHAD_HOST_CLIENT.md):
+Connect/Disconnect manage owned host state, Submit runs only tagged XMem
+CPU FIR commands, and Activate/Deactivate explicitly fail `E_NOTIMPL`.
+Both XG graphics imports remain error-only, and XAPU handles only
+ScarlettVI-generated host FIR commands. Real console GPU/audio semantics
+and native process startup remain blocked.
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 A [generated PE64 entrypoint smoke test](docs/SYNTHETIC_PE_ENTRY.md) now
@@ -161,8 +165,11 @@ thread-safe stream state and numerical output validation. The
 [XAPU-to-DSP host integration](docs/XAPU_DSP_INTEGRATION.md) now submits
 real, typed host FIR processing through an owned XAPU connection, with
 actual processed samples, FIFO completion receipts, checksums, and
-transactional queue-full rejection. The Xbox command packet and CHAD
-buffer formats remain unverified; only the host-generated FIR subset runs.
+transactional queue-full rejection. The new
+[CHAD host-client bridge](docs/CHAD_HOST_CLIENT.md) additionally offers
+owned, bounded connections and executes real CPU FIR only for a versioned,
+XMem-backed ScarlettVI command. Xbox stream activation/deactivation and
+real console DSP command formats remain unsupported.
 The [VIctory/ztrx architecture comparison](docs/VICTORY_REFERENCE_NOTES.md)
 identifies the much larger runtime, shader and streaming work ahead without
 copying either GPL project's code.

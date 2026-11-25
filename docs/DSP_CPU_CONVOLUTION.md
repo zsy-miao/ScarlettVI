@@ -1,6 +1,6 @@
 # Original host CPU DSP convolution backend
 
-**Status: real, tested CPU audio signal processing. Not a bound Xbox `chad.dll` service, not XAPU command execution or audio playback.** ScarlettVI now implements an original finite-impulse-response (FIR) filter in C++20, backed by genuine Windows CPU floating-point operations on independently generated input samples.
+**Status: real, tested CPU audio signal processing.** The new [CHAD host client](CHAD_HOST_CLIENT.md) uses this engine for a strictly generated XMem command, but no real Xbox DSP stream or command packet is decoded. This is not console audio playback. ScarlettVI's original FIR filter uses Windows CPU floating-point operations on independently generated input samples.
 
 ## Why this is relevant to CHAD
 
@@ -16,7 +16,7 @@ Read-only original-title PE disassembly also established the *actual* five CHAD 
 | `XDspDisconnect` | `0x145F3FF20` | `0x146793F48` | No confirmed direct `E8` caller (not proof of no indirect use) |
 | `XDspSubmitCommand` | `0x145F3FF30` | `0x146793F50` | `0x144E5B20D`: RCX and RDX opaque pointers, EAX checked for zero |
 
-The register and address evidence was collected only by reading the protected game file with Microsoft's `dumpbin` and an independently written PE thunk mapper. **No guest code ran, and no game bytes were copied into the project.** Callsites do not prove whether guest pointers are resources, clients, streams or command descriptors. Consequently the CHAD imports remain **unbound**. Routing these imports to unconditional `S_OK` would hide the missing hardware behavior, not implement it.
+The register and address evidence was collected only by reading the protected game file with Microsoft's `dumpbin` and an independently written PE thunk mapper. **No guest code ran, and no game bytes were copied into the project.** Callsites do not prove whether guest pointers are resources, clients, streams or command descriptors. All five CHAD entry points now have [partial or error-only bindings](CHAD_HOST_CLIENT.md). Routing unsupported Xbox stream or command behavior to unconditional `S_OK` would hide missing hardware rather than implement it.
 
 ## Signal processing that now genuinely works
 
@@ -29,7 +29,7 @@ Source: `src/audio/dsp_convolution.{h,cpp}`. Standalone original C++20 `HostDspC
 - A `reset()` operation clears channel histories while retaining the kernel; a checked 64-bit processed-frame counter tracks real work. No background worker or guest event callback is fabricated.
 - A low-overhead decrement/wrap inner loop rather than division/modulus per tap. Direct FIR remains `O(frames × channels × taps)`, so long reverberation impulses will eventually need a partitioned FFT or other optimized backend for realtime performance.
 
-**This is not Xbox SHAPE/XAPU/CHAD ABI emulation.** No address from the game's DSP heap is dereferenced; no guest client, stream, codec or result has been decoded; no system sound device is opened. A later [host-only XAPU integration](XAPU_DSP_INTEGRATION.md) now submits actual FIR processing through an owned connection and publishes checked host receipts. The Xbox command format remains unimplemented.
+**This is not complete Xbox SHAPE/XAPU/CHAD ABI emulation.** The generated-only CHAD bridge can own host clients and run FIR on safe XMem sample spans, but no game DSP heap address is trusted, no Xbox stream, codec or result is decoded, and no system sound device is opened. A later [host-only XAPU integration](XAPU_DSP_INTEGRATION.md) now submits actual FIR processing through an owned connection and publishes checked host receipts. The Xbox command format remains unimplemented.
 
 ## Reproduce
 
@@ -40,4 +40,4 @@ The `audio-dsp-fixture` uses only generated coefficients and samples. It verifie
 
 ## Remaining startup blockers
 
-At this milestone the Xbox import count remains **10**: `chad.dll` five (all still unbound), `XApuEnqueueCommand` one, `xg_xs.dll` two, Xbox DirectStorage one, and `XMemTransferMemory` one. Existing XAPU connection/result handling and AcpHal HAL factory are still partial. The native GPU shader translator, device memory semantics, title filesystem and process lifecycle are also incomplete. **`TITLE EXECUTION: BLOCKED`** remains correct.
+Current readiness reports **zero unresolved Xbox import addresses** after the separate XMem, XAPU, XG and CHAD bridge milestones. The CHAD bridge has two error-only stream operations and only a tagged host FIR subset. XG texture calls are error-only, XAPU real command semantics are missing, and native GPU shader translation, title filesystem and process lifecycle remain incomplete. **`TITLE EXECUTION: BLOCKED` is still correct.**

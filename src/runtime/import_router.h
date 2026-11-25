@@ -30,6 +30,9 @@ struct BindingResult {
     size_t experimental_hle_symbols_bound = 0;
     size_t experimental_apu_host_alloc_bound = 0;
     size_t experimental_apu_hal_partial_bound = 0;
+    size_t experimental_chad_client_bound = 0;
+    size_t experimental_chad_host_fir_bound = 0;
+    size_t experimental_chad_error_only_bound = 0;
     size_t experimental_xapu_partial_bound = 0;
     size_t experimental_xapu_host_fir_bound = 0;
     size_t experimental_dstorage_factory_partial_bound = 0;
