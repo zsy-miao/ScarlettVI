@@ -144,19 +144,21 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                 }
             } else if (route == ImportRoute::XboxHle &&
                        lower(imported.name) == "acphal.dll") {
-                // Bind only independently checked host memory/SHAPE APIs.
-                // ApuAlloc and APU address translation are backed by actual
-                // owned CPU allocations. Family-4 SHAPE context storage is
-                // budgeted and has a verified 64-byte record stride.
-                // AcpHalCreate, DSP operation and audio rendering are NOT
-                // implemented and must remain pending.
+                // Bind verified host memory/SHAPE functions and a partial
+                // HAL factory separately. Factory allocates real 0x1000
+                // CPU buffers, but guest vtable +0x10 deliberately returns
+                // E_NOTIMPL: no verified DSP configuration, audio rendering,
+                // or complete guest object method ABI exists yet.
                 for (const auto& symbol : imported.symbols) {
                     FARPROC address = symbol.by_ordinal
                         ? nullptr : audio::find_acphal_export(symbol.name);
                     if (address) {
                         image.patch_iat(symbol.iat_rva,
                                         reinterpret_cast<uint64_t>(address));
-                        ++result.experimental_apu_host_alloc_bound;
+                        if (symbol.name == "AcpHalCreate")
+                            ++result.experimental_apu_hal_partial_bound;
+                        else
+                            ++result.experimental_apu_host_alloc_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

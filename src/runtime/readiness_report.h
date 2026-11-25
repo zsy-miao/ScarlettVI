@@ -18,6 +18,7 @@ struct StartupReadiness {
     size_t xbox_experimental_memory_bindings = 0;
     size_t xbox_xmem_error_only_bindings = 0;
     size_t xbox_apu_host_alloc_bindings = 0;
+    size_t xbox_apu_hal_partial_bindings = 0;
     size_t xbox_experimental_d3d12_bindings = 0;
     size_t xbox_experimental_device11_bindings = 0;
     size_t xbox_experimental_gpu_va_config_bindings = 0;

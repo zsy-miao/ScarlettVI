@@ -33,13 +33,13 @@ real game binaries, shader assets, extracted archive contents or title data.
 
 | Dependency | Unresolved import references | Workstream |
 | --- | ---: | --- |
-| `AcpHal.dll` | 1 | `AcpHalCreate` guest-object interface; eight APU memory/SHAPE functions linked with bounded host implementations |
+| `AcpHal.dll` | 0 | Eight functional host APU memory/SHAPE bindings and one partial HAL factory; DSP configuration remains unsupported |
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
 | `xmem.dll` | 1 | `XMemTransferMemory` memory-budget transfer semantics remain unknown |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **15** | |
+| **Total** | **14** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -61,6 +61,10 @@ Measured working address bindings:
   Real aligned CPU allocations and quotas are tested; arbitrary game memory,
   physical APU RAM, actual SHAPE processing and audio command/result queues
   remain unsupported
+- **1** [partial AcpHal guest factory binding](APU_HAL_FACTORY.md): the
+  factory allocates a correctly shaped host object and real bounded ring
+  buffers, but the unverified `+0x10` DSP configuration method returns
+  `E_NOTIMPL`; readiness separately reports `HAL factory partial=1`
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
 - **1** experimental `D3D12XboxCreateDevice` import linked to a verified
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
@@ -78,7 +82,7 @@ component lifetime, graphics semantics or startup success.
 
 ## Mandatory runtime milestones beyond imports
 
-Even if all 15 outstanding references gain function addresses, startup
+Even if all 14 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [APU Address Translation](docs/APU_ADDRESS_TRANSLATION.md) · [APU SHAPE Buffers](docs/APU_SHAPE_CONTEXTS.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [APU Address Translation](docs/APU_ADDRESS_TRANSLATION.md) · [APU SHAPE Buffers](docs/APU_SHAPE_CONTEXTS.md) · [Partial AcpHal Factory](docs/APU_HAL_FACTORY.md) · [VIctory Reference Notes](docs/VICTORY_REFERENCE_NOTES.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -23,6 +23,8 @@ This repository **does not include game files or Xbox proprietary components**.
 You must supply your own legitimately obtained software.
 
 ## Status
+
+**Separate ready-to-test upstream path:** The [external compatibility runner](docs/EXTERNAL_COMPAT_BACKENDS.md) can check, prepare and explicitly launch the separately GPL-licensed ztrx (NVIDIA) or Belobug AMD executables without copying their source into ScarlettVI. This is **not** a claim that native ScarlettVI can boot the game; the two external projects report very low world FPS. Install the official Rust toolchain to build them. The original native compatibility layer continues independently.
 
 **Early development — not bootable or playable yet.**
 
@@ -65,7 +67,7 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **15 Xbox-specific import references remain unresolved.**
+title-local exports. **14 Xbox-specific import references remain unresolved.**
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 
@@ -92,7 +94,13 @@ actually owns, including optional 32-bit ApuAlloc output and full-span checks.
 It does not map unrelated game memory or implement Xbox DSP sound processing.
 The [SHAPE context memory bridge](docs/APU_SHAPE_CONTEXTS.md) now supplies
 bounded allocation/release of the inspected title's 64-byte family-4
-context records. The HAL factory, audio DSP and playback remain unfinished.
+context records. The [partial AcpHal guest object](docs/APU_HAL_FACTORY.md)
+now creates real bounded host ring buffers with tested lifetime and a
+verified guest vtable layout, but its DSP configuration call returns
+`E_NOTIMPL`; audio playback is not implemented. The
+[VIctory/ztrx architecture comparison](docs/VICTORY_REFERENCE_NOTES.md)
+identifies the much larger runtime, shader and streaming work ahead without
+copying either GPL project's code.
 The original `XMemMapPhysicalPagesScatter` bridge now supports validated
 **non-contiguous 64 KiB page mappings across multiple reserved regions**, with
 real aliases and safe unmapping (see [call-site research](docs/XMEM_SCATTER.md)).

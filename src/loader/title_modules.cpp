@@ -160,6 +160,7 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
         report.nested_xbox_pending += binding.xbox_symbols_pending;
         report.nested_experimental_hle_bound += binding.experimental_hle_symbols_bound;
         report.nested_apu_host_alloc_bound += binding.experimental_apu_host_alloc_bound;
+        report.nested_apu_hal_partial_bound += binding.experimental_apu_hal_partial_bound;
         report.nested_xmem_error_only_bound += binding.experimental_xmem_error_only_bound;
         report.nested_d3d12_exports_bound += binding.experimental_d3d12_exports_bound;
         report.nested_d3d12_device_bound += binding.experimental_d3d12_device_bound;

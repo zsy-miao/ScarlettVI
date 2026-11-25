@@ -1,4 +1,5 @@
 #include "apu_memory.h"
+#include "acp_hal_host.h"
 #include <Windows.h>
 #include <array>
 #include <atomic>
@@ -37,7 +38,8 @@ bool verify_host_apu_address_fixtures() noexcept {
             find_acphal_export("ApuMapVirtualAddressExtra") ||
             find_acphal_export("ApuMapApuAddressOrdinal") ||
             find_acphal_export("apumapvirtualaddress") ||
-            find_acphal_export("AcpHalCreate") ||
+            find_acphal_export("AcpHalCreate") !=
+                reinterpret_cast<FARPROC>(&AcpHalCreate) ||
             find_acphal_export("ApuMapPhysicalAddress"))
             return false;
         auto valid = reinterpret_cast<CheckFn>(check_proc);

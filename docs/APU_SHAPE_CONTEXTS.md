@@ -41,4 +41,4 @@ The synthetic SHAPE fixture checks exact export routing and x64 function pointer
 | All Xbox HLE | 17 | **15** |
 | Experimental APU host memory bindings | 6 | **8** |
 
-The only unbound AcpHal entry is `AcpHalCreate`, which returns a guest object with a nontrivial vtable. Five `xapu` and five `chad` audio/DSP imports remain, plus XG, DirectStorage and memory budget transfer. Import binding does not establish title bootability; `TITLE EXECUTION: BLOCKED` remains enforced.
+The table above records the SHAPE storage milestone. The subsequent [partial AcpHal guest factory](APU_HAL_FACTORY.md) also gives `AcpHalCreate` a real host object/vtable and bounded ring buffers, reducing the latest missing Xbox import count to **14**. The factory's DSP configuration method is unimplemented and returns `E_NOTIMPL`; no title boot is claimed. Five `xapu` and five `chad` audio/DSP imports remain, plus XG, DirectStorage and memory transfer. `TITLE EXECUTION: BLOCKED` remains enforced.

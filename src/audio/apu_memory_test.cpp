@@ -1,4 +1,5 @@
 #include "apu_memory.h"
+#include "acp_hal_host.h"
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -53,7 +54,8 @@ bool verify_host_apu_allocation_fixtures() noexcept {
         if (alloc_export != reinterpret_cast<FARPROC>(&ApuAlloc) ||
             free_export != reinterpret_cast<FARPROC>(&ApuFree) ||
             heap_export != reinterpret_cast<FARPROC>(&ApuCreateHeap) ||
-            find_acphal_export("AcpHalCreate") ||
+            find_acphal_export("AcpHalCreate") !=
+                reinterpret_cast<FARPROC>(&AcpHalCreate) ||
             find_acphal_export("ApuMapVirtualAddress") !=
                 reinterpret_cast<FARPROC>(&ApuMapVirtualAddress) ||
             find_acphal_export("apualloc") ||

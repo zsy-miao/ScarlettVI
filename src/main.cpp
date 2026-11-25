@@ -24,6 +24,7 @@
 #include "runtime/xmem_bridge.h"
 #include "audio/apu_memory.h"
 #include "audio/apu_shape.h"
+#include "audio/acp_hal_host.h"
 #include "runtime/xmem_query.h"
 #include <Windows.h>
 #include <algorithm>
@@ -128,6 +129,7 @@ void usage() {
                << L"  ScarlettVI.exe audio-memory-fixture\n"
                << L"  ScarlettVI.exe audio-address-fixture\n"
                << L"  ScarlettVI.exe audio-shape-fixture\n"
+               << L"  ScarlettVI.exe audio-hal-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -159,6 +161,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"audio-hal-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::audio::verify_host_hal_factory_fixture();
+            std::cout << "ScarlettVI | owned AcpHal guest object fixture: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nReal bounded host rings; DSP configuration method "
+                      << "returns E_NOTIMPL; title execution remains BLOCKED.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"audio-shape-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

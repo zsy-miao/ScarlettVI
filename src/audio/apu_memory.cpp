@@ -1,5 +1,6 @@
 #include "apu_memory.h"
 #include "apu_shape.h"
+#include "acp_hal_host.h"
 #include <malloc.h>
 #include <algorithm>
 #include <cstring>
@@ -282,7 +283,9 @@ FARPROC find_acphal_export(std::string_view name) noexcept {
         return reinterpret_cast<FARPROC>(&ApuMapVirtualAddress);
     if (name == "ApuMapApuAddress")
         return reinterpret_cast<FARPROC>(&ApuMapApuAddress);
-    return find_shape_export(name);
+    if (FARPROC address = find_shape_export(name))
+        return address;
+    return find_acphal_factory_export(name);
 }
 
 HostApuAllocationStats host_apu_allocation_stats() noexcept {

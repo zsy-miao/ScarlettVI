@@ -29,7 +29,7 @@ console code, keys or proprietary binary libraries belong in this repository.
   additional reference; the original partial GPU VM configuration bridge
   links **1** more, and the original [host APU allocation bridge](APU_HOST_MEMORY.md)
   links the host `ApuCreateHeap`/`ApuAlloc`/`ApuFree` subset, leaving
-  **15** Xbox import references unresolved.
+  **14** Xbox import references unresolved.
   The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
   returns FALSE when no Xbox developer/tools partition exists; this
   reduces missing import addresses but does not supply console memory services.
@@ -42,6 +42,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   ScarlettVI-owned CPU allocations only; other title memory stays unsupported.
   The [family-4 SHAPE host buffer manager](APU_SHAPE_CONTEXTS.md) now
   implements bounded allocation and release, but not audio decoding.
+  The [partial AcpHal guest factory](APU_HAL_FACTORY.md) supplies a
+  bounded host object/vtable and ring storage, while its DSP configuration
+  method still returns `E_NOTIMPL` and is tracked separately.
+  [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
+  loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not
   a gameplay-ready audio service. Public emulator comparisons and remaining real runtime
   gates are documented in [research](PUBLIC_COMPATIBILITY_RESEARCH.md).
