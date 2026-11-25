@@ -22,7 +22,7 @@ These offsets are relative to the helper's compact source pointer (RDX) and prep
 | `+0x09` | lookup/bit-shift-derived value | `+0x24` |
 | `+0x08` | controls a conditional value | `+0x2C` |
 
-The helper also branches on source bytes at `+0x06`, `+0x0B`, `+0x0C`, and `+0x0D`, and uses other register arguments to derive a flag field at output `+0x30`. The routine initializes or clears several output fields, and certain format categories appear to adjust two dimensions to multiples of four. Those rules require full control-flow validation before implementation.
+The helper also branches on source bytes at `+0x06`, `+0x0B`, `+0x0C`, and `+0x0D`, and uses other register arguments to derive a flag field at output `+0x30`. Direct stores set prepared qwords `+0x08` and `+0x28` to zero, and the category/fallback paths can set output `+0x24` to one without any proprietary lookup table. Those initial stores are now included in the [host-only synthetic fixture](XG_FIELD_PROJECTION.md), which reports whether the `+0x24` result is known. The routine initializes or clears several output fields, and certain format categories appear to adjust two dimensions to multiples of four. Those rules require full control-flow validation before implementation.
 
 **Important distinction:** an observed store to `+0x30` establishes at least a 52-byte accessed extent in this path, but not an exact descriptor type or total size. Another caller performs overlapping AVX copies that cover at least 56 bytes of prepared data. No field meaning, accepted enum, padding rule or output-object lifetime contract is yet proven.
 
@@ -34,6 +34,6 @@ The helper also branches on source bytes at `+0x06`, `+0x0B`, `+0x0C`, and `+0x0
 
 ## Decision and next checks
 
-Keep both `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED`. A new [synthetic field-projection fixture](XG_FIELD_PROJECTION.md) now models five directly observed source-to-output transfers plus verified category-dependent constants for categories `0`, `3` and other values. It passes 512 generated tests and never executes game code. Next, independently verify the remaining conditional writes, lookup tables and size limits; expand the fixture **only** for substantiated fields. Do not label the host's synthetic Morton tiling as Xbox XG swizzling.
+Keep both `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED`. The [synthetic field-projection fixture](XG_FIELD_PROJECTION.md) models five directly observed source-to-output transfers, verified category-dependent constants and two zeroed qwords. It passes 512 generated tests plus 256 lookup-index boundary cases and never executes game code. Next, independently verify the remaining conditional writes, lookup tables and size limits; expand the fixture **only** for substantiated fields. Do not label the host's synthetic Morton tiling as Xbox XG swizzling.
 
 See [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), [XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md), [XG_TEXTURE_LAYOUT.md](XG_TEXTURE_LAYOUT.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).

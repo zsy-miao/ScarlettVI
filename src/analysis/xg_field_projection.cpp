@@ -47,7 +47,8 @@ XgFieldProjectionStatus decode_xg_observed_fields(
 
 XgFieldProjectionStatus project_xg_observed_fields(
     std::span<const uint8_t> compact,
-    std::span<uint8_t> prepared) noexcept {
+    std::span<uint8_t> prepared,
+    XgFieldProjectionCoverage* coverage) noexcept {
     XgObservedCompactFields extracted;
     const auto status = decode_xg_observed_fields(compact, extracted);
     if (status != XgFieldProjectionStatus::ok)
@@ -62,13 +63,23 @@ XgFieldProjectionStatus project_xg_observed_fields(
     // The category-dependent token has no established semantic meaning.
     const uint32_t observed_token = extracted.category_06 == 0 ? 2u :
                                     extracted.category_06 == 3 ? 4u : 3u;
+    // All three category branches rejoin explicit 8-byte zero stores.
+    // In the ordinary category path, an index of 0 or >17 skips the
+    // unverified shift lookup and leaves the shift count at zero.
+    const bool known_shift = extracted.category_06 == 0 ||
+                             extracted.category_06 == 3 ||
+                             compact[0x09] == 0 || compact[0x09] > 17;
     write_le(prepared, 0x00, observed_token, 4);
+    write_le(prepared, 0x08, 0, 8);
     write_le(prepared, 0x10, extracted.source_00, 8);
     write_le(prepared, 0x18,
              extracted.category_06 == 0 ? 1u : extracted.source_02, 4);
     write_le(prepared, 0x1c, extracted.source_04, 2);
     write_le(prepared, 0x1e, extracted.source_0a, 2);
     write_le(prepared, 0x20, extracted.source_07, 4);
+    if (known_shift) write_le(prepared, 0x24, 1, 4);
+    write_le(prepared, 0x28, 0, 8);
+    if (coverage) *coverage = {known_shift, known_shift ? 44u : 40u};
     return XgFieldProjectionStatus::ok;
 }
 } // namespace scarlett::analysis

@@ -134,8 +134,9 @@ negative-test fixtures. Neither command executes title code or guesses the ABI
 verified title-local field transfers but does not define the Xbox XG ABI.
 The original [synthetic field-projection fixture](XG_FIELD_PROJECTION.md)
 models five observed transfers plus independently verified category-dependent
-constants with 512 generated checks across three branches, including bounds,
-overlap detection and output preservation.
+constants and zeroed fields with 512 generated checks across three branches
+and 256 lookup-index cases, including bounds, overlap detection, explicit
+coverage metadata and output preservation.
 It does not implement a console import, or enable title execution.
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs

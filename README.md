@@ -36,7 +36,8 @@ read-only call context for independent local ABI investigation. A separate
 title-local field transfers without asserting a console ABI. The new
 [synthetic XG field fixture](docs/XG_FIELD_PROJECTION.md) verifies observed
 source-to-output transfers and three corroborated category paths over
-**512 deterministic generated cases**, including invalid-range and preservation tests. This research helper does
+**512 deterministic generated cases** and 256 lookup-index coverage cases,
+including invalid-range and preservation tests. This research helper does
 not bind any Xbox graphics API. The full Xbox XG texture computer/swizzle ABI
 remains unknown, so both graphics imports are still **unresolved**.
 

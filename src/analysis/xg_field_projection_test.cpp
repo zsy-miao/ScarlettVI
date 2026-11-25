@@ -35,6 +35,10 @@ bool verify_xg_field_projection_fixtures() noexcept {
         for (auto& value : projected)
             value = static_cast<uint8_t>(next_random(rng));
         expected = projected;
+        // Exercise both alternate entries and the unknown lookup interval.
+        compact[9] = trial % 7 == 0 ? uint8_t{0} :
+                     trial % 7 == 1 ? uint8_t{17} :
+                     trial % 7 == 2 ? uint8_t{18} : compact[9];
         // Exercise both alternative entry paths and the shared default.
         compact[6] = trial % 9 == 0 ? uint8_t{0} :
                      trial % 9 == 1 ? uint8_t{3} :
@@ -51,14 +55,20 @@ bool verify_xg_field_projection_fixtures() noexcept {
         // extension and preservation of all unobserved bytes.
         expected[0] = compact[6] == 0 ? 2 : compact[6] == 3 ? 4 : 3;
         expected[1] = expected[2] = expected[3] = 0;
+        for (size_t i = 8; i < 16; ++i) expected[i] = 0;
         reference_store(expected, 0x10, w0, 8);
         reference_store(expected, 0x18,
                         compact[6] == 0 ? uint16_t{1} : w2, 4);
         reference_store(expected, 0x1c, w4, 2);
         reference_store(expected, 0x1e, compact[0x0a], 2);
         reference_store(expected, 0x20, compact[0x07], 4);
+        const bool lookup_known = compact[6] == 0 || compact[6] == 3 ||
+                                  compact[9] == 0 || compact[9] > 17;
+        if (lookup_known) reference_store(expected, 0x24, 1, 4);
+        for (size_t i = 0x28; i < 0x30; ++i) expected[i] = 0;
 
         XgObservedCompactFields extracted{};
+        XgFieldProjectionCoverage coverage{false, 99};
         if (decode_xg_observed_fields(compact, extracted) != Status::ok ||
             extracted.category_06 != compact[6] ||
             extracted.source_00 != w0 ||
@@ -66,7 +76,9 @@ bool verify_xg_field_projection_fixtures() noexcept {
             extracted.source_04 != w4 ||
             extracted.source_07 != compact[7] ||
             extracted.source_0a != compact[10] ||
-            project_xg_observed_fields(compact, projected) != Status::ok ||
+            project_xg_observed_fields(compact, projected, &coverage) != Status::ok ||
+            coverage.output_24_known != lookup_known ||
+            coverage.modeled_bytes != (lookup_known ? 44u : 40u) ||
             projected != expected)
             return false;
     }
@@ -76,6 +88,7 @@ bool verify_xg_field_projection_fixtures() noexcept {
     compact[6] = 1;
     projected.fill(0x4c);
     const auto pristine = projected;
+    XgFieldProjectionCoverage unchanged_coverage{true, 987};
     XgObservedCompactFields untouched{0xa1, 0x1234, 0x5678, 0x9abc, 0xde, 0xf0};
     if (decode_xg_observed_fields(
             std::span<const uint8_t>(compact).first(10),
@@ -84,11 +97,13 @@ bool verify_xg_field_projection_fixtures() noexcept {
         untouched.source_0a != 0xf0 ||
         project_xg_observed_fields(
             std::span<const uint8_t>(compact).first(10),
-            projected) != Status::truncated_input ||
+            projected, &unchanged_coverage) != Status::truncated_input ||
+        unchanged_coverage.modeled_bytes != 987 ||
         projected != pristine ||
         project_xg_observed_fields(
-            compact, std::span<uint8_t>(projected).first(0x23)) !=
-            Status::truncated_output ||
+            compact, std::span<uint8_t>(projected).first(0x2f),
+            &unchanged_coverage) != Status::truncated_output ||
+        unchanged_coverage.modeled_bytes != 987 ||
         projected != pristine)
         return false;
     // The zero and 3 category entry paths are independently corroborated:
@@ -104,7 +119,24 @@ bool verify_xg_field_projection_fixtures() noexcept {
             projected[0x19] != (branch == 0 ? 0 : 0xff))
             return false;
     }
+    // Cover all lookup-index boundaries without claiming the unknown table.
     compact[6] = 1;
+    for (unsigned index = 0; index < 256; ++index) {
+        compact[9] = static_cast<uint8_t>(index);
+        projected = pristine;
+        XgFieldProjectionCoverage coverage{};
+        const bool known = index == 0 || index > 17;
+        if (project_xg_observed_fields(compact, projected, &coverage) !=
+                Status::ok ||
+            coverage.output_24_known != known ||
+            coverage.modeled_bytes != (known ? 44u : 40u) ||
+            (known && (projected[0x24] != 1 || projected[0x25] != 0 ||
+                       projected[0x26] != 0 || projected[0x27] != 0)) ||
+            (!known && (projected[0x24] != 0x4c ||
+                        projected[0x27] != 0x4c)))
+            return false;
+    }
+    compact[9] = 0;
     projected = pristine;
 
     // Reject overlapping input and output ranges even when the destination
@@ -115,8 +147,9 @@ bool verify_xg_field_projection_fixtures() noexcept {
     const auto original_shared = shared;
     if (project_xg_observed_fields(
             std::span<const uint8_t>(shared).first(14),
-            std::span<uint8_t>(shared).subspan(4, 64)) !=
-            Status::overlapping_buffers ||
+            std::span<uint8_t>(shared).subspan(4, 64),
+            &unchanged_coverage) != Status::overlapping_buffers ||
+        unchanged_coverage.modeled_bytes != 987 ||
         shared != original_shared)
         return false;
 
