@@ -1,6 +1,7 @@
 #include "dstorage_queue_host.h"
 #include "dstorage_alias_destination.h"
 #include "dstorage_file_host.h"
+#include "../runtime/physical_memory.h"
 #include <atomic>
 #include <array>
 #include <limits>
@@ -77,8 +78,9 @@ public:
         RegisteredFixtureRequest approved;
         bool permitted = false;
         {
-            // Never dereference a raw guest request pointer. Our own host
-            // test explicitly registers a complete, immutable snapshot.
+            // Registered host test requests supply an immutable snapshot.
+            // Unknown pointers must be verified through PhysicalMemory
+            // before ANY guest-memory dereference.
             const std::lock_guard lock(fixture_request_mutex);
             if (const auto it = fixture_requests.find(request);
                 it != fixture_requests.end()) {
@@ -89,6 +91,37 @@ public:
         }
         HANDLE opened = INVALID_HANDLE_VALUE;
         HRESULT request_error = E_NOTIMPL;
+        if (!permitted && request) {
+            // A first guest-address-space bridge: only read request bytes
+            // from XMem aliases owned and mapped by ScarlettVI. The
+            // snapshot helper validates every intersected CPU page under
+            // its registry mutex before copying; unknown stack/heap
+            // pointers are NEVER dereferenced by this route.
+            auto& physical = memory::PhysicalMemory::instance();
+            GuestDStorageRequest snapshot{};
+            if (physical.snapshot_mapped_alias(
+                    request, sizeof(snapshot), &snapshot) &&
+                snapshot.options == 0 && snapshot.file &&
+                snapshot.destination && snapshot.source_size &&
+                snapshot.source_size <= HostAsyncFileQueue::kMaxReadBytes &&
+                snapshot.source_size == snapshot.destination_size &&
+                snapshot.intermediate_size == 0) {
+                memory::PhysicalMemory::MappedAliasSpan span{};
+                if (physical.resolve_mapped_alias_span(
+                        snapshot.destination, snapshot.destination_size,
+                        span)) {
+                    std::shared_ptr<HostDStorageAliasDestination> pinned;
+                    request_error = HostDStorageAliasDestination::pin_pages(
+                        snapshot.destination, span.frames.data(),
+                        span.count, snapshot.destination_size, pinned);
+                    if (SUCCEEDED(request_error)) {
+                        approved.snapshot = snapshot;
+                        approved.alias = std::move(pinned);
+                        permitted = true;
+                    }
+                }
+            }
+        }
         if (permitted) {
             const auto& r = approved.snapshot;
             const bool approved_vector = approved.destination &&

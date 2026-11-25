@@ -51,8 +51,18 @@ The new
 `register_host_dstorage_fixture_alias_pages_request(request, frames, count)`
 approves a multi-page range only for trusted generated tests.
 Neither registration function is exported as a guest service.
-Unapproved game requests remain ordered errors without dereferencing
-raw guest pointers.
+
+**New guarded request snapshot route:** In the generated-file fixture,
+`EnqueueRequest` can also accept a request pointer **without any explicit
+host registration** when the entire 64-byte request is backed by mapped,
+ScarlettVI-owned XMem CPU pages. `PhysicalMemory::snapshot_mapped_alias`
+validates every intersected request page under its registry mutex,
+then copies the request. It resolves the destination's registered CPU
+pages and revalidates all frames through the existing pinning system.
+Unknown pointers, native stack/heap storage, unowned destinations and
+unsupported options are rejected without dereferencing them. The queue
+is still unavailable unless an explicitly configured trusted generated
+fixture root exists; this is **not** unrestricted title streaming.
 
 ## Verification
 
@@ -76,6 +86,12 @@ single-page route and a real **three-page** write:
   job, preserves the destination, and releases its pins.
 - The virtual region can then be unmapped and freed without leaked frames
   or aliases; the original queue's staging lease stays unaffected.
+- An unregistered request **crossing two XMem source pages** safely
+  snapshots its struct and pins a separate three-page destination.
+  Its original source mapping can be wiped and released before Submit.
+  Wrong option bits, an unowned destination, and an unmapped source
+  page are refused; successful generated data writes exactly as
+  requested and all destination pins are released.
 
 Run from the ScarlettVI project root:
 

@@ -1,5 +1,6 @@
 #pragma once
 #include <Windows.h>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -29,6 +30,19 @@ public:
     // safeguards host staging against a stale VA; it is not Xbox GPU residency.
     bool pin_mapped_alias(void* address, uintptr_t physical_frame);
     bool unpin_mapped_alias(void* address, uintptr_t physical_frame);
+    // Only expose ranges currently backed by ScarlettVI-owned XMem CPU
+    // aliases. Both queries hold the registry mutex and reject any
+    // unmapped page; neither attempts to inspect arbitrary guest memory.
+    // Returned frames are revalidated by the independent pin operation.
+    struct MappedAliasSpan {
+        static constexpr size_t kMaxFrames = 17; // unaligned 1MiB
+        std::array<uintptr_t, kMaxFrames> frames{};
+        size_t count = 0;
+    };
+    bool resolve_mapped_alias_span(const void* source, size_t bytes,
+                                   MappedAliasSpan& result) const noexcept;
+    bool snapshot_mapped_alias(const void* source, size_t bytes,
+                               void* host_output) const noexcept;
     size_t pinned_alias_count() const;
     size_t allocated_page_count() const;
 
@@ -48,6 +62,8 @@ private:
     bool unmap_one_unlocked(void* address, Region& region, size_t index);
     bool split_placeholder_slot_unlocked(void* address);
     bool release_region_unlocked(void* address, Region& region);
+    bool resolve_mapped_alias_span_unlocked(
+        const void* source, size_t bytes, MappedAliasSpan& result) const noexcept;
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Page> pages_;
     std::unordered_map<void*, Region> regions_;

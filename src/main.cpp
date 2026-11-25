@@ -189,8 +189,8 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "ScarlettVI | fixture-rooted Xbox-IID DirectStorage "
                       << "queue COM and real FIFO status barriers: "
                       << (passed ? "PASS" : "FAIL")
-                      << "\nGenerated reads only; guest request ABI and title "
-                      << "execution remain blocked.\n";
+                      << "\nGenerated reads and guarded XMem CPU request snapshots only; "
+                      << "native title streaming/execution remain blocked.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"storage-file-fixture") {

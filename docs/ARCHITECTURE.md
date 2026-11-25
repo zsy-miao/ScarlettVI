@@ -86,7 +86,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   now writes exact read bytes through the real worker before status
   completion, including [contiguous multi-page XMem CPU aliases](XBOX_DSTORAGE_CPU_ALIAS.md)
   whose mapped 64KiB slots are all pinned before the read and cannot unmap
-  until completion. Any failed page validation rolls back prior pins.
+  until completion. Raw guest requests now have a registry-guarded
+  [XMem-owned request snapshot](XBOX_DSTORAGE_REQUEST_ABI.md) path
+  that can cross CPU page boundaries but will not read unowned pointers.
+  Any failed page validation rolls back prior pins.
   Unapproved guest requests become errors, not fake reads;
   full console queues, game asset streaming, decompression
   and real Xbox destination buffers remain missing.

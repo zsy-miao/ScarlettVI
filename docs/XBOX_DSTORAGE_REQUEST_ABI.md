@@ -47,27 +47,36 @@ mismatch or a malformed PE. It does not execute, patch, dump, decrypt,
 or publish game bytes; the target file is never opened for writing.
 A different build may have different addresses and must be reanalyzed.
 
-## Verified, strictly fixture-only host path
+## Guarded, fixture-rooted XMem request snapshot path
 
 - `src/storage/dstorage_queue_host.h` defines the 64-byte x64 request
   shape with `static_assert` checks for relevant field offsets.
   `options=0` selects an ordinary file-sourced, uncompressed,
   non-swizzled, non-physical-memory read.
-- A host-generated test must explicitly register a *snapshot* of the
-  request pointer and either an owned `vector<uint8_t>` or a
-  [pinned, contiguous XMem CPU alias span](XBOX_DSTORAGE_CPU_ALIAS.md)
-  from the existing 64KiB physical-memory registry. Each virtual page
-  requires its own trusted frame identity; single-frame approval still
-  rejects crossing requests. The multi-page route pins every required
-  page and rolls back all pins when any page fails. These registration
-  functions are **not** exported or available to titles. Unapproved
-  destination pointers are never dereferenced.
-- Queue `EnqueueRequest` compares the request **address** with the
-  synchronized permit registry, rather than dereferencing arbitrary
-  user/guest pointers. It consumes one permit and uses the immutable
-  snapshot. Only a ScarlettVI-owned live `IDStorageFileX` can be
-  reopened; file-source size must be 1–1,048,576 bytes and equal
-  destination size.
+- Existing host-generated tests may explicitly register an immutable
+  snapshot of the request and a host vector or
+  [pinned XMem CPU alias span](XBOX_DSTORAGE_CPU_ALIAS.md). Permits are
+  one-shot, and are not exported as title services.
+- **New:** unregistered request structures are also accepted when the
+  **entire 64-byte structure** resides in a currently mapped
+  ScarlettVI-owned **XMem CPU alias**. Before any read of the pointer,
+  `PhysicalMemory::snapshot_mapped_alias` checks all intersected
+  mapped pages under its registry lock and copies the struct once.
+  This works even when the request crosses a 64KiB boundary.
+- The destination virtual range is resolved separately through
+  `PhysicalMemory::resolve_mapped_alias_span`, which returns the
+  synthetic frame identity of each intersected CPU page (up to 17).
+  The queue **revalidates and pins every page** before admission.
+  If a mapping changed or a page is absent, it rolls back all pins
+  without writing memory.
+- Raw request pointers outside the owned XMem alias registry are **never
+  dereferenced**. Requests with nonzero/unsupported options, unknown
+  file objects, invalid sizes or unowned destinations become **ordered
+  failures**, not fake successful transfers. Only a ScarlettVI-owned
+  live `IDStorageFileX` can be reopened.
+- Both paths remain gated by the trusted generated-file fixture root:
+  `CreateQueue1` remains unavailable by default to native titles,
+  and neither method mounts or reads the title's actual game assets.
 - The existing host FIFO worker retains the read handle and either
   the destination vector **or a pinned XMem alias** until it has read
   exactly the requested bytes. Real writeback occurs before the following
@@ -75,15 +84,19 @@ A different build may have different addresses and must be reanalyzed.
   destination data; cancellation or permit withdrawal releases any page
   pin. The marker observes the first real HRESULT failure since its
   previous marker.
-- Arbitrary, unregistered, malformed, or unsupported guest requests
-  are **never dereferenced**: they generate ordered `E_NOTIMPL` or
-  validation-error completions, not fake success. Existing 64-slot and
-  staging-budget safety limits remain active.
+- Unregistered requests that are **not in verified XMem CPU aliases**
+  are never dereferenced and become ordered `E_NOTIMPL` failures.
+  Existing 64-slot and staging-budget safety limits remain active.
 - Generated-file regression checks raw queue slot +0x18 invocation,
   no write before Submit, byte-for-byte writeback at a nonzero file
   offset, duplicate permit rejection, source-handle independence,
   immediate reuse of the caller's request structure, and rejection of
-  intentionally invalid request pointers.
+  intentionally invalid request pointers. A second case submits an
+  unregistered 64-byte request **crossing two mapped XMem pages** and
+  writes exactly to a separate three-page XMem destination, even after
+  the request structure has been wiped, unmapped and freed. Missing
+  source pages, ordinary stack destinations and unsupported option bits
+  fail safely without leaking pins.
 
 ## Still required before any title streaming
 

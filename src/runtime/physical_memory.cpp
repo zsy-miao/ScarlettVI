@@ -1,5 +1,6 @@
 #include "physical_memory.h"
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <memoryapi.h>
 #include <new>
@@ -448,6 +449,74 @@ BOOL PhysicalMemory::release_alias_region(void* address) {
 bool PhysicalMemory::owns_alias_region_base(void* base) const {
     std::lock_guard lock(mutex_);
     return regions_.contains(base);
+}
+
+bool PhysicalMemory::resolve_mapped_alias_span_unlocked(
+    const void* source, size_t bytes, MappedAliasSpan& result) const noexcept {
+    result = {};
+    constexpr size_t kMaxBytes = 1024 * 1024;
+    if (!source || !bytes || bytes > kMaxBytes) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+    }
+    const uintptr_t addr = reinterpret_cast<uintptr_t>(source);
+    if (bytes - 1 > std::numeric_limits<uintptr_t>::max() - addr) {
+        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
+        return false;
+    }
+    const size_t offset = static_cast<size_t>(addr & (page_bytes - 1));
+    const size_t count = 1 + (offset + bytes - 1) / page_bytes;
+    if (count > MappedAliasSpan::kMaxFrames) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+    }
+    const uintptr_t first = addr & ~static_cast<uintptr_t>(page_bytes - 1);
+    for (size_t i = 0; i < count; ++i) {
+        const uintptr_t at = first + i * page_bytes;
+        bool mapped = false;
+        for (const auto& [base, region] : regions_) {
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(base);
+            if (at < begin) continue;
+            const uintptr_t difference = at - begin;
+            if (difference / page_bytes >= region.page_count) continue;
+            const uintptr_t frame = region.mapped_pages[
+                static_cast<size_t>(difference / page_bytes)];
+            if (frame && pages_.contains(frame)) {
+                result.frames[i] = frame;
+                mapped = true;
+            }
+            break;
+        }
+        if (!mapped) {
+            result = {};
+            SetLastError(ERROR_INVALID_ADDRESS);
+            return false;
+        }
+    }
+    result.count = count;
+    return true;
+}
+
+bool PhysicalMemory::resolve_mapped_alias_span(
+    const void* source, size_t bytes, MappedAliasSpan& result) const noexcept {
+    const std::lock_guard lock(mutex_);
+    return resolve_mapped_alias_span_unlocked(source, bytes, result);
+}
+
+bool PhysicalMemory::snapshot_mapped_alias(
+    const void* source, size_t bytes, void* host_output) const noexcept {
+    if (!host_output) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+    }
+    const std::lock_guard lock(mutex_);
+    MappedAliasSpan span;
+    if (!resolve_mapped_alias_span_unlocked(source, bytes, span))
+        return false;
+    // Every intersected slot was verified under the same registry lock.
+    // No XMem remap or region release can race the snapshot.
+    std::memcpy(host_output, source, bytes);
+    return true;
 }
 
 bool PhysicalMemory::pin_mapped_alias(void* address, uintptr_t physical_frame) {

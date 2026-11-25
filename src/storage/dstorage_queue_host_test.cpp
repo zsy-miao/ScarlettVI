@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -521,6 +522,129 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             source->Release();
             return false;
         }
+
+        // Real mapped guest CPU request memory (not a host-registered
+        // pointer) can now be copied safely by the queue. Place the
+        // 64-byte struct across two mapped XMem page slots to exercise
+        // full-span ownership validation. Its destination spans three
+        // independent mapped CPU aliases.
+        TripleAliasFixture guest_request_pages;
+        if (!guest_request_pages.create()) {
+            source->Release();
+            return false;
+        }
+        uint8_t* const guest_struct_bytes =
+            guest_request_pages.alias +
+            memory::PhysicalMemory::page_bytes - 20;
+        GuestDStorageRequest resident{};
+        resident.file = source;
+        resident.destination = multi_dest;
+        resident.destination_size = static_cast<uint32_t>(kMultiBytes);
+        resident.source_size = resident.destination_size;
+        resident.file_offset = 4091;
+        std::memcpy(guest_struct_bytes, &resident, sizeof(resident));
+        GuestDStorageRequest copied{};
+        if (!physical.snapshot_mapped_alias(guest_struct_bytes,
+                sizeof(copied), &copied) ||
+            copied.destination != multi_dest ||
+            physical.snapshot_mapped_alias(
+                &resident, sizeof(resident), &copied)) {
+            source->Release();
+            return false;
+        }
+        // Unsupported guest option bits must not trigger writes.
+        resident.options = 1;
+        std::memcpy(guest_struct_bytes, &resident, sizeof(resident));
+        enqueue_request(queue.ptr,
+            reinterpret_cast<const GuestDStorageRequest*>(
+                guest_struct_bytes));
+        enqueue_status(queue.ptr, status.ptr, 0);
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0, E_NOTIMPL) ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+        // An XMem-owned request pointing to non-XMem destination RAM
+        // must fail closed, even when its source file COM is valid.
+        resident.options = 0;
+        std::array<uint8_t, 16> non_xmem{};
+        resident.destination = non_xmem.data();
+        resident.destination_size =
+            static_cast<uint32_t>(non_xmem.size());
+        resident.source_size = resident.destination_size;
+        std::memcpy(guest_struct_bytes, &resident, sizeof(resident));
+        enqueue_request(queue.ptr,
+            reinterpret_cast<const GuestDStorageRequest*>(
+                guest_struct_bytes));
+        enqueue_status(queue.ptr, status.ptr, 0);
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0, E_NOTIMPL) ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+
+        // Request snapshots must reject partially unmapped XMem ranges,
+        // not just pointers that were never managed by ScarlettVI.
+        uint8_t* const request_second_page =
+            guest_request_pages.alias + memory::PhysicalMemory::page_bytes;
+        if (physical.map_pages(request_second_page, 1, nullptr) !=
+                request_second_page ||
+            physical.snapshot_mapped_alias(
+                guest_struct_bytes, sizeof(resident), &copied) ||
+            physical.map_pages(request_second_page, 1,
+                &guest_request_pages.frames[1]) != request_second_page) {
+            source->Release();
+            return false;
+        }
+
+        // Valid unregistered request uses ONLY XMem-owned source bytes.
+        // The source struct can be wiped and its mappings released
+        // immediately after enqueue; writeback retains DESTINATION pins.
+        resident.destination = multi_dest;
+        resident.destination_size = static_cast<uint32_t>(kMultiBytes);
+        resident.source_size = resident.destination_size;
+        std::fill_n(multi_dest, kMultiBytes, uint8_t{0x53});
+        std::memcpy(guest_struct_bytes, &resident, sizeof(resident));
+        enqueue_request(queue.ptr,
+            reinterpret_cast<const GuestDStorageRequest*>(
+                guest_struct_bytes));
+        if (physical.pinned_alias_count() != original_pins + 3) {
+            source->Release();
+            return false;
+        }
+        std::memset(guest_struct_bytes, 0, sizeof(resident));
+        if (physical.map_pages(guest_request_pages.alias,
+                guest_request_pages.count, nullptr) !=
+                guest_request_pages.alias ||
+            !physical.release_alias_region(guest_request_pages.alias) ||
+            !physical.free_pages(guest_request_pages.count,
+                                 guest_request_pages.frames.data())) {
+            source->Release();
+            return false;
+        }
+        guest_request_pages.alias = nullptr;
+        guest_request_pages.allocated = false;
+        enqueue_status(queue.ptr, status.ptr, 0);
+        if (status.ptr->IsComplete(0) ||
+            !std::all_of(multi_dest, multi_dest + kMultiBytes,
+                [](uint8_t b) { return b == uint8_t{0x53}; })) {
+            source->Release();
+            return false;
+        }
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0, S_OK) ||
+            !std::equal(multi_dest, multi_dest + kMultiBytes,
+                        data.begin() + 4091) ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+
+        // Reset the sentinel for the upcoming unsubmitted cancellation
+        // test, which must not write any bytes before Submit.
+        std::fill_n(multi_dest, kMultiBytes, uint8_t{0x79});
 
         // An unconsumed permission's destructor unpins the whole span.
         if (register_host_dstorage_fixture_alias_pages_request(

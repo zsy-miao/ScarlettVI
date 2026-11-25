@@ -88,9 +88,12 @@ host-side permission check. The [pinned XMem CPU-alias bridge](docs/XBOX_DSTORAG
 now supports a real, contiguous **multi-page CPU virtual destination**, pinning
 each intersected 64KiB mapping before the queued read begins and releasing
 all pins on completion/failure. Generated-file regressions verify a genuine
-three-page write and rollback on a wrong or unmapped middle page. Real guest
-destination translation, Xbox physical-page arrays, and title asset streaming
-remain unsupported.
+three-page write and rollback on a wrong or unmapped middle page. A
+[guarded request snapshot bridge](docs/XBOX_DSTORAGE_REQUEST_ABI.md) also
+reads unregistered guest requests **only from currently mapped XMem
+CPU aliases**, verifying both request bytes and their destination pages
+without trusting arbitrary title pointers. General guest heap memory,
+Xbox physical-page arrays and title asset streaming remain unsupported.
 The [actual Xbox status-array COM interface](docs/XBOX_DSTORAGE_STATUS_ARRAY.md)
 now works through the corrected factory vtable slot `+0x28`, and its
 status entries receive verified S_OK/error results from host file-I/O

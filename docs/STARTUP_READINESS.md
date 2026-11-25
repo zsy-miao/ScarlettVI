@@ -99,8 +99,10 @@ Measured working address bindings:
   now tests real file-to-host-memory copies through queue vtable `+0x18`.
   A separate [bounded multi-page pinned XMem CPU-alias bridge](XBOX_DSTORAGE_CPU_ALIAS.md)
   verifies three-page mapped writeback, all-or-nothing page pin admission,
-  rollback and unmap interlocks. It does not expose general title memory
-  or Xbox physical page-array destinations.
+  rollback and unmap interlocks. A request structure stored inside
+  verified XMem-managed CPU mappings can now be snapshotted without a
+  host-only permit, but general title heap/stack memory, guest VFS and
+  Xbox physical page-array destinations remain unavailable.
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.
