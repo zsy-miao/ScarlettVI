@@ -106,8 +106,11 @@ Measured working address bindings:
   nested paths with final-handle root containment. The guest path
   pointer is now copied only from **verified XMem-mapped CPU UTF-16**
   memory; host fixture literals have one-shot admission and unknown
-  native pointers are never read. The queue fixture reads generated
-  nested files via the owned file object. Normal Xbox title paths,
+  native pointers are never read. The new
+  [host-only read-only mount registry](XBOX_DSTORAGE_FILE_HOST.md) resolves
+  synthetic paths like `pack0:/generated.bin` to independently protected
+  canonical fixture roots, and the queue fixture performs real
+  generated-file reads using this route. Normal Xbox title mounts,
   general guest memory and full Xbox queues remain blocked; a [generated-buffer request subset](XBOX_DSTORAGE_REQUEST_ABI.md)
   now tests real file-to-host-memory copies through queue vtable `+0x18`.
   A separate [bounded multi-page pinned XMem CPU-alias bridge](XBOX_DSTORAGE_CPU_ALIAS.md)

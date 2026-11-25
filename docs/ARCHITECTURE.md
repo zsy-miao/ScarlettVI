@@ -88,9 +88,13 @@ console code, keys or proprietary binary libraries belong in this repository.
   Its `OpenFile` input is now snapshotted only from registered XMem
   CPU aliases, using a bounded per-code-unit UTF-16 copy under the
   memory mapping mutex; native fixture literals require a separate
-  one-shot host permit. It duplicates read handles and holds staging
-  leases until final Release;
-  actual Xbox volumes and title asset paths remain disabled. A [fixture-only queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md)
+  one-shot host permit. A host-only
+  [bounded virtual mount table](XBOX_DSTORAGE_FILE_HOST.md) now maps
+  synthetic names to up to four separate canonical read-only roots,
+  with final opened-handle containment and no fallback for unknown
+  mounts. It duplicates read handles and holds staging leases until
+  final Release; actual Xbox volumes and title asset paths remain
+  disabled. A [fixture-only queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md)
   now links the observed `CreateQueue1` IID to the real host worker and
   status-array barriers. It now also reads test-only factory-created file
   COM objects through independent Win32 `ReOpenFile` handles, surviving

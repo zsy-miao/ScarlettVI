@@ -62,6 +62,50 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
 - The API is not yet wired to an Xbox virtual filesystem, guest queue
   `DSTORAGE_REQUEST`, decompression engine, destination buffers or asset streaming.
 
+## Host-only read-only virtual mounts
+
+The generated-fixture file COM adapter now supports a bounded logical
+mount table. After the default fixture root has been configured by the
+host, `configure_dstorage_fixture_mount(name, trusted_root)` may install
+up to **four** additional separately validated read-only directory
+roots. Names are 1–16 ASCII characters, begin with a letter and may
+contain letters, digits, underscores or hyphens. Names are
+case-insensitive. Mount registration and removal are host-only
+functions; there is no guest Xbox import that can configure them.
+
+For example, a generated UTF-16 XMem path
+`pack0:/bundle/asset.bin` selects the host-registered `pack0` root.
+Both `/` and `\\` after the colon are accepted, and a path without a
+prefix continues to use the default fixture root. `PACK0` and
+`pack0` select the same mount, but a drive-like or unknown prefix is
+never treated as a host drive. An unknown mount returns `E_NOTIMPL`,
+not a fallback to the default root.
+
+Mount targets must exist and be real, non-reparse directories.
+Each mount's resolved canonical path is saved. The previously
+implemented per-component checks and final **opened-handle containment**
+apply to the selected mount independently, so traversals, path suffix
+tricks and intermediate symlink/junction escapes cannot cross its
+boundary. Duplicate names are rejected, and exceeding four mounts
+fails closed. `clear_dstorage_file_fixture_root()` atomically clears
+the base root and the whole mount registry for future opens; already
+open COM files retain their independently owned read-only handles
+until their last reference is released.
+
+The file fixture creates a second generated directory **outside** the
+default root with different contents under the same filename. It
+verifies exact data isolation, mount-name case handling, prefix syntax,
+unknown mounts, capacity limits, XMem-sourced prefixed UTF-16 strings,
+mount reset, retained-handle lifetime, and optional reparse-root
+rejection. The queue fixture also calls COM `OpenFile` using
+`pack0:/generated.bin` stored across XMem CPU pages, releases the
+path mapping, then completes a real queued read using the selected
+mount's file object.
+
+This is **not** the real Xbox VFS: no title-specific mount names,
+game content directories, package metadata, save writes, game assets,
+license checks, or executable title access have been enabled.
+
 ## Regression commands
 
 ```powershell

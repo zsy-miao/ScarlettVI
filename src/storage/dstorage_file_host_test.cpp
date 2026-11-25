@@ -28,6 +28,8 @@ struct FixtureRoot {
     fs::path nested_file;
     fs::path symbolic_directory;
     fs::path outside_file;
+    fs::path mounted_dir;
+    fs::path mounted_file;
     bool created = false;
     ~FixtureRoot() {
         clear_dstorage_file_fixture_root();
@@ -42,6 +44,8 @@ struct FixtureRoot {
             }
             fs::remove(file, error);
             fs::remove(dir, error);
+            if (!mounted_file.empty()) fs::remove(mounted_file, error);
+            if (!mounted_dir.empty()) fs::remove(mounted_dir, error);
             if (!outside_file.empty()) fs::remove(outside_file, error);
         }
     }
@@ -135,12 +139,87 @@ bool verify_dstorage_file_fixture() noexcept {
                               static_cast<std::streamsize>(expected.size())))
                 return false;
         }
+        // A second generated host root must NOT be reached through the
+        // base directory. It has different bytes for the same filename.
+        cleanup.mounted_dir = fs::path(L"reports") /
+            (L"dstorage_pack_mount_" +
+             std::to_wstring(GetCurrentProcessId()));
+        if (fs::exists(cleanup.mounted_dir) ||
+            !fs::create_directory(cleanup.mounted_dir)) return false;
+        cleanup.mounted_file = cleanup.mounted_dir / L"generated.bin";
+        std::vector<uint8_t> alternate(expected);
+        for (auto& value : alternate) value ^= uint8_t{0xff};
+        {
+            std::ofstream stream(cleanup.mounted_file, std::ios::binary);
+            if (!stream ||
+                !stream.write(reinterpret_cast<const char*>(alternate.data()),
+                              static_cast<std::streamsize>(alternate.size())))
+                return false;
+        }
+
         if (configure_dstorage_file_fixture_root(cleanup.dir) != S_OK ||
             configure_dstorage_file_fixture_root(cleanup.dir) !=
                 HRESULT_FROM_WIN32(ERROR_BUSY)) return false;
         if (fixture_open(factory.p, L"generated.bin",
                 kObservedXboxDStorageFileIid, nullptr) != E_POINTER)
             return false;
+
+        // Distinct host roots, same filenames, separate contents.
+        // Only the host can configure these original generated fixtures.
+        if (active_dstorage_fixture_mounts() ||
+            configure_dstorage_fixture_mount(L"", cleanup.dir) != E_INVALIDARG ||
+            configure_dstorage_fixture_mount(L"1bad", cleanup.dir) != E_INVALIDARG ||
+            configure_dstorage_fixture_mount(L"bad:name", cleanup.dir) != E_INVALIDARG ||
+            configure_dstorage_fixture_mount(L"pack0", cleanup.mounted_dir) != S_OK ||
+            configure_dstorage_fixture_mount(L"PACK0", cleanup.dir) !=
+                HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) ||
+            configure_dstorage_fixture_mount(L"pack1", cleanup.dir) != S_OK ||
+            configure_dstorage_fixture_mount(L"pack2", cleanup.dir) != S_OK ||
+            configure_dstorage_fixture_mount(L"pack3", cleanup.dir) != S_OK ||
+            configure_dstorage_fixture_mount(L"pack4", cleanup.dir) !=
+                HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES) ||
+            active_dstorage_fixture_mounts() != 4)
+            return false;
+
+        const auto check_file = [&](const wchar_t* path,
+                                    const std::vector<uint8_t>& bytes) {
+            FileOwner owned{};
+            if (fixture_open(factory.p, path, kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&owned.p)) != S_OK ||
+                !owned.p) return false;
+            HANDLE file = owned.p->GetHandle();
+            if (file == INVALID_HANDLE_VALUE) return false;
+            std::vector<uint8_t> received(bytes.size());
+            DWORD read_count = 0;
+            const bool exact = ReadFile(
+                file, received.data(), static_cast<DWORD>(received.size()),
+                &read_count, nullptr) &&
+                read_count == bytes.size() && received == bytes;
+            CloseHandle(file);
+            return exact;
+        };
+        if (!check_file(L"generated.bin", expected) ||
+            !check_file(L"PACK0:/generated.bin", alternate) ||
+            !check_file(L"pack0:\\generated.bin", alternate) ||
+            !check_file(L"pack1:/generated.bin", expected) ||
+            !check_file(L"pack2:/generated.bin", expected))
+            return false;
+        for (const wchar_t* unknown : {
+                L"pack5:/generated.bin", L"notmounted:/generated.bin"}) {
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (fixture_open(factory.p, unknown,
+                    kObservedXboxDStorageFileIid, &out) != E_NOTIMPL ||
+                out) return false;
+        }
+        for (const wchar_t* malformed : {
+                L"pack0:generated.bin", L"pack0:/../generated.bin",
+                L"pack0://generated.bin", L"pack0:/CON.bin",
+                L"pack0:/generated.bin:secret", L":/generated.bin"}) {
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (fixture_open(factory.p, malformed,
+                    kObservedXboxDStorageFileIid, &out) != E_INVALIDARG ||
+                out) return false;
+        }
 
         const GUID invalid{0x4e934ab6,0x67ac,0x1234,{1,2,3,4,5,6,7,8}};
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
@@ -242,6 +321,31 @@ bool verify_dstorage_file_fixture() noexcept {
             guest_file.p = nullptr;
             if (!accurate) return false;
 
+            // The same COM path slot can select a host-only logical
+            // mount from a genuinely mapped guest UTF-16 string. The
+            // bytes come from pack0, not the default root with an
+            // identical filename.
+            const std::wstring mount_name = L"pack0:/generated.bin";
+            std::memcpy(guest_path, mount_name.c_str(),
+                        (mount_name.size() + 1) * sizeof(wchar_t));
+            FileOwner guest_mounted{};
+            if (factory.p->OpenFile(
+                    guest_path, kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&guest_mounted.p)) != S_OK ||
+                !guest_mounted.p) return false;
+            HANDLE mount_handle = guest_mounted.p->GetHandle();
+            if (mount_handle == INVALID_HANDLE_VALUE) return false;
+            std::vector<uint8_t> mounted_bytes(alternate.size());
+            DWORD mounted_read = 0;
+            const bool distinct = ReadFile(
+                mount_handle, mounted_bytes.data(),
+                static_cast<DWORD>(mounted_bytes.size()),
+                &mounted_read, nullptr) &&
+                mounted_read == alternate.size() &&
+                mounted_bytes == alternate;
+            CloseHandle(mount_handle);
+            if (!distinct) return false;
+
             // Unregistered native/invalid pointers are never inspected.
             out = reinterpret_cast<void*>(uintptr_t{0x1234});
             if (factory.p->OpenFile(
@@ -333,6 +437,11 @@ bool verify_dstorage_file_fixture() noexcept {
         if (CreateSymbolicLinkW(cleanup.symbolic_directory.c_str(),
                 external.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY |
                 SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
+            // Never admit a reparse point as an opt-in mounted root.
+            if (configure_dstorage_fixture_mount(
+                    L"unsafe", cleanup.symbolic_directory) !=
+                HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER))
+                return false;
             out = reinterpret_cast<void*>(uintptr_t{0x1234});
             const std::wstring escape = L"link\\" + outside_name;
             if (fixture_open(factory.p,
@@ -453,9 +562,35 @@ bool verify_dstorage_file_fixture() noexcept {
         if (!passed.load() || live_host_dstorage_files() ||
             active_host_dstorage_file_leases())
             return false;
+        // Existing COM handles retain ownership after host-only mounts
+        // are revoked. Subsequent guest calls cannot reopen those roots.
+        FileOwner retained{};
+        if (fixture_open(factory.p, L"pack0:/generated.bin",
+                kObservedXboxDStorageFileIid,
+                reinterpret_cast<void**>(&retained.p)) != S_OK ||
+            !retained.p) return false;
         clear_dstorage_file_fixture_root();
+        if (active_dstorage_fixture_mounts() != 0) return false;
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
-        if (fixture_open(factory.p, L"generated.bin",
+        if (fixture_open(factory.p, L"pack0:/generated.bin",
+                kObservedXboxDStorageFileIid, &out) != E_NOTIMPL ||
+            out || factory.p->SetStagingBufferSize(32*kMiB) !=
+                HRESULT_FROM_WIN32(ERROR_BUSY))
+            return false;
+        HANDLE retained_handle = retained.p->GetHandle();
+        if (retained_handle == INVALID_HANDLE_VALUE) return false;
+        std::vector<uint8_t> kept(alternate.size());
+        DWORD kept_read = 0;
+        const bool retained_data = ReadFile(
+            retained_handle, kept.data(), static_cast<DWORD>(kept.size()),
+            &kept_read, nullptr) &&
+            kept_read == alternate.size() && kept == alternate;
+        CloseHandle(retained_handle);
+        retained.p->Release();
+        retained.p = nullptr;
+        out = reinterpret_cast<void*>(uintptr_t{0x1234});
+        if (!retained_data ||
+            fixture_open(factory.p, L"generated.bin",
                 kObservedXboxDStorageFileIid, &out) != E_NOTIMPL ||
             out || factory.p->SetStagingBufferSize(32*kMiB) != S_OK)
             return false;

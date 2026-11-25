@@ -107,10 +107,15 @@ against the opt-in fixture root. **COM path bytes now come from a
 registry-verified, NUL-terminated XMem CPU alias snapshot**, with
 cross-page UTF-16 handling and no arbitrary guest-pointer dereference.
 Generated native C++ tests require an explicit one-shot host-only
-path permit. The queue verifies real nested-file readback through
-`IDStorageFileX` and `ReOpenFile`, without weakening the separate
-single-leaf direct host queue. Actual title VFS mounts and game asset
-streaming remain unsupported.
+path permit. An [original read-only logical mount
+registry](docs/XBOX_DSTORAGE_FILE_HOST.md) now lets host fixtures
+configure up to four additional isolated directories using generated
+paths such as `pack0:/generated.bin`. Each selected root has independent
+opened-handle containment, no unknown-prefix fallback, and safe
+clearing while owned files remain alive. The queue verifies real reads
+from a mounted file through `IDStorageFileX` and `ReOpenFile`, without
+weakening the separate single-leaf direct host queue. **Real Xbox title
+VFS mounts and game asset streaming remain unsupported.**
 
 The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial

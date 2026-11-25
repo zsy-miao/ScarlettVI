@@ -4,6 +4,7 @@
 #include <cwctype>
 #include <vector>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <new>
 #include <string>
@@ -13,6 +14,7 @@ namespace scarlett::storage {
 namespace {
 std::mutex root_mutex;
 std::filesystem::path configured_root;
+std::map<std::wstring, std::filesystem::path> fixture_mounts;
 struct HostFixturePathPermit {
     const wchar_t* pointer_identity = nullptr;
     std::wstring snapshot;
@@ -71,6 +73,25 @@ bool parse_fixture_relative_path(
         if (!valid_leaf(segment)) return false;
         relative /= segment;
         start = i + 1;
+    }
+    return true;
+}
+
+// Validated, original host-only mount names. No platform-provided title
+// volume name is inferred, and the mount table cannot be guest-modified.
+bool normalize_fixture_mount_name(const std::wstring& name,
+                                  std::wstring& normalized) {
+    normalized.clear();
+    if (name.empty() || name.size() > 16) return false;
+    for (wchar_t c : name) {
+        if (c >= L'A' && c <= L'Z') c += L'a' - L'A';
+        if (normalized.empty()) {
+            if (c < L'a' || c > L'z') return false;
+        } else if (!((c >= L'a' && c <= L'z') ||
+                     (c >= L'0' && c <= L'9') ||
+                     c == L'_' || c == L'-'))
+            return false;
+        normalized.push_back(c);
     }
     return true;
 }
@@ -248,7 +269,57 @@ HRESULT configure_dstorage_file_fixture_root(
 void clear_dstorage_file_fixture_root() noexcept {
     const std::lock_guard lock(root_mutex);
     configured_root.clear();
+    fixture_mounts.clear();
 }
+
+HRESULT configure_dstorage_fixture_mount(
+    const std::wstring& name,
+    const std::filesystem::path& trusted_root) noexcept {
+    try {
+        std::wstring key;
+        if (!normalize_fixture_mount_name(name, key))
+            return E_INVALIDARG;
+        // Always record the actual OS object rather than a lexical path.
+        // Reparse-point roots cannot redirect a host fixture outside the
+        // explicitly approved directory before the first file open.
+        const auto absolute = std::filesystem::absolute(trusted_root);
+        HANDLE directory = CreateFileW(
+            absolute.c_str(), FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            nullptr);
+        if (directory == INVALID_HANDLE_VALUE)
+            return from_last_error();
+        FILE_ATTRIBUTE_TAG_INFO info{};
+        std::wstring resolved;
+        const bool valid = GetFileInformationByHandleEx(
+                directory, FileAttributeTagInfo, &info, sizeof(info)) &&
+            (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            !(info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+            final_path_of_handle(directory, resolved);
+        CloseHandle(directory);
+        if (!valid)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER);
+
+        std::lock_guard lock(root_mutex);
+        if (configured_root.empty()) return E_NOTIMPL;
+        if (fixture_mounts.contains(key))
+            return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
+        if (fixture_mounts.size() >= 4)
+            return HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES);
+        fixture_mounts.emplace(std::move(key), std::filesystem::path(resolved));
+        return S_OK;
+    } catch (...) {
+        return E_OUTOFMEMORY;
+    }
+}
+
+size_t active_dstorage_fixture_mounts() noexcept {
+    const std::lock_guard lock(root_mutex);
+    return fixture_mounts.size();
+}
+
 HRESULT snapshot_dstorage_file_fixture_root(
     std::filesystem::path& output) noexcept {
     try {
@@ -291,6 +362,28 @@ HRESULT open_host_dstorage_file(
         }
         if (snapshot.empty() || snapshot.size() > 240)
             return E_INVALIDARG;
+
+        // Original opt-in guest mount syntax: "pack0:/relative/file".
+        // Unknown mount names fail CLOSED, never fall back to the base
+        // root; drive/UNC and arbitrary Xbox volume semantics are not
+        // inferred. Mount tables can only be installed by host tests.
+        const size_t colon = snapshot.find(L':');
+        if (colon != std::wstring::npos) {
+            std::wstring key;
+            if (colon + 2 > snapshot.size() ||
+                (snapshot[colon + 1] != L'/' &&
+                 snapshot[colon + 1] != L'\\') ||
+                !normalize_fixture_mount_name(
+                    snapshot.substr(0, colon), key))
+                return E_INVALIDARG;
+            {
+                std::lock_guard lock(root_mutex);
+                const auto found = fixture_mounts.find(key);
+                if (found == fixture_mounts.end()) return E_NOTIMPL;
+                root = found->second;
+            }
+            snapshot.erase(0, colon + 2);
+        }
         std::filesystem::path relative;
         if (!parse_fixture_relative_path(snapshot, relative))
             return E_INVALIDARG;

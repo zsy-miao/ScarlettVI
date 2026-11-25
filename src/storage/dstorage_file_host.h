@@ -22,6 +22,12 @@ struct HostDStorageFileX : public IUnknown {
 HRESULT configure_dstorage_file_fixture_root(
     const std::filesystem::path& trusted_root) noexcept;
 void clear_dstorage_file_fixture_root() noexcept;
+// Original host-only, opt-in read-only virtual mount table. The fixture
+// syntax "pack0:/path/file.bin" selects a distinct canonical trusted root.
+// This does NOT implement Xbox volume names, licenses, save data, or VFS.
+HRESULT configure_dstorage_fixture_mount(
+    const std::wstring& name, const std::filesystem::path& trusted_root) noexcept;
+size_t active_dstorage_fixture_mounts() noexcept;
 // Internal snapshot for fixture-only queue construction; not an Xbox API.
 HRESULT snapshot_dstorage_file_fixture_root(
     std::filesystem::path& output) noexcept;

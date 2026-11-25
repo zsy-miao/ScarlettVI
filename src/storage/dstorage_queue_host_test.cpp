@@ -77,6 +77,8 @@ struct FileFixture {
     fs::path root;
     fs::path file;
     fs::path nested;
+    fs::path mounted_dir;
+    fs::path mounted_file;
     bool created = false;
     ~FileFixture() {
         clear_dstorage_file_fixture_root();
@@ -89,6 +91,8 @@ struct FileFixture {
         }
         fs::remove(file, ec);
         fs::remove(root, ec);
+        if (!mounted_file.empty()) fs::remove(mounted_file, ec);
+        if (!mounted_dir.empty()) fs::remove(mounted_dir, ec);
     }
 };
 using RawCreateQueue1 = HRESULT (STDMETHODCALLTYPE*)(
@@ -165,7 +169,25 @@ bool verify_dstorage_queue_com_fixture() noexcept {
                               static_cast<std::streamsize>(data.size())))
                 return false;
         }
-        if (configure_dstorage_file_fixture_root(cleanup.root) != S_OK)
+        // Independent generated virtual pack root, kept outside the
+        // default fixture directory. The same file data permits the
+        // existing exact-byte queue tests to exercise this mount.
+        cleanup.mounted_dir = fs::path(L"reports") /
+            (L"dstorage_queue_mount_" +
+             std::to_wstring(GetCurrentProcessId()));
+        if (fs::exists(cleanup.mounted_dir) ||
+            !fs::create_directory(cleanup.mounted_dir)) return false;
+        cleanup.mounted_file = cleanup.mounted_dir / L"generated.bin";
+        {
+            std::ofstream stream(cleanup.mounted_file, std::ios::binary);
+            if (!stream ||
+                !stream.write(reinterpret_cast<const char*>(data.data()),
+                              static_cast<std::streamsize>(data.size())))
+                return false;
+        }
+        if (configure_dstorage_file_fixture_root(cleanup.root) != S_OK ||
+            configure_dstorage_fixture_mount(
+                L"pack0", cleanup.mounted_dir) != S_OK)
             return false;
         const GUID wrong{0x784934fa,0x23c0,0x1234,{1,2,3,4,5,6,7,8}};
         output = reinterpret_cast<void*>(uintptr_t{0x1234});
@@ -257,7 +279,7 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             // yet the returned owned file COM object remains readable.
             TripleAliasFixture path_alias;
             if (!path_alias.create()) return false;
-            const std::wstring nested_path = L"packs/batch/generated.bin";
+            const std::wstring nested_path = L"pack0:/generated.bin";
             auto* mapped_path = reinterpret_cast<wchar_t*>(
                 path_alias.alias + memory::PhysicalMemory::page_bytes - 10);
             std::memcpy(mapped_path, nested_path.c_str(),

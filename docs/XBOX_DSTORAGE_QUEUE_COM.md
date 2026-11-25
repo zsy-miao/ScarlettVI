@@ -47,7 +47,13 @@ Do not enable actual title asset loads on this partial evidence.
   or by a ScarlettVI-owned `IDStorageFileX` object. The latter now
   supports **nested relative paths** only after the file COM layer
   validates all components and the final file handle's trusted-root
-  containment. It calls `ReOpenFile` for an independent read position
+  containment. A new [host-only virtual mount
+  table](XBOX_DSTORAGE_FILE_HOST.md) also lets a generated XMem UTF-16
+  path like `pack0:/generated.bin` select an independently protected
+  read-only directory, without implementing Xbox's real VFS. The
+  queue's regression opens that path and then reads it after the
+  guest path pages are released. It calls `ReOpenFile` for an
+  independent read position
   and transfers that handle into the bounded worker. Already-admitted reads continue after source `Close`
   and final `Release`. No Xbox guest request buffer is interpreted.
 - The status array reports S_OK, the first actual I/O error, and an
