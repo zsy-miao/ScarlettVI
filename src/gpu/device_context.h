@@ -30,6 +30,9 @@ public:
     // Real Windows D3D12 UpdateTileMappings on two large sparse GPU
     // resources backed by one 64KiB heap tile, verified by GPU readback.
     HRESULT tiled_buffer_alias_test();
+    // Copies generated format-aware RGBA/block-compressed texture mips
+    // through real D3D12 GPU footprints and verifies every returned block.
+    HRESULT texture_layout_gpu_test();
     HRESULT compute_dispatch_test(uint32_t seed);
     HRESULT texture_shader_test();
     // Submits host DXIL work between CPU-visible 64KiB console page views.

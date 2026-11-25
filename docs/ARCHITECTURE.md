@@ -111,6 +111,8 @@ The `memory-sparse`, `gpu-sparse-va` and `gpu-vmem-config` modes verify
 16/24 GiB sparse CPU/GPU address windows and partial Xbox configuration.
 `gpu-tile-map` verifies native D3D12 64 KiB tile residency and GPU physical
 aliasing across segmented 16 GiB guest buffers (see [GPU_TILES.md](GPU_TILES.md)).
+The gpu-texture-layout command verifies block-compressed, mipmapped Windows
+GPU textures and an original reversible synthetic microtile layout.
 See [GPU_VIRTUAL_MEMORY.md](GPU_VIRTUAL_MEMORY.md).
 All GPU modes use only independently generated test data.
 See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).

@@ -9,6 +9,7 @@
 #include "gpu/guest_address_space.h"
 #include "gpu/xbox_device_factory.h"
 #include "gpu/sparse_gpu_windows.h"
+#include "gpu/texture_layout.h"
 #include <d3d12sdklayers.h>
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
@@ -115,6 +116,7 @@ void usage() {
                << L"  ScarlettVI.exe memory-sparse\n"
                << L"  ScarlettVI.exe gpu-sparse-va\n"
                << L"  ScarlettVI.exe gpu-tile-map\n"
+               << L"  ScarlettVI.exe gpu-texture-layout\n"
                << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
@@ -124,6 +126,30 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-texture-layout") {
+            if (argc != 2) { usage(); return 2; }
+            uint64_t bytes_checked = 0;
+            uint32_t subresources_checked = 0;
+            const bool cpu_ok = scarlett::gpu::verify_texture_layout_fixtures(
+                &bytes_checked, &subresources_checked);
+            scarlett::gpu::DeviceContext gpu;
+            HRESULT hr = cpu_ok ? gpu.initialize() : E_FAIL;
+            if (SUCCEEDED(hr)) hr = gpu.texture_layout_gpu_test();
+            std::cout << "ScarlettVI | generated format-aware host texture layouts"
+                      << " + real D3D12 texture mips: "
+                      << (SUCCEEDED(hr) ? "PASS" : "FAIL") << "\n"
+                      << "Formats: R8, RGBA8, BC1, BC3, BC5"
+                      << " | CPU subresources: " << subresources_checked
+                      << " | exact CPU decoded bytes: " << bytes_checked
+                      << " | GPU subresources checked: "
+                      << (SUCCEEDED(hr) ? 40 : 0)
+                      << " | GPU submissions: " << gpu.submitted_commands()
+                      << " | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
+                      << std::dec << "\n"
+                      << "Original synthetic 8x8 Morton microtiles, NOT Xbox"
+                      << " XG swizzle or console texture descriptors.\n";
+            return SUCCEEDED(hr) ? 0 : 3;
+        }
         if (verb == L"gpu-tile-map") {
             if (argc != 2) { usage(); return 2; }
             // Only this standalone diagnostic fixture enables the host

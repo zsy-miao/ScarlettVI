@@ -37,7 +37,7 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
 | `xmem.dll` | 3 | Working sets, tools memory, physical memory transfer |
-| `xg_xs.dll` | 2 | Texture layout and swizzle mode |
+| `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
 | **Total** | **25** | |
 

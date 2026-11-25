@@ -2,6 +2,7 @@
 #include "dxil_compiler.h"
 #include "guest_address_space.h"
 #include "sparse_gpu_windows.h"
+#include "texture_layout.h"
 #include <d3d12sdklayers.h>
 #include <algorithm>
 #include <array>
@@ -187,6 +188,185 @@ HRESULT DeviceContext::wait_for_gpu(uint64_t value) {
     if (fence_->GetCompletedValue() < value)
         return E_FAIL;
     return S_OK;
+}
+
+HRESULT DeviceContext::texture_layout_gpu_test() {
+    if (!ready()) {
+        last_error_ = initialize();
+        if (FAILED(last_error_)) return last_error_;
+    }
+
+    constexpr DXGI_FORMAT formats[]{
+        DXGI_FORMAT_R8_UNORM,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_BC1_UNORM,
+        DXGI_FORMAT_BC3_UNORM,
+        DXGI_FORMAT_BC5_UNORM
+    };
+    constexpr UINT kLayers = 2;
+    constexpr UINT kMips = 4;
+    constexpr UINT kSubresources = kLayers * kMips;
+    for (const auto format : formats) {
+        // BC top-level dimensions are block aligned for native D3D12. The
+        // smaller mip levels still exercise partial final compression blocks.
+        const bool compressed = format == DXGI_FORMAT_BC1_UNORM ||
+                                format == DXGI_FORMAT_BC3_UNORM ||
+                                format == DXGI_FORMAT_BC5_UNORM;
+        const TextureDescription shape{
+            compressed ? 76u : 73u, compressed ? 48u : 45u,
+            kMips, kLayers, format
+        };
+        const auto layout = TextureLayout::build(shape);
+        if (!layout || layout->subresources().size() != kSubresources)
+            return last_error_ = E_INVALIDARG;
+        std::vector<uint8_t> linear(layout->linear_size());
+        std::vector<uint8_t> tiled(layout->tiled_size());
+        std::vector<uint8_t> decoded(layout->linear_size());
+        for (size_t i = 0; i < linear.size(); ++i)
+            linear[i] = static_cast<uint8_t>(
+                (i * 113 + (i >> 5) * 29 + static_cast<unsigned>(format)) & 255);
+        if (!layout->swizzle(linear, tiled) ||
+            !layout->deswizzle(tiled, decoded) || decoded != linear)
+            return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
+
+        D3D12_RESOURCE_DESC texture{};
+        texture.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        texture.Width = shape.width;
+        texture.Height = shape.height;
+        texture.DepthOrArraySize = kLayers;
+        texture.MipLevels = kMips;
+        texture.Format = format;
+        texture.SampleDesc.Count = 1;
+        texture.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        std::array<D3D12_PLACED_SUBRESOURCE_FOOTPRINT, kSubresources> footprints{};
+        std::array<UINT, kSubresources> rows{};
+        std::array<UINT64, kSubresources> row_bytes{};
+        UINT64 buffer_bytes = 0;
+        device_->GetCopyableFootprints(
+            &texture, 0, kSubresources, 0,
+            footprints.data(), rows.data(), row_bytes.data(), &buffer_bytes);
+        if (!buffer_bytes || buffer_bytes > 32ull * 1024 * 1024)
+            return last_error_ = E_INVALIDARG;
+        for (UINT i = 0; i < kSubresources; ++i) {
+            const auto& cpu = layout->subresources()[i];
+            if (rows[i] != cpu.block_height ||
+                row_bytes[i] != cpu.row_bytes ||
+                footprints[i].Footprint.RowPitch < row_bytes[i] ||
+                footprints[i].Offset > buffer_bytes ||
+                (uint64_t{rows[i] - 1} * footprints[i].Footprint.RowPitch +
+                 row_bytes[i]) > buffer_bytes - footprints[i].Offset)
+                return last_error_ = E_INVALIDARG;
+        }
+
+        Microsoft::WRL::ComPtr<ID3D12Resource> upload, gpu_texture, readback;
+        last_error_ = create_buffer(
+            D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
+            buffer_bytes, upload);
+        if (FAILED(last_error_)) return last_error_;
+        last_error_ = create_buffer(
+            D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST,
+            buffer_bytes, readback);
+        if (FAILED(last_error_)) return last_error_;
+        D3D12_HEAP_PROPERTIES default_heap{};
+        default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        last_error_ = device_->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(gpu_texture.GetAddressOf()));
+        if (FAILED(last_error_)) return last_error_;
+
+        uint8_t* upload_memory = nullptr;
+        const D3D12_RANGE no_read{0, 0};
+        last_error_ = upload->Map(
+            0, &no_read, reinterpret_cast<void**>(&upload_memory));
+        if (FAILED(last_error_) || !upload_memory)
+            return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+        std::memset(upload_memory, 0, static_cast<size_t>(buffer_bytes));
+        for (UINT i = 0; i < kSubresources; ++i) {
+            const auto& sub = layout->subresources()[i];
+            auto* dst = upload_memory + footprints[i].Offset;
+            const auto* src = decoded.data() + sub.linear_offset;
+            for (UINT row = 0; row < rows[i]; ++row)
+                std::memcpy(dst + uint64_t{row} * footprints[i].Footprint.RowPitch,
+                            src + uint64_t{row} * sub.row_bytes, sub.row_bytes);
+        }
+        const D3D12_RANGE written{0, static_cast<SIZE_T>(buffer_bytes)};
+        upload->Unmap(0, &written);
+
+        last_error_ = allocator_->Reset();
+        if (FAILED(last_error_)) return last_error_;
+        last_error_ = command_list_->Reset(allocator_.Get(), nullptr);
+        if (FAILED(last_error_)) return last_error_;
+        for (UINT i = 0; i < kSubresources; ++i) {
+            D3D12_TEXTURE_COPY_LOCATION source{};
+            source.pResource = upload.Get();
+            source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            source.PlacedFootprint = footprints[i];
+            D3D12_TEXTURE_COPY_LOCATION destination{};
+            destination.pResource = gpu_texture.Get();
+            destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            destination.SubresourceIndex = i;
+            command_list_->CopyTextureRegion(
+                &destination, 0, 0, 0, &source, nullptr);
+        }
+        D3D12_RESOURCE_BARRIER transition{};
+        transition.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        transition.Transition.pResource = gpu_texture.Get();
+        transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        transition.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        command_list_->ResourceBarrier(1, &transition);
+        for (UINT i = 0; i < kSubresources; ++i) {
+            D3D12_TEXTURE_COPY_LOCATION source{};
+            source.pResource = gpu_texture.Get();
+            source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            source.SubresourceIndex = i;
+            D3D12_TEXTURE_COPY_LOCATION destination{};
+            destination.pResource = readback.Get();
+            destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            destination.PlacedFootprint = footprints[i];
+            command_list_->CopyTextureRegion(
+                &destination, 0, 0, 0, &source, nullptr);
+        }
+        last_error_ = command_list_->Close();
+        if (FAILED(last_error_)) return last_error_;
+        ID3D12CommandList* submitted[]{command_list_.Get()};
+        queue_->ExecuteCommandLists(1, submitted);
+        ++submitted_;
+        const uint64_t signal = next_fence_++;
+        last_error_ = queue_->Signal(fence_.Get(), signal);
+        if (FAILED(last_error_)) return last_error_;
+        last_error_ = wait_for_gpu(signal);
+        if (FAILED(last_error_)) {
+            const HRESULT removed = device_->GetDeviceRemovedReason();
+            return last_error_ = FAILED(removed) ? removed : last_error_;
+        }
+
+        void* readback_ptr = nullptr;
+        const D3D12_RANGE cpu_read{0, static_cast<SIZE_T>(buffer_bytes)};
+        last_error_ = readback->Map(0, &cpu_read, &readback_ptr);
+        if (FAILED(last_error_) || !readback_ptr)
+            return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+        const auto* readback_memory = static_cast<const uint8_t*>(readback_ptr);
+        bool equal = true;
+        for (UINT i = 0; i < kSubresources && equal; ++i) {
+            const auto& sub = layout->subresources()[i];
+            const auto* src = readback_memory + footprints[i].Offset;
+            const auto* dst = linear.data() + sub.linear_offset;
+            for (UINT row = 0; row < rows[i]; ++row) {
+                if (std::memcmp(
+                        src + uint64_t{row} * footprints[i].Footprint.RowPitch,
+                        dst + uint64_t{row} * sub.row_bytes,
+                        sub.row_bytes) != 0) {
+                    equal = false;
+                    break;
+                }
+            }
+        }
+        readback->Unmap(0, &no_read);
+        if (!equal) return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
+    }
+    return last_error_ = S_OK;
 }
 
 HRESULT DeviceContext::texture_roundtrip_test() {
