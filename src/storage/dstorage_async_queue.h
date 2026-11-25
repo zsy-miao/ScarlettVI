@@ -3,7 +3,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <list>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -35,18 +35,35 @@ public:
     static constexpr size_t kMaxOutstanding = 64;
     static constexpr uint64_t kMaxReservedBytes = 8ull * 1024 * 1024;
 
+    // Entirely HOST-ONLY submission policy; these are not Xbox queue flags.
+    // HalfCapacity mirrors the public Xbox auto-submit trigger at 32
+    // requests, while Manual requires an explicit submit_pending call.
+    enum class SubmitPolicy { Manual, HalfCapacity };
+
     // Host supplies a trusted directory. It must be a non-reparse
     // directory; every request contains a SINGLE validated leaf, and
     // opened file handles refuse reparse points / directory objects.
     static HRESULT create(
         const std::filesystem::path& trusted_root,
-        std::unique_ptr<HostAsyncFileQueue>& output) noexcept;
+        std::unique_ptr<HostAsyncFileQueue>& output,
+        SubmitPolicy policy = SubmitPolicy::Manual) noexcept;
 
     ~HostAsyncFileQueue() noexcept;
     HostAsyncFileQueue(const HostAsyncFileQueue&) = delete;
     HostAsyncFileQueue& operator=(const HostAsyncFileQueue&) = delete;
 
+    // Hold work without touching a file until submit_pending() commits it.
+    HRESULT enqueue(const HostFileReadRequest& request) noexcept;
+    // Commit all held work in FIFO order; no allocation or blocking I/O.
+    // Returns the number of newly committed host requests.
+    size_t submit_pending() noexcept;
+    // Compatibility convenience: admit and commit this request and any
+    // older staged requests atomically in submission order.
     HRESULT submit(const HostFileReadRequest& request) noexcept;
+    // Cancel a host-only request that has not yet been submitted;
+    // cancellation becomes a genuine completion that must be retired.
+    HRESULT cancel_unsubmitted(uint64_t token) noexcept;
+    size_t pending_submission_count() const noexcept;
     // Returns the *operation's* status in completion.status. A successful
     // wait/take returns S_OK even when a file read failed.
     HRESULT try_take(uint64_t token, HostFileReadCompletion& output) noexcept;
@@ -57,12 +74,15 @@ public:
     uint64_t reserved_bytes() const noexcept;
 
 private:
-    explicit HostAsyncFileQueue(std::filesystem::path trusted_root);
+    explicit HostAsyncFileQueue(std::filesystem::path trusted_root,
+                                SubmitPolicy policy);
     struct Job {
         HostFileReadRequest request;
         HostFileReadCompletion result;
         bool ready = false;
     };
+    HRESULT admit(const HostFileReadRequest& request,
+                  bool staged) noexcept;
     void run() noexcept;
     HostFileReadCompletion execute(
         const HostFileReadRequest& request, uint64_t sequence) noexcept;
@@ -72,9 +92,13 @@ private:
     static bool allowed_leaf(const std::wstring& leaf) noexcept;
 
     const std::filesystem::path root_;
+    const SubmitPolicy policy_;
     mutable std::mutex mutex_;
     std::condition_variable ready_;
-    std::deque<uint64_t> fifo_;
+    // std::list::splice transfers staged nodes without allocation or
+    // iterator invalidation, guaranteeing no partial commit on OOM.
+    std::list<uint64_t> pending_;
+    std::list<uint64_t> fifo_;
     std::map<uint64_t, Job> jobs_;
     std::thread worker_;
     uint64_t reserved_bytes_ = 0;
@@ -84,5 +108,6 @@ private:
 };
 
 bool verify_host_dstorage_async_queue_fixture() noexcept;
+bool verify_host_dstorage_submit_gate_fixture() noexcept;
 
 } // namespace scarlett::storage

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cwctype>
+#include <iterator>
 #include <limits>
 #include <utility>
 
@@ -29,14 +30,15 @@ HRESULT error_from_last() noexcept {
 }
 
 HostAsyncFileQueue::HostAsyncFileQueue(
-    std::filesystem::path trusted_root)
-    : root_(std::move(trusted_root)) {
+    std::filesystem::path trusted_root, SubmitPolicy policy)
+    : root_(std::move(trusted_root)), policy_(policy) {
     worker_ = std::thread([this] { run(); });
 }
 
 HRESULT HostAsyncFileQueue::create(
     const std::filesystem::path& trusted_root,
-    std::unique_ptr<HostAsyncFileQueue>& output) noexcept {
+    std::unique_ptr<HostAsyncFileQueue>& output,
+    SubmitPolicy policy) noexcept {
     output.reset();
     try {
         const auto absolute = std::filesystem::absolute(trusted_root);
@@ -50,7 +52,7 @@ HRESULT HostAsyncFileQueue::create(
             return HRESULT_FROM_WIN32(ERROR_NOT_READY);
         try {
             std::unique_ptr<HostAsyncFileQueue> queue(
-                new HostAsyncFileQueue(absolute));
+                new HostAsyncFileQueue(absolute, policy));
             queue->leased_ = true;
             output = std::move(queue);
             return S_OK;
@@ -100,8 +102,8 @@ bool HostAsyncFileQueue::allowed_leaf(
     return true;
 }
 
-HRESULT HostAsyncFileQueue::submit(
-    const HostFileReadRequest& request) noexcept {
+HRESULT HostAsyncFileQueue::admit(
+    const HostFileReadRequest& request, bool staged) noexcept {
     if (!request.token || !allowed_leaf(request.filename) ||
         request.offset > static_cast<uint64_t>(
             std::numeric_limits<int64_t>::max()) ||
@@ -125,18 +127,73 @@ HRESULT HostAsyncFileQueue::submit(
         if (!inserted)
             return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
         try {
-            fifo_.push_back(request.token);
+            if (staged) {
+                pending_.push_back(request.token);
+            } else {
+                fifo_.push_back(request.token);
+            }
         } catch (...) {
             jobs_.erase(it);
             throw;
         }
         ++next_sequence_;
         reserved_bytes_ += request.bytes;
-        ready_.notify_one();
+        if (!staged) {
+            // Inserting the new request first keeps failure atomic:
+            // then splice all older staged requests BEFORE it.
+            const auto last = std::prev(fifo_.end());
+            fifo_.splice(last, pending_);
+            ready_.notify_one();
+        } else if (policy_ == SubmitPolicy::HalfCapacity &&
+                   pending_.size() >= kMaxOutstanding / 2) {
+            // Real auto-commit at half capacity; no heap allocation.
+            fifo_.splice(fifo_.end(), pending_);
+            ready_.notify_one();
+        }
         return S_OK;
     } catch (...) {
         return E_OUTOFMEMORY;
     }
+}
+
+HRESULT HostAsyncFileQueue::enqueue(
+    const HostFileReadRequest& request) noexcept {
+    return admit(request, true);
+}
+HRESULT HostAsyncFileQueue::submit(
+    const HostFileReadRequest& request) noexcept {
+    return admit(request, false);
+}
+size_t HostAsyncFileQueue::submit_pending() noexcept {
+    const std::lock_guard lock(mutex_);
+    if (stopped_) return 0;
+    const size_t count = pending_.size();
+    if (count) {
+        fifo_.splice(fifo_.end(), pending_);
+        ready_.notify_one();
+    }
+    return count;
+}
+HRESULT HostAsyncFileQueue::cancel_unsubmitted(
+    uint64_t token) noexcept {
+    const std::lock_guard lock(mutex_);
+    const auto job = jobs_.find(token);
+    if (job == jobs_.end())
+        return kIoMissing;
+    const auto pending = std::find(
+        pending_.begin(), pending_.end(), token);
+    if (pending == pending_.end())
+        return HRESULT_FROM_WIN32(ERROR_BUSY);
+    pending_.erase(pending);
+    job->second.result.status = kIoCancelled;
+    job->second.result.data.clear();
+    job->second.ready = true;
+    ready_.notify_all();
+    return S_OK;
+}
+size_t HostAsyncFileQueue::pending_submission_count() const noexcept {
+    const std::lock_guard lock(mutex_);
+    return pending_.size();
 }
 
 HostFileReadCompletion HostAsyncFileQueue::execute(
@@ -283,14 +340,20 @@ void HostAsyncFileQueue::shutdown() noexcept {
         const std::lock_guard lock(mutex_);
         if (!stopped_) {
             stopped_ = true;
-            for (const uint64_t id : fifo_) {
-                if (auto it = jobs_.find(id); it != jobs_.end()) {
-                    it->second.result.status = kIoCancelled;
-                    it->second.result.data.clear();
-                    it->second.ready = true;
+            const auto cancel_held = [&](const auto& list) {
+                for (const uint64_t id : list) {
+                    if (auto it = jobs_.find(id); it != jobs_.end()) {
+                        it->second.result.status = kIoCancelled;
+                        it->second.result.data.clear();
+                        it->second.ready = true;
+                    }
                 }
-            }
+            };
+            cancel_held(pending_);
+            cancel_held(fifo_);
+            pending_.clear();
             fifo_.clear();
+            /* The already-running read is joined below. */
         }
     }
     ready_.notify_all();

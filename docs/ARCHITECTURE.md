@@ -68,7 +68,9 @@ console code, keys or proprietary binary libraries belong in this repository.
   staging memory through the title-verified +0x40 method. A separate
   [host-only async file queue](XBOX_DSTORAGE_HOST_ASYNC.md) now performs
   real bounded generated-file reads with FIFO completion and prevents
-  staging resizing while alive. Xbox guest COM queues, game file/asset
+  staging resizing while alive. A [host-only enqueue/submit gate](XBOX_DSTORAGE_SUBMIT_GATE.md)
+  now holds work until explicitly committed or until 32 requests are
+  enqueued in the automatic mode. Xbox guest COM queues, game file/asset
   streaming, decompression and guest completions remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.

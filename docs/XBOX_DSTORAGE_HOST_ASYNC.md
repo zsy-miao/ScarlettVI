@@ -7,17 +7,18 @@
 New original files src/storage/dstorage_async_queue.h, .cpp and _test.cpp implement HostAsyncFileQueue, created only with an explicit host-trusted directory and a **host-only** HostFileReadRequest{token, filename, offset, bytes}. These are ScarlettVI's own types; they are not Xbox DSTORAGE_REQUEST or console queue descriptor structures.
 
 - A dedicated Windows worker thread performs genuine CreateFileW, GetFileSizeEx, SetFilePointerEx and ReadFile operations. Only exact-length successful reads return payload bytes. Short/out-of-range reads, missing files and OS failures return actual HRESULT error completions with **no partial data**.
-- Submissions are serialized into one FIFO and processed by one worker, ensuring completion order. Each accepted submission receives a monotonically increasing sequence index and unique 64-bit token. The status and independently owned byte vector remain stored until explicitly retrieved by try_take/wait_take.
+- Requests are admitted and assigned unique monotonic sequence indices. The later [host enqueue/submit gate](XBOX_DSTORAGE_SUBMIT_GATE.md) now holds optional requests separately from the runnable FIFO, permits explicit submission, cancellation before submission and optional half-capacity automatic commits. One worker processes committed requests in FIFO order. Each accepted request receives a unique 64-bit token. The status and independently owned byte vector remain stored until explicitly retrieved by try_take/wait_take.
 - At most **64 outstanding reads**, with a **total 8 MiB reserved-byte budget**, and at most **1 MiB per read**. An unconsumed successful completion continues to reserve its share of capacity until taken; errors and failed submissions never fabricate successful data.
 - Only single **ASCII leaf filenames** containing letters, digits, '.', '_' and '-' are accepted, maximum 96 characters. Traversal, absolute paths, drive/ADS separators, nested directories, dot entries and Windows device aliases are rejected. The host specifies a trusted, existing non-reparse root; opened files with reparse-point or directory attributes are refused. No guest-supplied title path is accepted.
 - shutdown() immediately cancels queued work, permits an already-running synchronous host read to finish and joins the worker. Completed/cancelled requests can still be consumed, while new submissions fail. Destruction releases every owned worker and buffer.
 - A **host-only staging lease** links the internal worker queue to the existing partial Xbox factory. When any such queue exists, SetStagingBufferSize returns ERROR_BUSY, even for the current size. After the host queue is destroyed, stage-size changes are again permitted. This enforces the public Xbox rule for these host-owned workers; it does not imply the Xbox guest COM CreateQueue method works.
 
-Actual program memory is allocated and actual generated file bytes are read. No fake success or empty no-op result is used. This is not NVMe hardware access, Xbox compression/decryption, DirectStorage submission triggers, or a complete game-visible API.
+Actual program memory is allocated and actual generated file bytes are read. No fake success or empty no-op result is used. This is not NVMe hardware access, Xbox compression/decryption, or a complete game-visible API. The [host-only submission gate](XBOX_DSTORAGE_SUBMIT_GATE.md) now implements the published **Enqueue → Submit** scheduling shape and a 32-request auto-submit threshold with actual Win32 reads, but does not bind an Xbox COM method.
 
 ## Real generated regression
 
     .\build\x64\Release\ScarlettVI.exe storage-async-fixture
+    .\build\x64\Release\ScarlettVI.exe storage-submit-fixture
     .\build\x64\Release\ScarlettVI.exe storage-factory-fixture
     .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 

@@ -116,6 +116,7 @@
     <ClCompile Include="src\storage\dstorage_factory_host_test.cpp" />
     <ClCompile Include="src\storage\dstorage_async_queue.cpp" />
     <ClCompile Include="src\storage\dstorage_async_queue_test.cpp" />
+    <ClCompile Include="src\storage\dstorage_submit_gate_test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\pe\pe_file.h" />
