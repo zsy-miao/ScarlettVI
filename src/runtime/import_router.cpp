@@ -1,6 +1,7 @@
 #include "import_router.h"
 #include "../loader/image_mapper.h"
 #include "xmem_bridge.h"
+#include "../audio/apu_memory.h"
 #include "../gpu/xbox_device_factory.h"
 #include <algorithm>
 #include <set>
@@ -136,6 +137,24 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                         ++result.experimental_hle_symbols_bound;
                         if (symbol.name == "XMemGetWorkingSetStatistics")
                             ++result.experimental_xmem_error_only_bound;
+                    } else {
+                        ++result.xbox_symbols_pending;
+                        add_pending(imported, symbol, PendingKind::XboxHle);
+                    }
+                }
+            } else if (route == ImportRoute::XboxHle &&
+                       lower(imported.name) == "acphal.dll") {
+                // Bind only two independently supported allocation APIs.
+                // These use real, owned CPU memory for a null APU heap;
+                // Xbox hardware heaps, mappings, SHAPE and audio processing
+                // are not available and MUST remain pending.
+                for (const auto& symbol : imported.symbols) {
+                    FARPROC address = symbol.by_ordinal
+                        ? nullptr : audio::find_acphal_export(symbol.name);
+                    if (address) {
+                        image.patch_iat(symbol.iat_rva,
+                                        reinterpret_cast<uint64_t>(address));
+                        ++result.experimental_apu_host_alloc_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

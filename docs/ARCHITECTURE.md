@@ -27,13 +27,17 @@ console code, keys or proprietary binary libraries belong in this repository.
   caller ABIs); a desktop D3D12 root-signature serialization bridge links **2**
   more; an original partial Xbox Device11 host COM factory links **1**
   additional reference; the original partial GPU VM configuration bridge
-  links **1** more, leaving **23** Xbox import references unresolved.
+  links **1** more, and the original [host APU allocation bridge](APU_HOST_MEMORY.md)
+  links the validated `ApuAlloc`/`ApuFree` pair, leaving **21** Xbox
+  import references unresolved.
   The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
   returns FALSE when no Xbox developer/tools partition exists; this
   reduces missing import addresses but does not supply console memory services.
   The [working-set error-path bridge](XMEM_WORKING_SET_FAILURE.md) also
   refuses unsupported Xbox budget queries without writing an assumed
-  output structure. Public emulator comparisons and remaining real runtime
+  output structure. The APU bridge provides only bounded real CPU allocations,
+  with no console heap/mapping or audio DSP processing; import linkage is not
+  a gameplay-ready audio service. Public emulator comparisons and remaining real runtime
   gates are documented in [research](PUBLIC_COMPATIBILITY_RESEARCH.md).
   Xbox GPU page tables, tile mappings, coherency and creation flags remain
   unsupported. Import linking is not proof of runtime correctness. The mapper applies final memory protection

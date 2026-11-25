@@ -19,18 +19,18 @@ From the original game build's **read-only readiness inventory** after the safe 
 
 | Workstream | Pending import references | Concrete technical gate |
 | --- | ---: | --- |
-| Xbox APU and DSP (`AcpHal.dll` / `xapu.dll` / `chad.dll`) | 19 | Hardware address mapping, SHAPE contexts, result/command queues, connection and lifecycle contracts |
+| Xbox APU and DSP (`AcpHal.dll` / `xapu.dll` / `chad.dll`) | 17 | [Real host CPU allocator/free pair linked](APU_HOST_MEMORY.md); Xbox hardware address mapping, SHAPE contexts, result/command queues and lifecycle remain |
 | Xbox texture/graphics (`xg_xs.dll`) | 2 | Guest texture-layout/swizzle ABI, object dispatch, GPU memory and shader interfaces |
 | Xbox DirectStorage (`XCRDAPI.dll`) | 1 | Xbox factory and queue COM vtables, file/memory request parsing, queue completion |
 | Xbox memory (`xmem.dll`) | 1 | `XMemTransferMemory` partition/budget-transfer semantics; do not manufacture success |
-| **Total** | **23** | |
+| **Total** | **21** | |
 
 An unresolved-import count of 0 **would not** be an execution test or bootability guarantee. The runtime still lacks parts of D3D12_XS/RDNA2 resource and shader translation, audio hardware behavior, file system/process initialization, static TLS lifecycle and fault isolation.
 
 ## Implement in this order
 
 1. **Memory transfer:** independently corroborate the real call arguments and supported partition transfers, then implement a measured, capacity-checked host memory-budget service; otherwise keep `XMemTransferMemory` unbound.
-2. **Audio HLE:** build an original bounded audio heap and guest-address manager with generated data tests, then implement APU/DSP connection, command/result queue and SHAPE context interfaces only after verified calling contracts. A no-op returning success is not audio emulation.
+2. **Audio HLE:** the [bounded host allocator/free primitive](APU_HOST_MEMORY.md) now has generated alignment, ownership and concurrency tests. Next implement a real guest APU-address manager and explicit heap contracts, then command/result queues and SHAPE contexts only after verified calling contracts. A no-op returning success is not audio emulation.
 3. **DirectStorage:** use the public Xbox `IDStorageFactoryX2` API specification to build an original guest-facing COM adapter, with exact IID and vtable/queue ABI tests. Do not pass the desktop factory pointer through unchanged.
 4. **Graphics:** implement the guest XG object interfaces and texture/GFX10 swizzle with validated formats and PC D3D12-backed allocations, then work on precompiled RDNA2 shader translation and command semantics.
 5. **Real execution gate:** test a **synthetic** generated PE title end-to-end through process attach, DLL TLS, imported services and fault diagnostics before considering any change to the existing title execution safeguard.
