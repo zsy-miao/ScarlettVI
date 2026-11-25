@@ -2,6 +2,7 @@
 #include "../loader/image_mapper.h"
 #include "xmem_bridge.h"
 #include "../audio/apu_memory.h"
+#include "../audio/xapu_host.h"
 #include "../gpu/xbox_device_factory.h"
 #include <algorithm>
 #include <set>
@@ -159,6 +160,25 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                             ++result.experimental_apu_hal_partial_bound;
                         else
                             ++result.experimental_apu_host_alloc_bound;
+                    } else {
+                        ++result.xbox_symbols_pending;
+                        add_pending(imported, symbol, PendingKind::XboxHle);
+                    }
+                }
+            } else if (route == ImportRoute::XboxHle &&
+                       lower(imported.name) == "xapu.dll") {
+                // Partial, original host-backed connection and result FIFO.
+                // The guest Connect, Disconnect, GetResultCount and Dequeue
+                // caller shapes were independently checked. Actual guest
+                // command execution is NOT implemented: EnqueueCommand
+                // MUST remain pending, not return fake success.
+                for (const auto& symbol : imported.symbols) {
+                    FARPROC address = symbol.by_ordinal ? nullptr
+                        : audio::find_xapu_export(symbol.name);
+                    if (address) {
+                        image.patch_iat(symbol.iat_rva,
+                                        reinterpret_cast<uint64_t>(address));
+                        ++result.experimental_xapu_partial_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

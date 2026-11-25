@@ -87,6 +87,8 @@
     <ClCompile Include="src\audio\apu_shape_test.cpp" />
     <ClCompile Include="src\audio\acp_hal_host.cpp" />
     <ClCompile Include="src\audio\acp_hal_host_test.cpp" />
+    <ClCompile Include="src\audio\xapu_host.cpp" />
+    <ClCompile Include="src\audio\xapu_host_test.cpp" />
     <ClCompile Include="src\runtime\physical_memory.cpp" />
     <ClCompile Include="src\formats\rpf9_header.cpp" />
     <ClCompile Include="src\gpu\host_backend.cpp" />
@@ -126,6 +128,7 @@
     <ClInclude Include="src\audio\apu_memory.h" />
     <ClInclude Include="src\audio\apu_shape.h" />
     <ClInclude Include="src\audio\acp_hal_host.h" />
+    <ClInclude Include="src\audio\xapu_host.h" />
     <ClInclude Include="src\runtime\physical_memory.h" />
     <ClInclude Include="src\formats\rpf9_header.h" />
     <ClInclude Include="src\gpu\host_backend.h" />

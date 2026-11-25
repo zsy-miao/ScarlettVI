@@ -35,11 +35,11 @@ real game binaries, shader assets, extracted archive contents or title data.
 | --- | ---: | --- |
 | `AcpHal.dll` | 0 | Eight functional host APU memory/SHAPE bindings and one partial HAL factory; DSP configuration remains unsupported |
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
-| `xapu.dll` | 5 | APU command/results and connection lifecycle |
+| `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
 | `xmem.dll` | 1 | `XMemTransferMemory` memory-budget transfer semantics remain unknown |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **14** | |
+| **Total** | **10** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -61,6 +61,10 @@ Measured working address bindings:
   Real aligned CPU allocations and quotas are tested; arbitrary game memory,
   physical APU RAM, actual SHAPE processing and audio command/result queues
   remain unsupported
+- **4** [partial XAPU connection/result queue bindings](XAPU_QUEUE_HOST.md):
+  bounded host-owned connections, result count and FIFO dequeue are real,
+  but command submissions remain unbound, and no DSP work is executed.
+  Readiness reports `XAPU queue partial=4` separately from full services
 - **1** [partial AcpHal guest factory binding](APU_HAL_FACTORY.md): the
   factory allocates a correctly shaped host object and real bounded ring
   buffers, but the unverified `+0x10` DSP configuration method returns
@@ -91,7 +95,7 @@ managed worker threads. Only generated test callbacks are executed. Neither
 fixture invokes the original title, any game DLL or their callbacks;
 this is **not** proof of full guest loader lifecycle correctness.
 
-Even if all 14 outstanding references gain function addresses, startup
+Even if all 10 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

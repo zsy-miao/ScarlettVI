@@ -20,6 +20,7 @@ struct TitleBindingReport {
     size_t nested_experimental_hle_bound = 0;
     size_t nested_apu_host_alloc_bound = 0;
     size_t nested_apu_hal_partial_bound = 0;
+    size_t nested_xapu_partial_bound = 0;
     size_t nested_xmem_error_only_bound = 0;
     size_t nested_d3d12_exports_bound = 0;
     size_t nested_d3d12_device_bound = 0;

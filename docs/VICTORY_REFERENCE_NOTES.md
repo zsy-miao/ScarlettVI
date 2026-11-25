@@ -15,7 +15,7 @@ Connected Windows workstation reports an NVIDIA RTX 5060 Ti via `Win32_VideoCont
 ## What the comparison changes in ScarlettVI's priorities
 
 1. **Native-loader startup, not import counts alone:** the [generated PE64 and DLL startup fixtures](SYNTHETIC_PE_ENTRY.md) now prove original known-code entry, Windows imports, DIR64 relocation, explicit generated DLL callback/entrypoint ordering and separate TLS storage for managed host threads. Next implement real guest DLL dependency attach, compiler TLS/TEB conventions, automatic game-created-thread notifications and crash reporting. Real title execution remains blocked.
-2. **Guest audio HAL and result queues:** the new AcpHal host object is partial. The `+0x10` vtable method is unsupported; ten XAPU/CHAD imports still require exact ABI and stateful command/result lifecycles.
+2. **Guest audio HAL and result queues:** the [AcpHal host object](APU_HAL_FACTORY.md) is partial (`+0x10` configuration unsupported). The [XAPU result FIFO](XAPU_QUEUE_HOST.md) implements real host connection and result ownership, reducing remaining XAPU/CHAD imports to six; `XApuEnqueueCommand` and all five CHAD services still need independently verified command-processing semantics.
 3. **Xbox GPU program translation:** RDNA2 shader instruction/descriptor lowering to valid DXIL and shader caching are mandatory for graphics beyond synthetic D3D12 tests.
 4. **Texture layout and streaming:** native swizzle and resource copying must reflect all guest memory aliases, and assets need independent archive and decompression verification.
 5. **Xbox DirectStorage and online/offline services:** define guest COM interfaces, asynchronous completion and a contained virtual file system before any title entrypoint can run reliably.

@@ -29,7 +29,7 @@ console code, keys or proprietary binary libraries belong in this repository.
   additional reference; the original partial GPU VM configuration bridge
   links **1** more, and the original [host APU allocation bridge](APU_HOST_MEMORY.md)
   links the host `ApuCreateHeap`/`ApuAlloc`/`ApuFree` subset, leaving
-  **14** Xbox import references unresolved.
+  **10** Xbox import references unresolved.
   The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
   returns FALSE when no Xbox developer/tools partition exists; this
   reduces missing import addresses but does not supply console memory services.
@@ -45,6 +45,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   The [partial AcpHal guest factory](APU_HAL_FACTORY.md) supplies a
   bounded host object/vtable and ring storage, while its DSP configuration
   method still returns `E_NOTIMPL` and is tracked separately.
+  The [partial XAPU host connection/result FIFO](XAPU_QUEUE_HOST.md)
+  now links four additional named imports with actual owned handles,
+  bounded FIFO storage and tested concurrent use; command submission
+  remains unbound and audio decoding/playback is not implemented.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not
