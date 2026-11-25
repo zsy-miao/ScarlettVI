@@ -129,7 +129,9 @@ scan confirms **four XGCreateTextureComputer and two XGSuggestSwizzleMode
 call sites**. The new `xg-context` mode verifies E8 displacements and prints
 strictly bounded call-site windows for independent analysis, with generated
 negative-test fixtures. Neither command executes title code or guesses the ABI
-([XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md)).
+([XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md)). A separate read-only
+[descriptor evidence study](XG_DESCRIPTOR_EVIDENCE.md) records a few
+verified title-local field transfers but does not define the Xbox XG ABI.
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs
 across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24

@@ -48,6 +48,6 @@ These findings do **not** establish the size, alignment, field offsets or suppor
 
 The existing [host TextureLayout](XG_TEXTURE_LAYOUT.md) implements independent R8, RGBA8, BC1, BC3 and BC5 linear block pitches, array/mip layout and reversible *synthetic* 8×8 Morton microtiles. Its 130 CPU and 40 real D3D12 GPU subresource tests are valid **Windows host tests** but not evidence of Xbox-compatible texture addressing.
 
-The next graphics task is to independently establish more of the actual XG interface/descriptor layout from read-only call-site analysis, compare against public documentation where appropriate, then build a tested adapter only after the ABI is established. No proprietary Xbox SDK source is required or copied.
+An independent read-only disassembly of the shared title-side texture descriptor preparation helper has produced [preliminary field-offset evidence](XG_DESCRIPTOR_EVIDENCE.md), including several compact-input to prepared-output transfers and two swizzle-call register patterns. **These observations do not establish the Xbox ABI**. The next graphics task is to independently validate all control-flow paths, compare against public documentation where appropriate, then build a tested adapter only after the ABI is established. No proprietary Xbox SDK source is required or copied.
 
 The original GTA VI executable remains **not bootable or rendering**. The readiness report retains **25 unresolved Xbox imports**, including these two XG names, with all startup execution gates BLOCKED.

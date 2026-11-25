@@ -8,8 +8,10 @@ and all six E8 relative-call candidates directly from the original title's
 executable PE sections. Its `xg-context` mode extracts bounded 96-byte
 pre-call and 48-byte post-call PE sections for local, independent disassembly,
 verifies each call still targets an XG thunk, and rejects invalid ranges. Its generated synthetic scanner fixture is separately
-testable using `ScarlettVI.exe xg-calls-fixture`. It does **not** decode
-Xbox texture descriptor fields or bind either Xbox import.
+testable using `ScarlettVI.exe xg-calls-fixture`. The new [descriptor evidence notes](XG_DESCRIPTOR_EVIDENCE.md)
+summarize preliminary title-local field transfers derived from independent
+read-only disassembly. These are **not** an Xbox XG ABI definition, and neither
+Xbox graphics import is bound.
 
 ## What the user-owned executable shows
 
