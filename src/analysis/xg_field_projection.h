@@ -5,20 +5,20 @@
 
 namespace scarlett::analysis {
 
-// Research-only projection of directly observed, unambiguous stores in one
-// nonzero/non-3 title-side descriptor preparation path. This is NOT an Xbox
+// Research-only projection of unambiguous stores in the three verified
+// category branches before the shared title-side descriptor store sequence. This is NOT an Xbox
 // XG ABI, a complete texture descriptor, or a console import implementation.
 enum class XgFieldProjectionStatus {
     ok,
     truncated_input,
     truncated_output,
-    unsupported_branch,
     overlapping_buffers
 };
 inline constexpr size_t kXgCompactObservedInputExtent = 0x0B;
 inline constexpr size_t kXgPreparedObservedOutputExtent = 0x24;
 
 struct XgObservedCompactFields {
+    uint8_t category_06 = 0;
     uint16_t source_00 = 0;
     uint16_t source_02 = 0;
     uint16_t source_04 = 0;
@@ -32,8 +32,8 @@ XgFieldProjectionStatus decode_xg_observed_fields(
     std::span<const uint8_t> compact,
     XgObservedCompactFields& result) noexcept;
 
-// Writes only 20 independently observed output bytes (offsets +0x10..+0x23)
-// into a caller-owned synthetic buffer; all other bytes remain unchanged.
+// Writes only 24 independently observed output bytes (offsets +0x00..+0x03
+// and +0x10..+0x23) into synthetic output. Others remain unchanged.
 // Never consults game data, launches code, or binds an Xbox import.
 // Failure leaves the destination unchanged.
 XgFieldProjectionStatus project_xg_observed_fields(

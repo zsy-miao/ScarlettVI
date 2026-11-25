@@ -12,8 +12,9 @@ testable using `ScarlettVI.exe xg-calls-fixture`. The new [descriptor evidence n
 summarize preliminary title-local field transfers derived from independent
 read-only disassembly. These are **not** an Xbox XG ABI definition, and neither
 Xbox graphics import is bound. The independent [synthetic field-projection fixture](XG_FIELD_PROJECTION.md)
-validates five observed, bytewise compact-to-prepared transfers on 512 generated
-cases without inferring the unknown format/swizzle behavior.
+validates five observed compact-to-prepared transfers and category-dependent
+constants across three corroborated paths on 512 generated cases, without
+inferring unknown format/swizzle behavior.
 
 ## What the user-owned executable shows
 

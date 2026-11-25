@@ -143,8 +143,8 @@ int wmain(int argc, wchar_t** argv) {
                 scarlett::analysis::verify_xg_field_projection_fixtures();
             std::cout << "ScarlettVI | synthetic XG field-transfer research fixture: "
                       << (passed ? "PASS" : "FAIL") << "\n"
-                      << "512 generated input cases plus invalid ranges, "
-                      << "overlaps and unverified branch rejections.\n"
+                      << "512 generated input cases across all three "
+                      << "observed category paths, plus bounds and overlaps.\n"
                       << "No Xbox import bound or game code executed.\n";
             return passed ? 0 : 3;
         }

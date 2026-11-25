@@ -6,7 +6,7 @@
 
 Three of the four verified `XGCreateTextureComputer` call sites prepare their RCX descriptor through the same title-local routine, whose entry at VA `0x144ECC7F0` jumps to a body at `0x144ECC940`. The fourth call site copies a prepared descriptor from an existing caller-supplied buffer to stack storage before invoking XG. These paths show how the **title's compact texture input** is converted to a **prepared descriptor** that is later supplied to the unresolved XG import. They do *not* tell us how XG's implementation consumes that descriptor.
 
-The local, Git-ignored scratch disassembly uses Capstone 5.0.6 against the original, unmodified PE file. The existing `xg-context` command independently verifies the six original E8 call-to-import-trampoline displacements and bounds all call windows within file-backed executable sections. The helper's branch analysis is **preliminary**: it must be independently cross-checked against a second disassembler and alternate branches before assigning semantic field names.
+The local, Git-ignored scratch disassembly uses Capstone 5.0.6 against the original, unmodified PE file. The existing `xg-context` command independently verifies the six original E8 call-to-import-trampoline displacements and bounds all call windows within file-backed executable sections. **Second-disassembler corroboration:** Microsoft Dumpbin `/DISASM /RANGE` independently confirmed the shared writes at `0x144ECC9A1`–`0x144ECC9E4` and the two alternate category entry paths at `0x144ECCB89`–`0x144ECCB9C` and `0x144ECCC85`–`0x144ECCC98`. No machine instruction bytes were copied into the repository. Full branching and semantic meaning remain unverified.
 
 ## Observed transfers in the primary nonzero category path
 
@@ -34,6 +34,6 @@ The helper also branches on source bytes at `+0x06`, `+0x0B`, `+0x0C`, and `+0x0
 
 ## Decision and next checks
 
-Keep both `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED`. A new [synthetic field-projection fixture](XG_FIELD_PROJECTION.md) now models only five directly observed source-to-output transfers, with 512 generated tests, conservative alternate-branch rejection, and no game execution. Next, independently verify remaining control-flow paths, identify compact format/category values and size limits, and then expand the fixture **only** for substantiated fields. Do not label the host's synthetic Morton tiling as Xbox XG swizzling.
+Keep both `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED`. A new [synthetic field-projection fixture](XG_FIELD_PROJECTION.md) now models five directly observed source-to-output transfers plus verified category-dependent constants for categories `0`, `3` and other values. It passes 512 generated tests and never executes game code. Next, independently verify the remaining conditional writes, lookup tables and size limits; expand the fixture **only** for substantiated fields. Do not label the host's synthetic Morton tiling as Xbox XG swizzling.
 
 See [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), [XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md), [XG_TEXTURE_LAYOUT.md](XG_TEXTURE_LAYOUT.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).

@@ -35,8 +35,10 @@ bool verify_xg_field_projection_fixtures() noexcept {
         for (auto& value : projected)
             value = static_cast<uint8_t>(next_random(rng));
         expected = projected;
-        compact[6] = static_cast<uint8_t>(1 + (trial % 254));
-        if (compact[6] == 3) compact[6] = 4;
+        // Exercise both alternative entry paths and the shared default.
+        compact[6] = trial % 9 == 0 ? uint8_t{0} :
+                     trial % 9 == 1 ? uint8_t{3} :
+                     static_cast<uint8_t>(1 + (trial % 254));
 
         const uint16_t w0 = static_cast<uint16_t>(
             unsigned(compact[0]) | unsigned(compact[1]) << 8);
@@ -47,14 +49,18 @@ bool verify_xg_field_projection_fixtures() noexcept {
 
         // Independently specified expected destinations, including zero
         // extension and preservation of all unobserved bytes.
+        expected[0] = compact[6] == 0 ? 2 : compact[6] == 3 ? 4 : 3;
+        expected[1] = expected[2] = expected[3] = 0;
         reference_store(expected, 0x10, w0, 8);
-        reference_store(expected, 0x18, w2, 4);
+        reference_store(expected, 0x18,
+                        compact[6] == 0 ? uint16_t{1} : w2, 4);
         reference_store(expected, 0x1c, w4, 2);
         reference_store(expected, 0x1e, compact[0x0a], 2);
         reference_store(expected, 0x20, compact[0x07], 4);
 
         XgObservedCompactFields extracted{};
         if (decode_xg_observed_fields(compact, extracted) != Status::ok ||
+            extracted.category_06 != compact[6] ||
             extracted.source_00 != w0 ||
             extracted.source_02 != w2 ||
             extracted.source_04 != w4 ||
@@ -65,12 +71,12 @@ bool verify_xg_field_projection_fixtures() noexcept {
             return false;
     }
 
-    // Boundary lengths and branch values must fail without mutation.
+    // Boundary lengths must fail without mutation.
     compact.fill(0xff);
     compact[6] = 1;
     projected.fill(0x4c);
     const auto pristine = projected;
-    XgObservedCompactFields untouched{0x1234, 0x5678, 0x9abc, 0xde, 0xf0};
+    XgObservedCompactFields untouched{0xa1, 0x1234, 0x5678, 0x9abc, 0xde, 0xf0};
     if (decode_xg_observed_fields(
             std::span<const uint8_t>(compact).first(10),
             untouched) != Status::truncated_input ||
@@ -85,16 +91,21 @@ bool verify_xg_field_projection_fixtures() noexcept {
             Status::truncated_output ||
         projected != pristine)
         return false;
+    // The zero and 3 category entry paths are independently corroborated:
+    // both reach the shared field stores but supply different token/word.
     for (const uint8_t branch : {uint8_t{0}, uint8_t{3}}) {
         compact[6] = branch;
-        if (decode_xg_observed_fields(compact, untouched) !=
-                Status::unsupported_branch ||
-            project_xg_observed_fields(compact, projected) !=
-                Status::unsupported_branch ||
-            projected != pristine || untouched.source_00 != 0x1234)
+        projected = pristine;
+        if (decode_xg_observed_fields(compact, untouched) != Status::ok ||
+            untouched.category_06 != branch ||
+            project_xg_observed_fields(compact, projected) != Status::ok ||
+            projected[0] != (branch == 0 ? 2 : 4) ||
+            projected[0x18] != (branch == 0 ? 1 : 0xff) ||
+            projected[0x19] != (branch == 0 ? 0 : 0xff))
             return false;
     }
     compact[6] = 1;
+    projected = pristine;
 
     // Reject overlapping input and output ranges even when the destination
     // fits, so a partial field projection cannot silently destroy its input.

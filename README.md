@@ -34,9 +34,9 @@ mode verifies each relative-call target and safely extracts bounded
 read-only call context for independent local ABI investigation. A separate
 [preliminary descriptor study](docs/XG_DESCRIPTOR_EVIDENCE.md) records observed
 title-local field transfers without asserting a console ABI. The new
-[synthetic XG field fixture](docs/XG_FIELD_PROJECTION.md) verifies five directly
-observed source-to-output transfers over **512 deterministic generated cases**,
-including invalid-range and preservation tests. This research helper does
+[synthetic XG field fixture](docs/XG_FIELD_PROJECTION.md) verifies observed
+source-to-output transfers and three corroborated category paths over
+**512 deterministic generated cases**, including invalid-range and preservation tests. This research helper does
 not bind any Xbox graphics API. The full Xbox XG texture computer/swizzle ABI
 remains unknown, so both graphics imports are still **unresolved**.
 

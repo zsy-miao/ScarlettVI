@@ -32,12 +32,10 @@ XgFieldProjectionStatus decode_xg_observed_fields(
     XgObservedCompactFields& result) noexcept {
     if (compact.size() < kXgCompactObservedInputExtent)
         return XgFieldProjectionStatus::truncated_input;
-    // In the observed title-local helper, these two values branch away
-    // before the common stores. Their alternate layouts are unverified.
-    if (compact[6] == 0 || compact[6] == 3)
-        return XgFieldProjectionStatus::unsupported_branch;
-
+    // Both category 0 and category 3 also rejoin the common store block;
+    // their incoming values differ and are explicitly handled below.
     XgObservedCompactFields next;
+    next.category_06 = compact[6];
     next.source_00 = read_le16(compact.data() + 0x00);
     next.source_02 = read_le16(compact.data() + 0x02);
     next.source_04 = read_le16(compact.data() + 0x04);
@@ -59,10 +57,15 @@ XgFieldProjectionStatus project_xg_observed_fields(
     if (spans_overlap(compact, prepared))
         return XgFieldProjectionStatus::overlapping_buffers;
 
-    // These five transfers were directly visible in a single title-side
-    // helper path. They are not sufficient to call XGCreateTextureComputer.
+    // The helper's category 0 and 3 branches both rejoin these stores.
+    // This still omits all conditional size, format, tile and swizzle rules.
+    // The category-dependent token has no established semantic meaning.
+    const uint32_t observed_token = extracted.category_06 == 0 ? 2u :
+                                    extracted.category_06 == 3 ? 4u : 3u;
+    write_le(prepared, 0x00, observed_token, 4);
     write_le(prepared, 0x10, extracted.source_00, 8);
-    write_le(prepared, 0x18, extracted.source_02, 4);
+    write_le(prepared, 0x18,
+             extracted.category_06 == 0 ? 1u : extracted.source_02, 4);
     write_le(prepared, 0x1c, extracted.source_04, 2);
     write_le(prepared, 0x1e, extracted.source_0a, 2);
     write_le(prepared, 0x20, extracted.source_07, 4);
