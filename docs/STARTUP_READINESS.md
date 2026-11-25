@@ -34,7 +34,7 @@ real game binaries, shader assets, extracted archive contents or title data.
 | Dependency | Unresolved import references | Workstream |
 | --- | ---: | --- |
 | `AcpHal.dll` | 0 | Eight functional host APU memory/SHAPE bindings and one partial HAL factory; DSP configuration remains unsupported |
-| `chad.dll` | 5 | DSP connection, activation and command dispatch |
+| `chad.dll` | 5 | Connection, activation and command dispatch are not bound; original CPU FIR DSP processing is independently tested, but the guest command/stream ABI is unverified |
 | `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
 | `xmem.dll` | 1 | `XMemTransferMemory` memory-budget transfer semantics remain unknown |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
@@ -61,6 +61,10 @@ Measured working address bindings:
   Real aligned CPU allocations and quotas are tested; arbitrary game memory,
   physical APU RAM, actual SHAPE processing and audio command/result queues
   remain unsupported
+- **0 bound CHAD imports**; the [original host FIR convolution backend](DSP_CPU_CONVOLUTION.md)
+  now performs real generated multichannel signal processing. This is a
+  numerical audio primitive only: no guest DSP queue, packet handling,
+  codec, sound output or CHAD lifecycle has been linked
 - **4** [partial XAPU connection/result queue bindings](XAPU_QUEUE_HOST.md):
   bounded host-owned connections, result count and FIFO dequeue are real,
   but command submissions remain unbound, and no DSP work is executed.

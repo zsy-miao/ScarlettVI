@@ -49,6 +49,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   now links four additional named imports with actual owned handles,
   bounded FIFO storage and tested concurrent use; command submission
   remains unbound and audio decoding/playback is not implemented.
+  The original [CPU FIR DSP backend](DSP_CPU_CONVOLUTION.md) now computes
+  real, bounded interleaved floating-point convolution with streaming
+  history and independent multichannel state, tested on generated samples.
+  It is deliberately not bound to `chad.dll` while the guest buffer,
+  stream activation and command contracts remain incomplete.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not

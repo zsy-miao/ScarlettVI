@@ -27,6 +27,7 @@
 #include "audio/apu_shape.h"
 #include "audio/acp_hal_host.h"
 #include "audio/xapu_host.h"
+#include "audio/dsp_convolution.h"
 #include "runtime/xmem_query.h"
 #include <Windows.h>
 #include <algorithm>
@@ -133,6 +134,7 @@ void usage() {
                << L"  ScarlettVI.exe audio-shape-fixture\n"
                << L"  ScarlettVI.exe audio-hal-fixture\n"
                << L"  ScarlettVI.exe audio-xapu-fixture\n"
+               << L"  ScarlettVI.exe audio-dsp-fixture\n"
                << L"  ScarlettVI.exe synthetic-entry-fixture\n"
                << L"  ScarlettVI.exe synthetic-dll-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
@@ -184,6 +186,16 @@ int wmain(int argc, wchar_t** argv) {
                       << (passed ? "PASS" : "FAIL")
                       << "\nGenerated code only; imported Kernel32 API, relocations, "
                       << "TLS and entrypoint verified. Original title not executed.\n";
+            return passed ? 0 : 3;
+        }
+        if (verb == L"audio-dsp-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::audio::verify_host_dsp_convolution_fixture();
+            std::cout << "ScarlettVI | real bounded CPU FIR DSP convolution: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nGenerated interleaved audio only; "
+                      << "no Xbox CHAD processing or title execution.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"audio-xapu-fixture") {
