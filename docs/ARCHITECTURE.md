@@ -132,6 +132,10 @@ negative-test fixtures. Neither command executes title code or guesses the ABI
 ([XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md)). A separate read-only
 [descriptor evidence study](XG_DESCRIPTOR_EVIDENCE.md) records a few
 verified title-local field transfers but does not define the Xbox XG ABI.
+The original [synthetic field-projection fixture](XG_FIELD_PROJECTION.md)
+models five observed transfers with 512 generated checks, including bounds,
+rejected alternate branches, overlap detection and output preservation.
+It does not implement a console import, or enable title execution.
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs
 across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24

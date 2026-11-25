@@ -34,6 +34,6 @@ The helper also branches on source bytes at `+0x06`, `+0x0B`, `+0x0C`, and `+0x0
 
 ## Decision and next checks
 
-Keep both `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED`. Next, verify control-flow paths through the descriptor-preparation helper, identify the compact format/category values and size limits using independent corroboration, and build a strictly synthetic decoder fixture **only** for substantiated fields. Do not label the host's synthetic Morton tiling as Xbox XG swizzling.
+Keep both `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED`. A new [synthetic field-projection fixture](XG_FIELD_PROJECTION.md) now models only five directly observed source-to-output transfers, with 512 generated tests, conservative alternate-branch rejection, and no game execution. Next, independently verify remaining control-flow paths, identify compact format/category values and size limits, and then expand the fixture **only** for substantiated fields. Do not label the host's synthetic Morton tiling as Xbox XG swizzling.
 
-See [XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md), [XG_TEXTURE_LAYOUT.md](XG_TEXTURE_LAYOUT.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).
+See [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), [XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md), [XG_TEXTURE_LAYOUT.md](XG_TEXTURE_LAYOUT.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).

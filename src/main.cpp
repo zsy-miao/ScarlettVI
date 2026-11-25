@@ -1,5 +1,6 @@
 #include "pe/pe_file.h"
 #include "analysis/xg_callsite_probe.h"
+#include "analysis/xg_field_projection.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -105,6 +106,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-calls <title.exe>\n"
                << L"  ScarlettVI.exe xg-context <title.exe>\n"
                << L"  ScarlettVI.exe xg-calls-fixture\n"
+               << L"  ScarlettVI.exe xg-field-fixture\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
                << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
@@ -135,6 +137,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-field-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_field_projection_fixtures();
+            std::cout << "ScarlettVI | synthetic XG field-transfer research fixture: "
+                      << (passed ? "PASS" : "FAIL") << "\n"
+                      << "512 generated input cases plus invalid ranges, "
+                      << "overlaps and unverified branch rejections.\n"
+                      << "No Xbox import bound or game code executed.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-calls-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed = scarlett::analysis::verify_xg_callsite_fixtures() &&
