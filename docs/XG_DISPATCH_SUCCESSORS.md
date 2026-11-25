@@ -13,7 +13,7 @@ Microsoft's read-only Dumpbin disassembler and ScarlettVI's bounded source-byte 
 
 In each case, the *entire* gap between calls consists of the observed shapes `MOV RCX,[base+disp]` followed by `MOV RAX,[RCX]`; the following dispatch is via `[RAX+0x08]`. The earlier load and later reload refer to the same **address expression**. This is **not** proof that the same object address remains stored there before and after the first call. The scan cannot prove control-flow reachability, concurrency, memory mutations, or the actual callee identity.
 
-The other `+0x10` site at `0x140979C9F` has **no matching immediate `+0x08` successor** within this deliberately narrow pattern. This does not prove it lacks cleanup or a method call elsewhere.
+The other `+0x10` site at `0x140979C9F` has **no matching immediate `+0x08` successor** within this deliberately narrow pattern. A separate [post-call indexed stack-read and field-copy survey](XG_POSTCALL_INDEXED_READS.md) identifies three subsequent stack accesses followed by RSI-field writes at this site. This does not prove it lacks cleanup or a method call elsewhere.
 
 The read-only disassembly also shows that the **immediate successors don't test the previous call's RAX return value**: the `+0x50` and the `+0x10` paths above reload the pointer into RCX and then overwrite RAX with the dispatch-table pointer. This is a *local instruction-sequence observation*, not a proof that a call returns no value or that its return is never used elsewhere. The `+0x08` call's own return meaning is unverified. In particular, **do not assume that `+0x08` is `Release`, even if that offset resembles an ordinary COM table**.
 

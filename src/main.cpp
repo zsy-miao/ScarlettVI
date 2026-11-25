@@ -7,6 +7,7 @@
 #include "analysis/xg_vcall_stack_writes.h"
 #include "analysis/xg_vcall_registers.h"
 #include "analysis/xg_vcall_successors.h"
+#include "analysis/xg_vcall_indexed_reads.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -119,6 +120,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-vcall-stack-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-regs-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-followups-fixture\n"
+               << L"  ScarlettVI.exe xg-vcall-reads-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -150,6 +152,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-vcall-reads-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_postcall_indexed_read_fixtures();
+            std::cout << "ScarlettVI | synthetic XG indexed stack-read fixture: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nRead-only local instruction patterns; "
+                      << "no output-buffer ownership or Xbox ABI inferred.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-vcall-followups-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -385,8 +397,43 @@ int wmain(int argc, wchar_t** argv) {
                           << " | prior matching location pattern: "
                           << (item.prior_matching_storage_pattern ? "yes" : "no")
                           << "\n";
-            std::cout << "This is not proof of pointer identity, object "
-                      << "ownership, return semantics or a verified Xbox ABI.\n";
+            std::vector<scarlett::analysis::XgPostcallIndexedRead> reads;
+            if (!scarlett::analysis::scan_xg_postcall_indexed_reads(
+                    create_contexts, found, reads)) {
+                std::cerr << "Bounded XG postcall indexed-read scan failed.\n";
+                return 3;
+            }
+            std::cout << "Local +0x10 postcall indexed stack-read patterns: "
+                      << reads.size() << "\n";
+            for (const auto& rd : reads)
+                std::cout << "  dispatch VA 0x" << std::hex
+                          << (report.image_base + rd.dispatch_rva)
+                          << " | load VA 0x"
+                          << (report.image_base + rd.read_rva)
+                          << " | passed RDX [RSP+0x" << rd.passed_rsp_offset
+                          << "] | read [RSP+RAX+0x"
+                          << rd.indexed_rsp_displacement << "]"
+                          << " | relative +0x" << rd.relative_displacement
+                          << std::dec << " | width "
+                          << static_cast<unsigned>(rd.width_bytes)
+                          << " | destination GPR "
+                          << static_cast<unsigned>(rd.destination_gpr)
+                          << "\n";
+            for (const auto& rd : reads) {
+                if (!rd.copied_immediately_to_rsi)
+                    continue;
+                std::cout << "  immediate field-copy VA 0x" << std::hex
+                          << (report.image_base + rd.copy_rva)
+                          << " | source load VA 0x"
+                          << (report.image_base + rd.read_rva)
+                          << " | destination [RSI+0x"
+                          << rd.rsi_field_offset << "]"
+                          << std::dec << " | width "
+                          << static_cast<unsigned>(rd.width_bytes)
+                          << " bytes\n";
+            }
+            std::cout << "These byte-pattern matches do not prove that "
+                      << "the callee wrote the stack data or an Xbox ABI.\n";
             return 0;
         }
         if (verb == L"xg-field-fixture") {

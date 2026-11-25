@@ -158,6 +158,10 @@ The [bounded +0x08 successor survey](XG_DISPATCH_SUCCESSORS.md) finds two
 adjacent indirect dispatch sequences following `+0x50` and `+0x10` calls,
 respectively, with a matching earlier storage-address expression. These
 patterns cannot prove object identity or whether `+0x08` releases ownership.
+A [bounded +0x10 post-call indexed-read and field-copy scanner](XG_POSTCALL_INDEXED_READS.md)
+finds three stack accesses relative to the previously passed RDX stack
+address, each followed by a same-width store to an RSI field. The observed
+caller-side data copies do not prove that an Xbox method produced the data.
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs
 across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24
