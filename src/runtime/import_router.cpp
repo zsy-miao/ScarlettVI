@@ -5,6 +5,7 @@
 #include "../audio/xapu_host.h"
 #include "../storage/dstorage_factory_host.h"
 #include "../gpu/xbox_device_factory.h"
+#include "../gpu/xg_import_host.h"
 #include <algorithm>
 #include <set>
 #include <string>
@@ -199,6 +200,24 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                         image.patch_iat(symbol.iat_rva,
                                         reinterpret_cast<uint64_t>(address));
                         ++result.experimental_dstorage_factory_partial_bound;
+                    } else {
+                        ++result.xbox_symbols_pending;
+                        add_pending(imported, symbol, PendingKind::XboxHle);
+                    }
+                }
+            } else if (route == ImportRoute::XboxHle &&
+                       lower(imported.name) == "xg_xs.dll") {
+                // Both observed XG functions have ABI-shaped, explicit
+                // failure-only entry points. Linkage is NOT functional
+                // emulation: no XG layout is returned, no guest outputs
+                // are written and no texture computer is fabricated.
+                for (const auto& symbol : imported.symbols) {
+                    FARPROC address = symbol.by_ordinal ? nullptr
+                        : gpu::find_xg_xs_error_only_export(symbol.name);
+                    if (address) {
+                        image.patch_iat(symbol.iat_rva,
+                                        reinterpret_cast<uint64_t>(address));
+                        ++result.experimental_xg_error_only_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

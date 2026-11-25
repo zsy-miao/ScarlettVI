@@ -61,7 +61,9 @@ without equating them to a COM Release or proving pointer identity. A new
 three indexed stack reads and immediate copies to caller-owned RSI fields
 after a `+0x10` dispatch, without attributing the data to the callee.
 The full Xbox XG texture computer/swizzle
-ABI remains unknown, so both graphics imports are still **unresolved**.
+ABI remains unknown. Both [XG imports now link to explicitly error-only
+handlers](docs/XG_IMPORT_FAILURE_BRIDGE.md) that return `E_NOTIMPL`
+without touching guest output pointers. **Functional XG remains unsupported.**
 
 A [partial Xbox DirectStorage factory](docs/XBOX_DSTORAGE_FACTORY.md) now binds the
 observed `DStorageGetFactory` interface and actually owns and resizes the
@@ -103,7 +105,8 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **8 Xbox-specific import references remain unresolved.**
+title-local exports. **6 Xbox-specific import references remain unresolved**; two XG
+imports are counted as error-only links, not working graphics functions.
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 A [generated PE64 entrypoint smoke test](docs/SYNTHETIC_PE_ENTRY.md) now

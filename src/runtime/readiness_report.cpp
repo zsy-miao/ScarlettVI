@@ -69,6 +69,8 @@ StartupReadiness assess_startup_readiness(const PeFile& executable,
         primary.experimental_d3d12_device_bound + nested.nested_d3d12_device_bound;
     report.xbox_experimental_gpu_va_config_bindings =
         primary.experimental_gpu_va_config_bound + nested.nested_gpu_va_config_bound;
+    report.xbox_xg_error_only_bindings =
+        primary.experimental_xg_error_only_bound + nested.nested_xg_error_only_bound;
     report.registered_unwind_functions =
         primary_finalize.unwind_functions_registered + nested.registered_unwind_functions;
     report.tls_templates_prepared =
@@ -126,7 +128,8 @@ void print_startup_readiness(const StartupReadiness& report, std::ostream& outpu
            << ", D3D12 serializer=" << report.xbox_experimental_d3d12_bindings
            << ", host Device11 factory=" << report.xbox_experimental_device11_bindings
            << ", sparse GPU VA policy=" << report.xbox_experimental_gpu_va_config_bindings
-           << " (Xbox GPU tile mappings/flags are NOT implemented)\n"
+           << ", XG texture imports error-only=" << report.xbox_xg_error_only_bindings
+           << " (XG has NO texture computer or valid swizzle output)\n"
            << "Remaining imports: " << report.pending.size()
            << " (Xbox=" << kind_count(report, PendingKind::XboxHle)
            << ", unknown=" << kind_count(report, PendingKind::UnknownModule)
@@ -181,6 +184,7 @@ void write_startup_readiness_json(const StartupReadiness& report,
         << "    \"experimental_d3d12_bound\": " << report.xbox_experimental_d3d12_bindings << ",\n"
         << "    \"experimental_device11_factory_bound\": " << report.xbox_experimental_device11_bindings << ",\n"
         << "    \"experimental_gpu_va_config_bound\": " << report.xbox_experimental_gpu_va_config_bindings << ",\n"
+        << "    \"experimental_xg_error_only_bound\": " << report.xbox_xg_error_only_bindings << ",\n"
         << "    \"unresolved_references\": " << report.pending.size() << ",\n"
         << "    \"unresolved_xbox\": " << kind_count(report, PendingKind::XboxHle) << ",\n"
         << "    \"registered_unwind_functions\": " << report.registered_unwind_functions << ",\n"

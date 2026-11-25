@@ -101,6 +101,7 @@
     <ClCompile Include="src\gpu\dxil_compiler.cpp" />
     <ClCompile Include="src\gpu\guest_address_space.cpp" />
     <ClCompile Include="src\gpu\xbox_device_factory.cpp" />
+    <ClCompile Include="src\gpu\xg_import_host.cpp" />
     <ClCompile Include="src\gpu\sparse_gpu_windows.cpp" />
     <ClCompile Include="src\gpu\gpu_tile_batch_test.cpp" />
     <ClCompile Include="src\gpu\gpu_page_stager.cpp" />
@@ -162,6 +163,7 @@
     <ClInclude Include="src\gpu\dxil_compiler.h" />
     <ClInclude Include="src\gpu\guest_address_space.h" />
     <ClInclude Include="src\gpu\xbox_device_factory.h" />
+    <ClInclude Include="src\gpu\xg_import_host.h" />
     <ClInclude Include="src\gpu\sparse_gpu_windows.h" />
     <ClInclude Include="src\gpu\gpu_page_stager.h" />
     <ClInclude Include="src\gpu\fence_safety.h" />

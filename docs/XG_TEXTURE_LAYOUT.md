@@ -1,6 +1,6 @@
 # XG texture computer ABI research and host texture-layout bridge
 
-**Status:** read-only game call-site analysis and independently verified Windows host texture copy/format processing. The two actual Xbox `xg_xs.dll` imports remain **unresolved**. The host swizzle is **not** a console swizzle.
+**Status:** read-only game call-site analysis and independently verified Windows host texture copy/format processing. The two actual Xbox `xg_xs.dll` imports now have [failure-only bindings](XG_IMPORT_FAILURE_BRIDGE.md), always returning `E_NOTIMPL`. They remain **functionally unresolved**. The host swizzle is **not** a console swizzle.
 
 The original [repeatable read-only XG PE call-site probe](XG_CALLSITE_PROBE.md)
 now verifies the two actual IAT locations, both FF25 import jump stubs,
@@ -10,8 +10,8 @@ pre-call and 48-byte post-call PE sections for local, independent disassembly,
 verifies each call still targets an XG thunk, and rejects invalid ranges. Its generated synthetic scanner fixture is separately
 testable using `ScarlettVI.exe xg-calls-fixture`. The new [descriptor evidence notes](XG_DESCRIPTOR_EVIDENCE.md)
 summarize preliminary title-local field transfers derived from independent
-read-only disassembly. These are **not** an Xbox XG ABI definition, and neither
-Xbox graphics import is bound. The independent [synthetic field-projection fixture](XG_FIELD_PROJECTION.md)
+read-only disassembly. These are **not** an Xbox XG ABI definition. Both
+Xbox graphics imports now have error-only handlers; neither supplies a working XG layout or object. The independent [synthetic field-projection fixture](XG_FIELD_PROJECTION.md)
 validates five observed compact-to-prepared transfers and category-dependent
 constants and known zeroed fields across three corroborated paths on 512
 generated cases and 256 lookup-index cases, without inferring unknown
@@ -31,7 +31,8 @@ Independent read-only analysis of `game_scarlett_master.exe` found four direct c
 Two direct calls to `XGSuggestSwizzleMode` appear at `0x140C4B3CE` and `0x144ECCCA2` in routines working with texture format fields. Their full arguments, layout flags, true swizzle enumerations and error behavior are **not established**. The new [indirect-call candidate survey](XG_VCALL_SURVEY.md) records five
 post-creation calls with `+0x08`, `+0x10` and `+0x50` displacements.
 A vtable pointer does not prove that its Xbox object implements a standard
-Windows COM interface. Neither Xbox import is bound to guessed host behavior.
+Windows COM interface. The new failure-only bindings return `E_NOTIMPL`
+without reading or writing unknown guest memory; they do not invent host behavior.
 
 ## Public documentation for context, not a binary ABI guarantee
 

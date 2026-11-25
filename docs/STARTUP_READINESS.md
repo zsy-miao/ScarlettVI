@@ -37,9 +37,9 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `chad.dll` | 5 | Connection, activation and command dispatch are not bound; original CPU FIR DSP processing is independently tested, but the guest command/stream ABI is unverified |
 | `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
 | `xmem.dll` | 0 | One **partial** `XMemTransferMemory` host quota binding; only title-observed direction and host XMemAlloc budget admission are implemented |
-| `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI unresolved; original [D3D12 GPU detiling backend](GPU_TEXTURE_DETILE.md) now executes host Morton layouts but is NOT Xbox swizzle |
+| `xg_xs.dll` | 0 | Both symbols now link to [explicit error-only XG functions](XG_IMPORT_FAILURE_BRIDGE.md); **both remain functionally unsupported**. Host Morton GPU detiling is NOT Xbox swizzle |
 | `XCRDAPI.dll` | 0 | [Partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md) binds one symbol and real staging. The [host-only async Win32 queue](XBOX_DSTORAGE_HOST_ASYNC.md), [enqueue/submit scheduler](XBOX_DSTORAGE_SUBMIT_GATE.md) and [guest-IID status arrays](XBOX_DSTORAGE_STATUS_ARRAY.md) now work; an [explicitly fixture-rooted file COM adapter](XBOX_DSTORAGE_FILE_HOST.md) performs real read-only opens, and a [fixture-rooted queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md) processes real host barriers; general guest asset access remains unsupported |
-| **Total** | **8** | |
+| **Total** | **6** | Two previously missing XG addresses now have error-only bindings; not usable texture functionality |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -77,6 +77,7 @@ Measured working address bindings:
   factory allocates a correctly shaped host object and real bounded ring
   buffers, but the unverified `+0x10` DSP configuration method returns
   `E_NOTIMPL`; readiness separately reports `HAL factory partial=1`
+- **2** Xbox XG imports linked to [explicit `E_NOTIMPL` handlers](XG_IMPORT_FAILURE_BRIDGE.md): **no** XG texture-computer object or swizzle output exists. They are separately reported as `XG texture imports error-only=2` rather than functional graphics coverage
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
 - **1** experimental `D3D12XboxCreateDevice` import linked to a verified
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
@@ -128,7 +129,7 @@ managed worker threads. Only generated test callbacks are executed. Neither
 fixture invokes the original title, any game DLL or their callbacks;
 this is **not** proof of full guest loader lifecycle correctness.
 
-Even if all 8 outstanding references gain function addresses, startup
+Even if all 6 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

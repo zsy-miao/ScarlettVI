@@ -95,6 +95,9 @@ console code, keys or proprietary binary libraries belong in this repository.
   and real Xbox destination buffers remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
+  The two XG XS imports are now [error-only linked functions](XG_IMPORT_FAILURE_BRIDGE.md),
+  returning `E_NOTIMPL` without touching descriptor or output memory; no
+  texture-computer object or actual console swizzle is implemented.
   Import linkage is not
   a gameplay-ready audio service. Public emulator comparisons and remaining real runtime
   gates are documented in [research](PUBLIC_COMPATIBILITY_RESEARCH.md).

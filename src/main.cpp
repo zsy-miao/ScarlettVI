@@ -18,6 +18,7 @@
 #include "gpu/device_context.h"
 #include "gpu/guest_address_space.h"
 #include "gpu/xbox_device_factory.h"
+#include "gpu/xg_import_host.h"
 #include "gpu/sparse_gpu_windows.h"
 #include "gpu/texture_layout.h"
 #include <d3d12sdklayers.h>
@@ -124,6 +125,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-calls <title.exe>\n"
                << L"  ScarlettVI.exe xg-context <title.exe>\n"
                << L"  ScarlettVI.exe xg-calls-fixture\n"
+               << L"  ScarlettVI.exe xg-import-fixture\n"
                << L"  ScarlettVI.exe xg-field-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-links-fixture\n"
@@ -365,6 +367,17 @@ int wmain(int argc, wchar_t** argv) {
                       << (passed ? "PASS" : "FAIL")
                       << "\nDesktop policy returns FALSE; no Xbox tools "
                       << "partition is provided or title code executed.\n";
+            return passed ? 0 : 3;
+        }
+        if (verb == L"xg-import-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed = scarlett::gpu::verify_xg_xs_error_only_fixture();
+            std::cout << "ScarlettVI | Xbox XG import failure-only ABI "
+                      << "and unchanged guest outputs: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nActual Xbox texture layout, swizzling, "
+                      << "and returned texture-computer object remain "
+                      << "UNSUPPORTED.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"xg-vcall-reads-fixture") {
@@ -1598,6 +1611,9 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "Experimental Xbox GPU VA configuration links: "
                       << (binding.experimental_gpu_va_config_bound + local_report.nested_gpu_va_config_bound)
                       << " (real sparse host GPU VA, Xbox tile mapping unsupported)\n";
+            std::cout << "XG texture imports linked (ERROR-ONLY): "
+                      << (binding.experimental_xg_error_only_bound + local_report.nested_xg_error_only_bound)
+                      << " (no valid texture layout or texture-computer object)\n";
             std::cout << "Xbox HLE imports pending: "
                       << (binding.xbox_symbols_pending + local_report.nested_xbox_pending)
                       << " | unknown nested imports: " << local_report.nested_unknown_pending << "\n";
