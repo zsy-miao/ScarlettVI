@@ -19,11 +19,12 @@ Microsoft's public Xbox GDK docs establish the [CreateQueue1 signature](https://
 and [Submit](https://learn.microsoft.com/en-us/gaming/gdk/docs/reference/system/dstorage/interfaces/idstoragequeuex/methods/idstoragequeuex_submit).
 No Xbox SDK files or proprietary source were copied.
 
-**Important:** the exact queue object's **Xbox virtual method ordering**
-remains provisional (following public API inheritance and independently
-published Windows DirectStorage vtable ordering). The original title's
-own queue-object callsites have not yet confirmed every offset. Do not
-enable this for real guest asset loads on that evidence alone.
+**Important:** direct read-only title callsites now confirm **queue**
+`EnqueueRequest +0x18` and `Close +0x40` independently. Other queue
+virtual method offsets remain provisional, and the complete guest request
+and destination-memory ABI is not implemented. See the
+[request ABI evidence and generated-buffer test](XBOX_DSTORAGE_REQUEST_ABI.md).
+Do not enable actual title asset loads on this partial evidence.
 
 ## What is implemented
 
@@ -51,10 +52,14 @@ enable this for real guest asset loads on that evidence alone.
   independent reset at each barrier. The worker now auto-retires completed
   **unsupported guest request error tokens** (which have no payload
   consumer), preventing long-lived queues from exhausting 64 slots.
-- `EnqueueRequest` is **not** a working guest read: the unverified Xbox
-  `DSTORAGE_REQUEST` is never dereferenced. Instead, the guest call
-  inserts an ordered **E_NOTIMPL failure** so later status barriers
-  cannot falsely report success. `EnqueueSignal` also fails closed.
+- Queue `EnqueueRequest +0x18` now supports a strictly registered,
+  original host **generated-buffer** subset of the documented 64-byte
+  `DSTORAGE_REQUEST` layout: ordinary uncompressed file sources and
+  byte-for-byte asynchronous writeback into pinned, explicitly approved
+  test buffers. The raw request is matched against a host-only permit
+  registry **before any pointer is dereferenced**. Ordinary game requests
+  still insert ordered **E_NOTIMPL failures**, never fake successful reads.
+  `EnqueueSignal` still fails closed.
 - The queue owns a manual-reset Windows error event. Unsupported calls
   signal the event and store a diagnostic HRESULT; it does not yet
   implement full Xbox error-record reporting for actual failed reads.
@@ -82,6 +87,11 @@ exact IID and IUnknown identity, invalid descriptors, unconfigured-root
 rejection, bounded real generated-file readback, no I/O before manual
 `Submit`, ordered failure markers, first-error aggregation and reset,
 staging lease ownership, event signaling and unverified output safety.
+It additionally tests a raw +0x18 `EnqueueRequest` with a registered
+host-generated buffer, no write before Submit, successful exact writeback,
+duplicate permit rejection, request-structure reuse and arbitrary pointer
+rejection. The [read-only ABI probe](../scripts/check_dstorage_queue_abi.py)
+checks four observed title callsites without executing game code.
 Additional regression coverage checks two real `IDStorageFileX`-backed reads
 with different offsets, unchanged file positions on the original handle,
 close/release-before-submit ownership, rejection of foreign/closed COM

@@ -4,9 +4,38 @@
 #include "dstorage_status_host.h"
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <vector>
 
 namespace scarlett::storage {
 struct HostDStorageFileX;
+
+// Public Xbox GDK DSTORAGE_REQUEST layout; the EnqueueRequest METHOD SLOT
+// is separately confirmed at guest +0x18 (0x1428C9A0B). The full layout
+// follows public docs, not independently recovered for every title field.
+// The queue may
+// execute ONLY explicitly registered, generated-file fixture requests.
+// All other guest pointers remain unread and yield E_NOTIMPL.
+struct GuestDStorageRequest {
+    uint64_t options = 0;
+    void* destination = nullptr;
+    uint32_t destination_size = 0;
+    HostDStorageFileX* file = nullptr;
+    uint64_t file_offset = 0;
+    uint32_t source_size = 0;
+    uint32_t intermediate_size = 0;
+    uint64_t cancellation_tag = 0;
+    const char* name = nullptr;
+};
+static_assert(sizeof(GuestDStorageRequest) == 64);
+static_assert(offsetof(GuestDStorageRequest, destination) == 8);
+static_assert(offsetof(GuestDStorageRequest, destination_size) == 16);
+static_assert(offsetof(GuestDStorageRequest, file) == 24);
+static_assert(offsetof(GuestDStorageRequest, file_offset) == 32);
+static_assert(offsetof(GuestDStorageRequest, source_size) == 40);
+static_assert(offsetof(GuestDStorageRequest, intermediate_size) == 44);
+static_assert(offsetof(GuestDStorageRequest, cancellation_tag) == 48);
+static_assert(offsetof(GuestDStorageRequest, name) == 56);
 
 // Original host declaration of the published DirectStorage queue descriptor.
 // The verified Microsoft public field order is source/capacity/priority/name/
@@ -27,7 +56,8 @@ static_assert(offsetof(GuestDStorageQueueDesc1, options) == 24);
 // DirectStorage queue family and Windows desktop vtable ordering. The game's
 // own queue virtual callsites must still be checked before enabling titles.
 struct HostDStorageQueueX2 : IUnknown {
-    virtual void STDMETHODCALLTYPE EnqueueRequest(const void* request) noexcept = 0;
+    virtual void STDMETHODCALLTYPE EnqueueRequest(
+        const GuestDStorageRequest* request) noexcept = 0;
     virtual void STDMETHODCALLTYPE EnqueueStatus(
         HostDStorageStatusArrayX* array, uint32_t index) noexcept = 0;
     virtual void STDMETHODCALLTYPE EnqueueSignal(
@@ -56,6 +86,14 @@ HRESULT enqueue_host_dstorage_queue_fixture_read(
 HRESULT enqueue_host_dstorage_queue_fixture_file_read(
     HostDStorageQueueX2* queue, HostDStorageFileX* source,
     uint64_t token, uint64_t offset, uint32_t bytes) noexcept;
+// Register an immutable request snapshot and explicitly OWNED destination
+// for the next raw COM EnqueueRequest call. Only host-generated test buffers.
+// Guest title calls cannot register arbitrary pointers or destination RAM.
+HRESULT register_host_dstorage_fixture_request(
+    const GuestDStorageRequest* request,
+    const std::shared_ptr<std::vector<uint8_t>>& destination) noexcept;
+void unregister_host_dstorage_fixture_request(
+    const GuestDStorageRequest* request) noexcept;
 HRESULT wait_host_dstorage_queue_fixture_read(
     HostDStorageQueueX2* queue, uint64_t token, DWORD timeout_ms,
     HostFileReadCompletion& output) noexcept;

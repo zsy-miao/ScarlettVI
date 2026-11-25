@@ -81,8 +81,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   status-array barriers. It now also reads test-only factory-created file
   COM objects through independent Win32 `ReOpenFile` handles, surviving
   source-object release and auto-retiring unsupported error-only tokens.
-  Unsupported guest requests complete as errors, not fake reads; full
-  console queues, game asset streaming, decompression
+  Direct callsites confirm queue `EnqueueRequest +0x18` and `Close +0x40`;
+  a [fixture-approved generated-buffer request subset](XBOX_DSTORAGE_REQUEST_ABI.md)
+  now writes exact read bytes through the real worker before status
+  completion. Unapproved guest requests become errors, not fake reads;
+  full console queues, game asset streaming, decompression
   and real Xbox destination buffers remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.

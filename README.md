@@ -80,7 +80,12 @@ failure tokens for unsupported guest requests. Its worker now also accepts
 independent `ReOpenFile` handles from factory-created guest-IID file COM
 objects, allowing already-admitted host reads after source Close/Release;
 completed unsupported tokens no longer clog the bounded queue. The Xbox
-queue vtable remains provisional and title request/asset streaming is still unsupported.
+queue vtable is now independently verified at `EnqueueRequest +0x18`
+and `Close +0x40` using read-only original-title disassembly. A new
+[generated-buffer guest request subset](docs/XBOX_DSTORAGE_REQUEST_ABI.md)
+now performs exact asynchronous file-to-memory writeback only after a
+host-side permission check. Real guest destination memory and title
+asset streaming remain unsupported.
 The [actual Xbox status-array COM interface](docs/XBOX_DSTORAGE_STATUS_ARRAY.md)
 now works through the corrected factory vtable slot `+0x28`, and its
 status entries receive verified S_OK/error results from host file-I/O

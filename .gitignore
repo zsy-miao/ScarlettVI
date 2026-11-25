@@ -20,6 +20,9 @@ reports/
 crashes/
 *.dmp
 *.log
+# Python bytecode from read-only ABI verification tools
+__pycache__/
+*.pyc
 
 # Never commit game, console SDK, firmware or proprietary title data
 GTA6.Xbox*/

@@ -6,12 +6,20 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace scarlett::storage {
 namespace {
 std::atomic<uint32_t> live_queues{0};
+struct RegisteredFixtureRequest {
+    GuestDStorageRequest snapshot;
+    std::shared_ptr<std::vector<uint8_t>> destination;
+};
+std::mutex fixture_request_mutex;
+std::unordered_map<const GuestDStorageRequest*, RegisteredFixtureRequest>
+    fixture_requests;
 
 class HostQueue final : public HostDStorageQueueX2 {
 public:
@@ -62,17 +70,69 @@ public:
         return 0;
     }
 
-    void STDMETHODCALLTYPE EnqueueRequest(const void*) noexcept override {
-        // An unsupported request becomes an actual queued failure token,
-        // preserving its FIFO position for the next status barrier.
+    void STDMETHODCALLTYPE EnqueueRequest(
+        const GuestDStorageRequest* request) noexcept override {
+        RegisteredFixtureRequest approved;
+        bool permitted = false;
+        {
+            // Never dereference a raw guest request pointer. Our own host
+            // test explicitly registers a complete, immutable snapshot.
+            const std::lock_guard lock(fixture_request_mutex);
+            if (const auto it = fixture_requests.find(request);
+                it != fixture_requests.end()) {
+                approved = std::move(it->second);
+                fixture_requests.erase(it); // consume the permit once
+                permitted = true;
+            }
+        }
+        HANDLE opened = INVALID_HANDLE_VALUE;
+        HRESULT request_error = E_NOTIMPL;
+        if (permitted) {
+            const auto& r = approved.snapshot;
+            if (!r.options && r.file &&
+                r.destination == approved.destination->data() &&
+                r.destination_size == approved.destination->size() &&
+                r.destination_size == r.source_size &&
+                r.source_size && r.source_size <=
+                    HostAsyncFileQueue::kMaxReadBytes &&
+                !r.intermediate_size) {
+                request_error = reopen_owned_dstorage_file_for_read(
+                    r.file, &opened);
+            } else {
+                request_error = E_INVALIDARG;
+            }
+        }
         const std::lock_guard lock(mutex_);
         if (closed_) {
+            if (opened != INVALID_HANDLE_VALUE) CloseHandle(opened);
             set_error(HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE));
             return;
         }
         retire_markers_locked();
-        const HRESULT hr = worker_->enqueue_unsupported(next_token_++, E_NOTIMPL);
-        set_error(FAILED(hr) ? hr : E_NOTIMPL);
+        const uint64_t token = next_token_++;
+        if (opened != INVALID_HANDLE_VALUE && SUCCEEDED(request_error)) {
+            // The existing worker owns the opened file handle and the
+            // approved host-generated buffer until completion. Writeback
+            // finishes BEFORE any subsequent status barrier.
+            const auto& r = approved.snapshot;
+            const HRESULT hr = worker_->enqueue_file(
+                opened, token, r.file_offset, r.source_size,
+                std::move(approved.destination));
+            if (FAILED(hr)) {
+                // Admission failures must never be invisible to a later
+                // status barrier. Preserve their FIFO error when capacity
+                // permits, otherwise surface the error via the event.
+                (void)worker_->enqueue_unsupported(token, hr);
+                set_error(hr);
+            }
+        } else {
+            // A rejected request remains an actual FIFO failure; markers
+            // never pretend the user's game memory has been filled.
+            const HRESULT hr = worker_->enqueue_unsupported(
+                token, FAILED(request_error) ? request_error : E_NOTIMPL);
+            set_error(FAILED(hr) ? hr :
+                (FAILED(request_error) ? request_error : E_NOTIMPL));
+        }
     }
     void STDMETHODCALLTYPE EnqueueStatus(
         HostDStorageStatusArrayX* array, uint32_t index) noexcept override {
@@ -277,6 +337,36 @@ HRESULT enqueue_host_dstorage_queue_fixture_read(
     if (request.token & (uint64_t{1} << 63))
         return E_INVALIDARG;
     return static_cast<HostQueue*>(queue)->fixture_read(request);
+}
+HRESULT register_host_dstorage_fixture_request(
+    const GuestDStorageRequest* request,
+    const std::shared_ptr<std::vector<uint8_t>>& destination) noexcept {
+    if (!request || !destination || destination->empty() ||
+        destination->size() > HostAsyncFileQueue::kMaxReadBytes)
+        return E_INVALIDARG;
+    // Called solely by generated host tests, never from a guest export.
+    // Copy the full request while it is owned by this trusted producer.
+    const GuestDStorageRequest snapshot = *request;
+    if (snapshot.destination != destination->data() ||
+        snapshot.destination_size != destination->size() ||
+        !snapshot.file || snapshot.source_size != snapshot.destination_size ||
+        snapshot.options || snapshot.intermediate_size)
+        return E_INVALIDARG;
+    try {
+        const std::lock_guard lock(fixture_request_mutex);
+        if (fixture_requests.contains(request))
+            return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
+        fixture_requests.emplace(request,
+            RegisteredFixtureRequest{snapshot, destination});
+        return S_OK;
+    } catch (...) {
+        return E_OUTOFMEMORY;
+    }
+}
+void unregister_host_dstorage_fixture_request(
+    const GuestDStorageRequest* request) noexcept {
+    const std::lock_guard lock(fixture_request_mutex);
+    fixture_requests.erase(request);
 }
 HRESULT enqueue_host_dstorage_queue_fixture_file_read(
     HostDStorageQueueX2* queue, HostDStorageFileX* source,

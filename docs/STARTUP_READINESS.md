@@ -94,7 +94,9 @@ Measured working address bindings:
   [fixture-only queue COM object](XBOX_DSTORAGE_QUEUE_COM.md) for verified
   generated reads and status barriers, including safe independently
   reopened handles from fixture-rooted file COM objects. Normal title
-  paths, guest `DSTORAGE_REQUEST` I/O and Xbox queue features remain blocked
+  paths, guest-owned destination memory and full Xbox queue features
+  remain blocked; a [generated-buffer request subset](XBOX_DSTORAGE_REQUEST_ABI.md)
+  now tests real file-to-host-memory copies through queue vtable `+0x18`
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.

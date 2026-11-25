@@ -59,7 +59,8 @@ public:
     // Takes ownership of an independently opened read-only Win32 file
     // handle on ALL outcomes, including failed admission/cancellation.
     HRESULT enqueue_file(HANDLE owned_handle, uint64_t token,
-                         uint64_t offset, uint32_t bytes) noexcept;
+                         uint64_t offset, uint32_t bytes,
+                         std::shared_ptr<std::vector<uint8_t>> destination = {}) noexcept;
     // Internal-only failed-operation token: guest requests with unknown ABI
     // become visible asynchronous failures, never fake successful reads.
     HRESULT enqueue_unsupported(uint64_t token,
@@ -118,6 +119,9 @@ private:
     struct Job {
         HostFileReadRequest request;
         OwnedFileHandle file_handle;
+        // Host-generated, pinned writable destination for approved fixture
+        // guest requests. Never constructed from arbitrary guest pointers.
+        std::shared_ptr<std::vector<uint8_t>> destination;
         HostDStorageStatusArrayX* status = nullptr;
         uint32_t status_index = 0;
         HRESULT injected_failure = S_OK;
@@ -128,7 +132,8 @@ private:
                   bool staged, HostDStorageStatusArrayX* status = nullptr,
                   uint32_t status_index = 0,
                   HRESULT injected_failure = S_OK,
-                  HANDLE owned_handle = INVALID_HANDLE_VALUE) noexcept;
+                  HANDLE owned_handle = INVALID_HANDLE_VALUE,
+                  std::shared_ptr<std::vector<uint8_t>> destination = {}) noexcept;
     void run() noexcept;
     HostFileReadCompletion execute(
         const HostFileReadRequest& request, uint64_t sequence,

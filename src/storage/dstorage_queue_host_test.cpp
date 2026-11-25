@@ -184,6 +184,61 @@ bool verify_dstorage_queue_com_fixture() noexcept {
                 kObservedXboxDStorageFileIid,
                 reinterpret_cast<void**>(&source)) != S_OK ||
             !source) return false;
+        // Raw guest EnqueueRequest (+0x18) now interprets the public Xbox
+        // 64-byte struct ONLY through a host-approved immutable snapshot.
+        // This proves true asynchronous destination writeback on generated
+        // host memory while the normal title path remains fail-closed.
+        auto destination = std::make_shared<std::vector<uint8_t>>(
+            size_t{384}, uint8_t{0xcd});
+        GuestDStorageRequest guest_read{};
+        guest_read.destination = destination->data();
+        guest_read.destination_size =
+            static_cast<uint32_t>(destination->size());
+        guest_read.file = source;
+        guest_read.file_offset = 625;
+        guest_read.source_size = guest_read.destination_size;
+        if (register_host_dstorage_fixture_request(
+                &guest_read, destination) != S_OK) {
+            source->Release();
+            return false;
+        }
+        if (register_host_dstorage_fixture_request(
+                &guest_read, destination) !=
+                HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)) {
+            unregister_host_dstorage_fixture_request(&guest_read);
+            source->Release();
+            return false;
+        }
+        enqueue_request(queue.ptr, &guest_read);
+        // As documented by the GDK, the caller may reuse the request
+        // structure immediately after EnqueueRequest returns. The worker
+        // must rely solely on our approved immutable snapshot.
+        guest_read.file = nullptr;
+        guest_read.file_offset = UINT64_MAX;
+        guest_read.destination = nullptr;
+        enqueue_status(queue.ptr, status.ptr, 0);
+        if (status.ptr->IsComplete(0) ||
+            !std::all_of(destination->begin(), destination->end(),
+                [](uint8_t byte) { return byte == 0xcd; })) {
+            source->Release();
+            return false;
+        }
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0, S_OK) ||
+            !std::equal(destination->begin(), destination->end(),
+                        data.begin()+625)) {
+            source->Release();
+            return false;
+        }
+        // A forged/unregistered pointer must never be dereferenced.
+        enqueue_request(queue.ptr,
+            reinterpret_cast<const void*>(uintptr_t{0x1234}));
+        enqueue_status(queue.ptr, status.ptr, 0);
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0, E_NOTIMPL)) {
+            source->Release();
+            return false;
+        }
         HANDLE invalid = reinterpret_cast<HANDLE>(uintptr_t{0x1234});
         if (reopen_owned_dstorage_file_for_read(
                 reinterpret_cast<HostDStorageFileX*>(uintptr_t{0x1234}),
