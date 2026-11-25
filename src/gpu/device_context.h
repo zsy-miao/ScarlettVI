@@ -30,6 +30,10 @@ public:
     // Real Windows D3D12 UpdateTileMappings on two large sparse GPU
     // resources backed by one 64KiB heap tile, verified by GPU readback.
     HRESULT tiled_buffer_alias_test();
+    // Explicit 64KiB XMem CPU page -> real sparse GPU tile -> readback ->
+    // XMem alias staging, with completed D3D12 fences. This is NOT coherent
+    // unified console memory and does not emulate XMemTransferMemory.
+    HRESULT staged_xmem_tile_roundtrip_test();
     // Copies generated format-aware RGBA/block-compressed texture mips
     // through real D3D12 GPU footprints and verifies every returned block.
     HRESULT texture_layout_gpu_test();

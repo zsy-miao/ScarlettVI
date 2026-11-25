@@ -68,7 +68,7 @@ console code, keys or proprietary binary libraries belong in this repository.
    tiles are mapped into two distant guest GPU windows and aliased across
    host resource boundaries. A 65,536-byte GPU copy/readback, explicit
    aliasing barriers and completion fences pass (see
-   [GPU_TILES.md](GPU_TILES.md)). Remaining: Xbox GPU page-table APIs and
+   [GPU_TILES.md](GPU_TILES.md)). The staged XMem CPU-page path now verifies 64 KiB readback through separate sparse D3D12 GPU heap tiles and explicit CPU-alias writeback (see [XMEM_GPU_STAGING.md](XMEM_GPU_STAGING.md)). Remaining: Xbox GPU page-table APIs and
    coherent CPU/GPU physical memory, console D3D12/XG methods, descriptors,
    RDNA2 shader decoding, texture swizzles and actual frame presentation.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
@@ -109,6 +109,9 @@ The `gpu-memory-bridge` mode also verifies guest physical pages, synthetic
 GPU VA translation, actual host DXIL dispatch and aliased guest readback.
 The `memory-sparse`, `gpu-sparse-va` and `gpu-vmem-config` modes verify
 16/24 GiB sparse CPU/GPU address windows and partial Xbox configuration.
+`gpu-xmem-tiles` verifies two explicit 64 KiB CPU XMem-to-D3D12 heap tile
+staging passes, GPU alias readback, CPU alias writeback and zero leaked
+physical pages ([XMEM_GPU_STAGING.md](XMEM_GPU_STAGING.md)).
 `gpu-tile-map` verifies native D3D12 64 KiB tile residency and GPU physical
 aliasing across segmented 16 GiB guest buffers (see [GPU_TILES.md](GPU_TILES.md)).
 The gpu-texture-layout command verifies block-compressed, mipmapped Windows

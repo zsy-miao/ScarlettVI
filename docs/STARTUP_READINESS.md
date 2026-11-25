@@ -36,7 +36,7 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `AcpHal.dll` | 9 | Audio processing, heap and shape contexts |
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
-| `xmem.dll` | 3 | Working sets, tools memory, physical memory transfer |
+| `xmem.dll` | 3 | Working sets, tools memory, memory-budget transfer (caller patterns analysed; Xbox ABI still unresolved) |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
 | **Total** | **25** | |

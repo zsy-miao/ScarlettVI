@@ -3,6 +3,8 @@
 #include "guest_address_space.h"
 #include "sparse_gpu_windows.h"
 #include "texture_layout.h"
+#include "../runtime/xmem_bridge.h"
+#include "../runtime/physical_memory.h"
 #include <d3d12sdklayers.h>
 #include <algorithm>
 #include <array>
@@ -1084,6 +1086,239 @@ HRESULT DeviceContext::execute_guest_buffer(std::span<const uint32_t> guest_inpu
     readback->Unmap(0, &no_cpu_write);
     last_error_ = S_OK;
     return last_error_;
+}
+
+HRESULT DeviceContext::staged_xmem_tile_roundtrip_test() {
+    // A real, strictly staged CPU/GPU transfer boundary. The CPU page is a
+    // Win32 pagefile section exposed through XMem aliases; the GPU tile is a
+    // distinct D3D12 heap. They DO NOT share physical backing or coherency.
+    constexpr size_t kPage = memory::PhysicalMemory::page_bytes;
+    constexpr uint64_t kWindowBytes = 16ull * 1024 * 1024 * 1024;
+    constexpr uint64_t kGpuUploadOffset = 4ull * 1024 * 1024 * 1024;
+    constexpr uint64_t kGpuAliasOffset = 12ull * 1024 * 1024 * 1024;
+    static_assert(kPage == D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES);
+
+    struct CpuPages {
+        uintptr_t frame = 0;
+        bool allocated = false;
+        void* main = nullptr;
+        void* alias = nullptr;
+        ~CpuPages() {
+            if (main) xmem::VirtualFreeBridge(main, 0, MEM_RELEASE);
+            if (alias) xmem::VirtualFreeBridge(alias, 0, MEM_RELEASE);
+            if (allocated) xmem::XMemFreePhysicalPages(1, &frame);
+        }
+    } cpu;
+
+    uintptr_t count = 1;
+    if (!xmem::XMemAllocatePhysicalPages(MEM_64K_PAGES, &count, &cpu.frame))
+        return last_error_ = HRESULT_FROM_WIN32(
+            GetLastError() ? GetLastError() : ERROR_GEN_FAILURE);
+    cpu.allocated = count == 1;
+    if (!cpu.allocated)
+        return last_error_ = E_FAIL;
+    cpu.main = xmem::XMemVirtualAlloc(
+        nullptr, kPage, MEM_RESERVE | MEM_64K_PAGES, 0, PAGE_READWRITE);
+    cpu.alias = xmem::XMemVirtualAlloc(
+        nullptr, kPage, MEM_RESERVE | MEM_64K_PAGES, 0, PAGE_READWRITE);
+    if (!cpu.main || !cpu.alias || cpu.main == cpu.alias)
+        return last_error_ = E_OUTOFMEMORY;
+    if (xmem::XMemMapPhysicalPages(cpu.main, 1, &cpu.frame) != cpu.main ||
+        xmem::XMemMapPhysicalPages(cpu.alias, 1, &cpu.frame) != cpu.alias)
+        return last_error_ = HRESULT_FROM_WIN32(
+            GetLastError() ? GetLastError() : ERROR_GEN_FAILURE);
+
+    auto* first_cpu = static_cast<uint8_t*>(cpu.main);
+    auto* second_cpu = static_cast<uint8_t*>(cpu.alias);
+    std::array<uint8_t, kPage> original{};
+    std::array<uint8_t, kPage> updated{};
+    for (size_t i = 0; i < kPage; ++i) {
+        original[i] = static_cast<uint8_t>(
+            (i * 29 + (i >> 4) * 7 + 0x21) & 0xff);
+        updated[i] = static_cast<uint8_t>(
+            (i * 43 + (i >> 6) * 19 + 0xA7) & 0xff);
+    }
+    std::memcpy(first_cpu, original.data(), kPage);
+    if (std::memcmp(second_cpu, original.data(), kPage) != 0)
+        return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
+
+    if (!ready()) {
+        last_error_ = initialize();
+        if (FAILED(last_error_)) return last_error_;
+    }
+    Microsoft::WRL::ComPtr<ID3D12Device11> device11;
+    last_error_ = acquire_device11(device11.GetAddressOf());
+    if (FAILED(last_error_)) return last_error_;
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+    last_error_ = device11->CheckFeatureSupport(
+        D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    if (FAILED(last_error_)) return last_error_;
+    if (options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_2)
+        return last_error_ = DXGI_ERROR_UNSUPPORTED;
+
+    SparseGpuWindows windows;
+    last_error_ = windows.initialize(device11.Get(), kWindowBytes, 2);
+    if (FAILED(last_error_)) return last_error_;
+    Microsoft::WRL::ComPtr<ID3D12Heap> heap;
+    Microsoft::WRL::ComPtr<ID3D12Resource> upload, readback;
+
+    // The guard drains the queue before the heap and reserved resources are
+    // destroyed, including errors during command recording/submission.
+    auto drain_queue = [this]() {
+        if (!queue_ || !fence_) return;
+        const uint64_t value = next_fence_++;
+        if (SUCCEEDED(queue_->Signal(fence_.Get(), value)))
+            wait_for_gpu(value);
+    };
+    struct DrainOnScopeExit {
+        decltype(drain_queue)& callback;
+        ~DrainOnScopeExit() { callback(); }
+    } drain{drain_queue};
+
+    D3D12_HEAP_DESC heap_description{};
+    heap_description.SizeInBytes = kPage;
+    heap_description.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_description.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_description.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    last_error_ = device11->CreateHeap(
+        &heap_description, IID_PPV_ARGS(heap.GetAddressOf()));
+    if (FAILED(last_error_)) return last_error_;
+
+    last_error_ = windows.map_tiles(
+        queue_.Get(), 0, kGpuUploadOffset, heap.Get(), 0, 1);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = windows.map_tiles(
+        queue_.Get(), 1, kGpuAliasOffset, heap.Get(), 0, 1);
+    if (FAILED(last_error_) || windows.mapped_tile_count() != 2)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+
+    uint64_t native_source_offset = UINT64_MAX, native_alias_offset = UINT64_MAX;
+    ID3D12Resource* gpu_first = windows.tile_resource(
+        0, kGpuUploadOffset, &native_source_offset);
+    ID3D12Resource* gpu_second = windows.tile_resource(
+        1, kGpuAliasOffset, &native_alias_offset);
+    if (!gpu_first || !gpu_second || gpu_first == gpu_second ||
+        native_source_offset != 0 || native_alias_offset != 0 ||
+        !windows.verify_boundaries())
+        return last_error_ = E_FAIL;
+
+    last_error_ = create_buffer(
+        D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
+        kPage, upload);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = create_buffer(
+        D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST,
+        kPage, readback);
+    if (FAILED(last_error_)) return last_error_;
+
+    // Pass 0 uploads data read from a REAL CPU XMem physical alias.
+    // Pass 1 deliberately changes only GPU backing; CPU XMem must remain
+    // unchanged until explicit fence + readback + copy-to-CPU staging.
+    const D3D12_RANGE no_read{0, 0};
+    for (uint32_t pass = 0; pass < 2; ++pass) {
+        const auto& expected = pass == 0 ? original : updated;
+        void* upload_bytes = nullptr;
+        last_error_ = upload->Map(0, &no_read, &upload_bytes);
+        if (FAILED(last_error_) || !upload_bytes)
+            return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+        std::memcpy(upload_bytes,
+                    pass == 0 ? first_cpu : expected.data(), kPage);
+        const D3D12_RANGE written{0, kPage};
+        upload->Unmap(0, &written);
+
+        last_error_ = allocator_->Reset();
+        if (FAILED(last_error_)) return last_error_;
+        last_error_ = command_list_->Reset(allocator_.Get(), nullptr);
+        if (FAILED(last_error_)) return last_error_;
+
+        if (pass != 0) {
+            D3D12_RESOURCE_BARRIER switch_alias{};
+            switch_alias.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+            switch_alias.Aliasing.pResourceBefore = gpu_second;
+            switch_alias.Aliasing.pResourceAfter = gpu_first;
+            command_list_->ResourceBarrier(1, &switch_alias);
+        }
+
+        D3D12_RESOURCE_BARRIER state{};
+        state.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        state.Transition.pResource = gpu_first;
+        state.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        state.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+        state.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+        command_list_->ResourceBarrier(1, &state);
+        command_list_->CopyBufferRegion(
+            gpu_first, native_source_offset, upload.Get(), 0, kPage);
+        state.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        state.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+        command_list_->ResourceBarrier(1, &state);
+
+        D3D12_RESOURCE_BARRIER sharing{};
+        sharing.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        sharing.Aliasing.pResourceBefore = gpu_first;
+        sharing.Aliasing.pResourceAfter = gpu_second;
+        command_list_->ResourceBarrier(1, &sharing);
+        state.Transition.pResource = gpu_second;
+        state.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+        state.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        command_list_->ResourceBarrier(1, &state);
+        command_list_->CopyBufferRegion(
+            readback.Get(), 0, gpu_second, native_alias_offset, kPage);
+        state.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        state.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+        command_list_->ResourceBarrier(1, &state);
+
+        last_error_ = command_list_->Close();
+        if (FAILED(last_error_)) return last_error_;
+        ID3D12CommandList* commands[]{command_list_.Get()};
+        queue_->ExecuteCommandLists(1, commands);
+        ++submitted_;
+        const uint64_t fence_value = next_fence_++;
+        last_error_ = queue_->Signal(fence_.Get(), fence_value);
+        if (FAILED(last_error_)) return last_error_;
+        last_error_ = wait_for_gpu(fence_value);
+        if (FAILED(last_error_)) {
+            const HRESULT device_removed = device_->GetDeviceRemovedReason();
+            return last_error_ = FAILED(device_removed) ? device_removed : last_error_;
+        }
+
+        void* gpu_result = nullptr;
+        const D3D12_RANGE read_range{0, kPage};
+        last_error_ = readback->Map(0, &read_range, &gpu_result);
+        if (FAILED(last_error_) || !gpu_result)
+            return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+        const bool gpu_ok = std::memcmp(gpu_result, expected.data(), kPage) == 0;
+        const bool cpu_unmodified =
+            std::memcmp(first_cpu, original.data(), kPage) == 0 &&
+            std::memcmp(second_cpu, original.data(), kPage) == 0;
+        if (pass == 1 && gpu_ok && cpu_unmodified) {
+            // Explicitly stage the completed GPU readback into one *CPU*
+            // XMem alias. Its sibling alias must now expose the same bytes.
+            std::memcpy(second_cpu, gpu_result, kPage);
+        }
+        readback->Unmap(0, &no_read);
+        if (!gpu_ok || !cpu_unmodified)
+            return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
+    }
+
+    if (std::memcmp(first_cpu, updated.data(), kPage) != 0 ||
+        std::memcmp(second_cpu, updated.data(), kPage) != 0)
+        return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
+
+    last_error_ = windows.unmap_tiles(
+        queue_.Get(), 1, kGpuAliasOffset, 1);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = windows.unmap_tiles(
+        queue_.Get(), 0, kGpuUploadOffset, 1);
+    if (FAILED(last_error_) || windows.mapped_tile_count() != 0)
+        return last_error_ = E_FAIL;
+    const uint64_t final_fence = next_fence_++;
+    last_error_ = queue_->Signal(fence_.Get(), final_fence);
+    if (FAILED(last_error_)) return last_error_;
+    last_error_ = wait_for_gpu(final_fence);
+    if (FAILED(last_error_)) return last_error_;
+    windows.clear();
+    return last_error_ = S_OK;
 }
 
 HRESULT DeviceContext::tiled_buffer_alias_test() {

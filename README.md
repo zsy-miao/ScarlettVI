@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -68,6 +68,12 @@ the RTX 5060 Ti. The new original [host texture-layout bridge](docs/XG_TEXTURE_L
 verifies RGBA8, R8, BC1, BC3 and BC5 block/pitch translation: **130 generated CPU
 subresources (211,460 bytes)** and **40 real GPU texture subresources** passed
 across mip levels and arrays. Xbox GPU page tables and XG swizzles are not translated.
+The original [XMem-to-sparse-GPU staging test](docs/XMEM_GPU_STAGING.md)
+now copies one real 64 KiB CPU physical page through GPU heap tiles mapped
+at distant logical addresses, performs two GPU readbacks, and explicitly
+writes back to the second CPU alias; all 65,536 bytes and both CPU aliases
+are verified. This **does not** provide unified CPU/GPU memory or the
+Xbox `XMemTransferMemory` ABI.
 
 These are verified host capabilities; the **Xbox-specific D3D12/XG device ABI,
 RDNA2 shader translation and actual title rendering are still missing**.
@@ -103,6 +109,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe gpu-device11
 .\build\x64\Release\ScarlettVI.exe gpu-device-factory
+.\build\x64\Release\ScarlettVI.exe gpu-xmem-tiles
 .\build\x64\Release\ScarlettVI.exe gpu-tile-map
 .\build\x64\Release\ScarlettVI.exe gpu-sparse-va
 .\build\x64\Release\ScarlettVI.exe gpu-vmem-config 3
