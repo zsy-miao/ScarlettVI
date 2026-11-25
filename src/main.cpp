@@ -6,6 +6,7 @@
 #include "analysis/xg_vcall_arguments.h"
 #include "analysis/xg_vcall_stack_writes.h"
 #include "analysis/xg_vcall_registers.h"
+#include "analysis/xg_vcall_successors.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -117,6 +118,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-vcall-args-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-stack-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-regs-fixture\n"
+               << L"  ScarlettVI.exe xg-vcall-followups-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -148,6 +150,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-vcall-followups-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_dispatch_successor_fixtures();
+            std::cout << "ScarlettVI | generated XG successor-call fixture: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nRead-only byte patterns, not proven object "
+                      << "identity or a release/ownership contract.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-vcall-regs-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -349,8 +361,32 @@ int wmain(int argc, wchar_t** argv) {
                           << " <- stack-address pattern +0x"
                           << std::hex << offset << std::dec << "\n";
             }
-            std::cout << "These local patterns do not establish live values, "
-                      << "complete control flow, or a verified Xbox method ABI.\n";
+            std::vector<scarlett::analysis::XgDispatchSuccessorEvidence> successors;
+            if (!scarlett::analysis::scan_xg_dispatch_successors(
+                    create_contexts, found, successors)) {
+                std::cerr << "Bounded XG successor-call survey failed.\n";
+                return 3;
+            }
+            std::cout << "Local immediate +0x08 successor patterns: "
+                      << successors.size() << "\n";
+            for (const auto& item : successors)
+                std::cout << "  first indirect VA 0x" << std::hex
+                          << (report.image_base + item.first_indirect_rva)
+                          << " (+0x" << item.first_dispatch_offset << ")"
+                          << " | successor VA 0x"
+                          << (report.image_base + item.next_indirect_rva)
+                          << " (+0x08)"
+                          << " | RCX reload VA 0x"
+                          << (report.image_base + item.reload_rcx_rva)
+                          << " | source GPR " << std::dec
+                          << static_cast<unsigned>(item.reload_base_gpr)
+                          << " | storage displacement +0x" << std::hex
+                          << item.reload_displacement << std::dec
+                          << " | prior matching location pattern: "
+                          << (item.prior_matching_storage_pattern ? "yes" : "no")
+                          << "\n";
+            std::cout << "This is not proof of pointer identity, object "
+                      << "ownership, return semantics or a verified Xbox ABI.\n";
             return 0;
         }
         if (verb == L"xg-field-fixture") {

@@ -67,6 +67,8 @@
     <ClCompile Include="src\analysis\xg_vcall_stack_writes_test.cpp" />
     <ClCompile Include="src\analysis\xg_vcall_registers.cpp" />
     <ClCompile Include="src\analysis\xg_vcall_registers_test.cpp" />
+    <ClCompile Include="src\analysis\xg_vcall_successors.cpp" />
+    <ClCompile Include="src\analysis\xg_vcall_successors_test.cpp" />
     <ClCompile Include="src\loader\image_mapper.cpp" />
     <ClCompile Include="src\loader\title_modules.cpp" />
     <ClCompile Include="src\runtime\import_router.cpp" />
@@ -100,6 +102,7 @@
     <ClInclude Include="src\analysis\xg_vcall_arguments.h" />
     <ClInclude Include="src\analysis\xg_vcall_stack_writes.h" />
     <ClInclude Include="src\analysis\xg_vcall_registers.h" />
+    <ClInclude Include="src\analysis\xg_vcall_successors.h" />
     <ClInclude Include="src\loader\image_mapper.h" />
     <ClInclude Include="src\loader\title_modules.h" />
     <ClInclude Include="src\runtime\import_router.h" />

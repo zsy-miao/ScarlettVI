@@ -16,6 +16,7 @@ From the project folder:
 .\build\x64\Release\ScarlettVI.exe xg-vcall-args-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcall-stack-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcall-regs-fixture
+.\build\x64\Release\ScarlettVI.exe xg-vcall-followups-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcalls '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 ```
 
@@ -61,10 +62,14 @@ The [bounded stack-write survey](XG_DISPATCH_STACK_SLOTS.md) now independently c
 
 The [bounded register-timeline survey](XG_REGISTER_TIMELINE.md) correlates six independently disassembled REX.W LEA/MOV register patterns leading into the `+0x50` dispatch. Its chronological query distinguishes R8's source at the earlier `[RSP+0x30]` store (`RSP+0xA0`) from the later copied R14 source at the call (`RSP+0x58`). This remains *pattern-chain evidence*, not proof of live values or a complete ABI.
 
+## Immediate +0x08 dispatch successors
+
+The [bounded dispatch successor survey](XG_DISPATCH_SUCCESSORS.md) correlates **two** strict `+0x08` follow-up patterns: `+0x50` → `+0x08` and `+0x10` → `+0x08`. Each fully decodes the inter-call gap as an RCX object-slot reload and an RAX table load, then finds an earlier matching *storage-address expression* for the first call. This does not prove identical live pointers across the first call, an object's ownership transition, a return-value contract or `Release` semantics.
+
 ## Next steps / gates
 
 - Establish actual object identity, dispatch-table extent, and method semantics from multiple call paths before writing any ABI adapter.
 - Identify which call(s), if any, release ownership or return metadata.
 - Keep the two `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED` until the ABI and broader console runtime are actually implemented and verified.
 
-See [XG_DISPATCH_STACK_SLOTS.md](XG_DISPATCH_STACK_SLOTS.md), [XG_DISPATCH_ARGUMENTS.md](XG_DISPATCH_ARGUMENTS.md), [XG_DESCRIPTOR_EVIDENCE.md](XG_DESCRIPTOR_EVIDENCE.md), [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).
+See [XG_DISPATCH_SUCCESSORS.md](XG_DISPATCH_SUCCESSORS.md), [XG_DISPATCH_STACK_SLOTS.md](XG_DISPATCH_STACK_SLOTS.md), [XG_DISPATCH_ARGUMENTS.md](XG_DISPATCH_ARGUMENTS.md), [XG_DESCRIPTOR_EVIDENCE.md](XG_DESCRIPTOR_EVIDENCE.md), [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).

@@ -63,7 +63,10 @@ just before calling; this is consistent with an output-storage argument,
 but it **does not prove** the method contract or returned content. Both
 `+0x08` calls show a fresh RCX pointer load. Their occurrence after another
 call might be consistent with a cleanup convention, but **is not proof**
-of a Release-like method, COM object or ownership model.
+of a Release-like method, COM object or ownership model. The
+[independently checked dispatch-successor survey](XG_DISPATCH_SUCCESSORS.md)
+finds a strict `+0x10` → `+0x08` adjacent-call pattern at one of these sites;
+matching storage access still cannot establish pointer or object identity.
 
 ## Validation and safety boundary
 
