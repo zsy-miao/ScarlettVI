@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <span>
+#include <vector>
 #include <unordered_map>
 
 namespace scarlett::gpu {
@@ -42,6 +43,17 @@ public:
     // *completed* GPU result is copied to the second pinned CPU alias.
     HRESULT transfer(uintptr_t frame, std::span<const uint8_t> input,
                      std::span<uint8_t> output, bool writeback_cpu) noexcept;
+    struct PageTransfer {
+        uintptr_t frame = 0;
+        std::span<const uint8_t> input;
+        std::span<uint8_t> output;
+        bool writeback_cpu = false;
+    };
+    // Validates the whole request, then submits N independent page command
+    // lists in ONE real ExecuteCommandLists call and waits on ONE batch fence.
+    HRESULT transfer_batch(std::span<const PageTransfer> requests) noexcept;
+    uint64_t queue_submission_count() const noexcept;
+    size_t native_queue_count() const noexcept;
     HRESULT unbind(uintptr_t frame) noexcept;
     HRESULT clear() noexcept;
     size_t binding_count() const noexcept;
@@ -61,6 +73,11 @@ private:
     memory::PhysicalMemory& physical_;
     SparseGpuWindows& windows_;
     Microsoft::WRL::ComPtr<ID3D12Device11> device_;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
+    Microsoft::WRL::ComPtr<ID3D12Fence> batch_fence_;
+    HANDLE batch_event_ = nullptr;
+    uint64_t next_batch_fence_ = 1;
+    uint64_t gpu_submissions_ = 0;
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Binding> bindings_;
     std::map<GpuSlot, uintptr_t> gpu_slots_;

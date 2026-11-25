@@ -78,8 +78,10 @@ Xbox `XMemTransferMemory` ABI.
 
 The new [pinned guest GPU page registry](docs/GUEST_GPU_PAGE_REGISTRY.md)
 tracks four real XMem-backed 64 KiB frame IDs, eight pinned CPU aliases
-and eight real D3D12 tile mappings. It verifies **eight GPU transfers**,
-rejects invalid frame/slot associations and blocked unmaps while pinned,
+and eight real D3D12 tile mappings. The registry now uses **one shared
+D3D12 command queue**, submitting multi-page command lists together behind
+one batch fence: **12 verified 64 KiB GPU transfers in 6 native queue
+submissions**. It rejects invalid frame/slot associations and pinned unmaps,
 then releases all GPU mappings, CPU pins and physical frames without leaks.
 This is host resource lifetime management, **not Xbox GPU page tables**.
 

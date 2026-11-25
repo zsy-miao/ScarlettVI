@@ -45,7 +45,8 @@ HRESULT GpuPageStager::sync() noexcept {
 HRESULT GpuPageStager::open(
     ID3D12Device11* device, SparseGpuWindows& windows,
     size_t source_window, uint64_t source_offset,
-    size_t alias_window, uint64_t alias_offset) noexcept {
+    size_t alias_window, uint64_t alias_offset,
+    ID3D12CommandQueue* shared_queue) noexcept {
     if (opened_ || windows_ || device_)
         return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
     if (!device) return E_POINTER;
@@ -77,6 +78,8 @@ HRESULT GpuPageStager::open(
     last_completed_ = 0;
     submissions_ = 0;
     alias_active_ = false;
+    prepared_ = false;
+    in_flight_ = false;
     device_ = device;
     windows_ = &windows;
     source_window_ = source_window;
@@ -90,11 +93,21 @@ HRESULT GpuPageStager::open(
         return error;
     };
 
-    D3D12_COMMAND_QUEUE_DESC queue_desc{};
-    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    hr = device_->CreateCommandQueue(
-        &queue_desc, IID_PPV_ARGS(queue_.GetAddressOf()));
-    if (FAILED(hr)) return fail(hr);
+    if (shared_queue) {
+        if (shared_queue->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+            return fail(E_INVALIDARG);
+        Microsoft::WRL::ComPtr<ID3D12Device11> same_device;
+        hr = shared_queue->GetDevice(IID_PPV_ARGS(same_device.GetAddressOf()));
+        if (FAILED(hr) || same_device.Get() != device)
+            return fail(E_INVALIDARG);
+        queue_ = shared_queue; // COM AddRef; shared registry can outlive this page
+    } else {
+        D3D12_COMMAND_QUEUE_DESC queue_desc{};
+        queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        hr = device_->CreateCommandQueue(
+            &queue_desc, IID_PPV_ARGS(queue_.GetAddressOf()));
+        if (FAILED(hr)) return fail(hr);
+    }
     hr = device_->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(allocator_.GetAddressOf()));
     if (FAILED(hr)) return fail(hr);
@@ -139,10 +152,11 @@ HRESULT GpuPageStager::open(
     return S_OK;
 }
 
-HRESULT GpuPageStager::roundtrip(
+HRESULT GpuPageStager::prepare_roundtrip(
     std::span<const uint8_t> input, std::span<uint8_t> output) noexcept {
     if (!opened_ || !windows_ || !commands_ || !upload_ || !readback_)
         return E_UNEXPECTED;
+    if (prepared_ || in_flight_) return HRESULT_FROM_WIN32(ERROR_BUSY);
     if (input.size() != page_bytes || output.size() != page_bytes)
         return E_INVALIDARG;
     const uintptr_t begin_in = reinterpret_cast<uintptr_t>(input.data());
@@ -206,23 +220,38 @@ HRESULT GpuPageStager::roundtrip(
 
     hr = commands_->Close();
     if (FAILED(hr)) return hr;
+    prepared_ = true;
+    return S_OK;
+}
+
+HRESULT GpuPageStager::collect_readback(std::span<uint8_t> output) noexcept {
+    if (!in_flight_) return E_UNEXPECTED;
+    if (output.size() != page_bytes) return E_INVALIDARG;
+    void* result = nullptr;
+    const D3D12_RANGE read_range{0, page_bytes};
+    const HRESULT hr = readback_->Map(0, &read_range, &result);
+    if (FAILED(hr)) return hr;
+    if (!result) return E_FAIL;
+    std::memcpy(output.data(), result, page_bytes);
+    const D3D12_RANGE empty_range{0, 0};
+    readback_->Unmap(0, &empty_range);
+    in_flight_ = false;
+    return S_OK;
+}
+
+HRESULT GpuPageStager::roundtrip(
+    std::span<const uint8_t> input, std::span<uint8_t> output) noexcept {
+    HRESULT hr = prepare_roundtrip(input, output);
+    if (FAILED(hr)) return hr;
     ID3D12CommandList* lists[]{commands_.Get()};
     queue_->ExecuteCommandLists(1, lists);
-    ++submissions_;
-    alias_active_ = true;
+    mark_submitted();
     hr = sync();
     if (FAILED(hr)) {
         const HRESULT removed = device_->GetDeviceRemovedReason();
         return FAILED(removed) ? removed : hr;
     }
-    void* result = nullptr;
-    const D3D12_RANGE read_range{0, page_bytes};
-    hr = readback_->Map(0, &read_range, &result);
-    if (FAILED(hr)) return hr;
-    if (!result) return E_FAIL;
-    std::memcpy(output.data(), result, page_bytes);
-    readback_->Unmap(0, &empty_range);
-    return S_OK;
+    return collect_readback(output);
 }
 
 HRESULT GpuPageStager::close() noexcept {
@@ -251,6 +280,8 @@ HRESULT GpuPageStager::close() noexcept {
     second_mapped_ = false;
     opened_ = false;
     alias_active_ = false;
+    prepared_ = false;
+    in_flight_ = false;
     windows_ = nullptr;
     upload_.Reset();
     readback_.Reset();

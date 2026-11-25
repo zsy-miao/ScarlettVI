@@ -11,23 +11,27 @@ The new independently authored source files are:
 - src/gpu/gpu_page_stager.h
 - src/gpu/gpu_page_stager.cpp
 
-GpuPageStager owns its own real D3D12 DIRECT queue, command allocator/list, host 64 KiB default heap, 64 KiB upload/readback resources, fence and Windows event. It uses an existing SparseGpuWindows logical guest GPU address space, whose native D3D12 reserved buffers are segmented into 4 GiB resources.
+GpuPageStager owns **or retains a caller-supplied** real D3D12 DIRECT queue, along with its own command allocator/list, host 64 KiB default heap, 64 KiB upload/readback resources, local fence and Windows event. It uses an existing SparseGpuWindows logical guest GPU address space, whose native D3D12 reserved buffers are segmented into 4 GiB resources.
 
 The caller supplies the actual Windows ID3D12Device11 and two **different native D3D12 reserved resources** selected by logical guest window indices and 64 KiB aligned offsets. The staging object maps the **same real 64 KiB GPU heap tile** into both native resources via Windows UpdateTileMappings. The guest offset-to-segment translation happens before command recording, so the GPU never receives a synthetic guest GPU VA.
 
 ## Public host API
 
-- **open(device, windows, source_window, source_offset, alias_window, alias_offset)** validates a real device and resources, tile alignment, size and resource-identity boundaries, probes host tiled-resource capability, creates the queue/buffers/heap and enqueues both tile mappings. It fences mappings before publishing an open session.
+- **open(device, windows, source_window, source_offset, alias_window, alias_offset, optional_shared_queue)** validates a real device and resources, tile alignment, size and resource-identity boundaries; when supplied, the shared queue must be a DIRECT queue from the same exact D3D12 device. It probes tiled-resource capability, creates buffers/heap and enqueues both tile mappings. It fences mappings before publishing an open session.
 - **roundtrip(input_span, output_span)** requires two disjoint host spans of **exactly 65,536 bytes**. It uploads the input to the real mapped tile, performs a resource-aliasing barrier and copies from the second D3D12 alias into readback memory. The GPU queue fence is completed before any output bytes are copied into the caller's buffer.
 - **close()** fences prior work, enqueues both NULL tile mappings, fences them, releases all owned D3D12 resources and COM references, and preserves the most recently completed fence number. It is idempotent.
 - The same instance can be **reopened after close()** at different logical offsets. Session fence values and submission counters restart with each new queue, and native GPU address translation is rechecked.
 
 The higher-level [GuestGpuPageRegistry](GUEST_GPU_PAGE_REGISTRY.md) now
 manages multiple validated frame-to-CPU-alias and GPU-tile bindings, using
-one GpuPageStager per bound frame. The independent `gpu-page-registry` mode
-verifies **four frames, eight CPU alias pins, eight GPU tile mappings and
-eight real GPU submissions** with zero leaks. This implementation still
-needs shared GPU queues and batched tile management for production scale.
+one GpuPageStager per bound frame on **one registry-owned shared DIRECT
+queue**. The registry's private prepare/readback phases allow multiple
+page command lists to be submitted in **one `ExecuteCommandLists` call**,
+followed by one fence and staged-result publication. The independent
+`gpu-page-registry` test verifies **four frames, eight CPU aliases, eight
+real GPU tile mappings and twelve verified page transfers in six native
+queue submissions**. True batched tile-residency policy and shared heap
+allocation are still needed for production scale.
 
 The component does not allocate or free guest XMem physical pages; those remain owned by PhysicalMemory. It does not update CPU aliases during a GPU transfer; callers explicitly stage the completed readback to a CPU alias after verifying it.
 

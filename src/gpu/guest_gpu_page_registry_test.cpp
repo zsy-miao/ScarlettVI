@@ -130,38 +130,108 @@ HRESULT DeviceContext::guest_gpu_page_registry_test() {
         std::memcmp(second, initial.data(), initial.size()) != 0)
         return last_error_ = E_FAIL;
 
-    // Each guest frame owns an independently retained physical D3D12 tile.
-    // First transfer does NOT change either CPU alias; the second explicitly
-    // writes the GPU readback into the pinned mirror alias.
+    // The four initial per-frame transfers deliberately exercise separate
+    // real command submissions on ONE registry-owned D3D12 DIRECT queue.
+    if (registry.native_queue_count() != 1) return last_error_ = E_FAIL;
     for (size_t i = 0; i < count; ++i) {
-        const auto frame = cpu.frames[i];
         const auto expected = std::span<const uint8_t>(
             initial.data() + i * bytes, bytes);
         output.fill(0xCC);
-        if (registry.transfer(frame, expected, output, false) != S_OK ||
+        if (registry.transfer(cpu.frames[i], expected, output, false) != S_OK ||
             std::memcmp(output.data(), expected.data(), bytes) != 0 ||
             std::memcmp(first + i * bytes, expected.data(), bytes) != 0 ||
             std::memcmp(second + i * bytes, expected.data(), bytes) != 0)
             return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
-
-        const auto changed = std::span<const uint8_t>(
-            modified.data() + i * bytes, bytes);
-        if (registry.transfer(frame, changed,
-                              std::span<uint8_t>(output.data(), bytes - 1),
-                              true) != E_INVALIDARG ||
-            registry.transfer(frame, changed,
-                              std::span<uint8_t>(second + i * bytes, bytes),
-                              false) != E_INVALIDARG ||
-            registry.transfer(frame, changed, output, true) != S_OK ||
-            std::memcmp(output.data(), changed.data(), bytes) != 0 ||
-            std::memcmp(first + i * bytes, changed.data(), bytes) != 0 ||
-            std::memcmp(second + i * bytes, changed.data(), bytes) != 0)
-            return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
     }
+    if (registry.queue_submission_count() != count ||
+        registry.submitted_transfers() != count ||
+        registry.transfer(cpu.frames[0],
+                          std::span<const uint8_t>(initial.data(), bytes),
+                          std::span<uint8_t>(second + bytes, bytes),
+                          false) != E_INVALIDARG ||
+        registry.queue_submission_count() != count)
+        return last_error_ = E_FAIL;
+
+    // Four independent GPU command lists, one ExecuteCommandLists call,
+    // one fence and then explicit CPU writeback of ALL four results.
+    std::array<std::array<uint8_t, bytes>, count> batch_output{};
+    std::array<GuestGpuPageRegistry::PageTransfer, count> batch{};
+    for (size_t i = 0; i < count; ++i) {
+        batch_output[i].fill(0xA9);
+        batch[i] = {cpu.frames[i],
+                    std::span<const uint8_t>(modified.data() + i * bytes, bytes),
+                    batch_output[i], true};
+    }
+    // Preflight is atomic for invalid requests: no GPU submission or output
+    // mutation, including duplicate frames and unsafe CPU alias outputs.
+    auto invalid = batch;
+    invalid[1].frame = cpu.frames[0];
+    if (registry.transfer_batch(invalid) != E_INVALIDARG)
+        return last_error_ = E_FAIL;
+    invalid = batch;
+    invalid[3].frame = 0xFFFFFFFFu;
+    if (registry.transfer_batch(invalid) !=
+            HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
+        return last_error_ = E_FAIL;
+    invalid = batch;
+    invalid[2].output = std::span<uint8_t>(second + 2 * bytes, bytes);
+    if (registry.transfer_batch(invalid) != E_INVALIDARG)
+        return last_error_ = E_FAIL;
+    invalid = batch;
+    invalid[1].output = batch_output[0]; // overlapping results
+    if (registry.transfer_batch(invalid) != E_INVALIDARG)
+        return last_error_ = E_FAIL;
+    invalid = batch;
+    invalid[1].output = std::span<uint8_t>(batch_output[1].data(), bytes - 1);
+    if (registry.transfer_batch(invalid) != E_INVALIDARG ||
+        registry.transfer_batch({}) != E_INVALIDARG ||
+        registry.queue_submission_count() != count ||
+        batch_output[0][0] != 0xA9 ||
+        std::memcmp(first, initial.data(), initial.size()) != 0 ||
+        std::memcmp(second, initial.data(), initial.size()) != 0)
+        return last_error_ = E_FAIL;
+
+    last_error_ = registry.transfer_batch(batch);
+    if (FAILED(last_error_)) return last_error_;
     if (registry.submitted_transfers() != count * 2 ||
+        registry.queue_submission_count() != count + 1 ||
+        registry.native_queue_count() != 1 ||
         registry.transfer(0xFFFFFFFFu, modified, output, false) !=
             HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
         return last_error_ = E_FAIL;
+    for (size_t i = 0; i < count; ++i) {
+        const auto changed = modified.data() + i * bytes;
+        if (std::memcmp(batch_output[i].data(), changed, bytes) != 0 ||
+            std::memcmp(first + i * bytes, changed, bytes) != 0 ||
+            std::memcmp(second + i * bytes, changed, bytes) != 0)
+            return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
+    }
+
+    // Reuse all four native command allocators for a SECOND batch.
+    // This checks the cross-resource aliasing barriers for repeat submissions
+    // and verifies no implicit CPU coherency when writeback is disabled.
+    std::array<std::array<uint8_t, bytes>, count> second_batch_output{};
+    auto second_batch = batch;
+    for (size_t i = 0; i < count; ++i) {
+        second_batch[i].input =
+            std::span<const uint8_t>(initial.data() + i * bytes, bytes);
+        second_batch[i].output = second_batch_output[i];
+        second_batch[i].writeback_cpu = false;
+    }
+    last_error_ = registry.transfer_batch(second_batch);
+    if (FAILED(last_error_) ||
+        registry.submitted_transfers() != count * 3 ||
+        registry.queue_submission_count() != count + 2)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+    for (size_t i = 0; i < count; ++i) {
+        if (std::memcmp(second_batch_output[i].data(),
+                        initial.data() + i * bytes, bytes) != 0 ||
+            std::memcmp(first + i * bytes,
+                        modified.data() + i * bytes, bytes) != 0 ||
+            std::memcmp(second + i * bytes,
+                        modified.data() + i * bytes, bytes) != 0)
+            return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
+    }
 
     // Retire one frame then rebind to prove GPU slot and CPU alias pins are
     // released independently of the other three live registrations.
@@ -202,6 +272,7 @@ HRESULT DeviceContext::guest_gpu_page_registry_test() {
         return last_error_ = E_FAIL;
 
     submitted_ += registry.submitted_transfers();
+    registry_queue_submissions_ = registry.queue_submission_count();
     windows.clear();
     return last_error_ = S_OK;
 }

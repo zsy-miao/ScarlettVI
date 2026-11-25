@@ -56,6 +56,9 @@ public:
     HRESULT last_error() const noexcept { return last_error_; }
     bool ready() const noexcept { return device_ && queue_ && allocator_ && command_list_ && fence_ && fence_event_; }
     uint64_t submitted_commands() const noexcept { return submitted_; }
+    uint64_t registry_queue_submissions() const noexcept {
+        return registry_queue_submissions_;
+    }
     uint64_t staged_completed_fence() const noexcept { return staged_completed_fence_; }
     uint64_t completed_fence() const noexcept { return fence_ ? fence_->GetCompletedValue() : 0; }
 
@@ -83,6 +86,7 @@ private:
     std::wstring adapter_name_;
     uint64_t next_fence_ = 1;
     uint64_t submitted_ = 0;
+    uint64_t registry_queue_submissions_ = 0;
     uint64_t staged_completed_fence_ = 0;
     HRESULT last_error_ = S_OK;
 };

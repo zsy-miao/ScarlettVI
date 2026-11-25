@@ -9,9 +9,9 @@ The original module `src/gpu/guest_gpu_page_registry.{h,cpp}` correlates four ki
 - **Guest frame:** synthetic page ID in 4 KiB units issued by the host `PhysicalMemory` backend; not an actual host or Xbox hardware physical address.
 - **Two CPU aliases:** live 64 KiB pagefile-backed CPU views that must *both* be managed mappings of the exact synthetic frame.
 - **Two GPU slots:** unique records of (logical GPU window, 64 KiB-aligned guest offset) that translate into distinct 4 GiB native D3D12 reserved-buffer segments.
-- **GPU page stager:** one live independently owned `GpuPageStager` per bound frame. It owns a native DIRECT queue, real 64 KiB DEFAULT heap tile, the tile aliases, upload/readback buffers and GPU fences. Its [API](GPU_PAGE_STAGER.md) was verified in the previous milestone.
+- **GPU page stager:** one live `GpuPageStager` per bound frame. Each stager retains its own real 64 KiB DEFAULT heap tile, tile aliases, command allocator/list, upload/readback buffers and local fence. All stagers now share **one registry-owned native D3D12 DIRECT command queue**, validated to belong to the same device.
 
-This is a practical multi-page host prototype, **not a scalable full game-VRAM backend**: each bound frame currently has a separate GPU queue/stager. A production runtime needs shared queues, batched tile mappings, residency policies and eviction.
+This is a practical multi-page host prototype, **not a scalable full game-VRAM backend**: page resources still have separate upload/readback buffers and command allocators. One shared queue and combined command-list submissions reduce queue overhead, but true pooled heaps, batched tile residency, eviction and console GPU page-table semantics remain future work.
 
 ## Pinned CPU mapping safety
 
@@ -25,7 +25,9 @@ Pinning protects the mapping's lifetime; it does **not** prevent CPU reads/write
 
 - `GuestGpuPageRegistry::bind(frame, cpu_view_1, cpu_view_2, gpu_slot_1, gpu_slot_2)` validates CPU ownership and GPU offsets, rejects duplicate frame and GPU slot assignments, pins both CPU views, opens a new real GPU stager, and publishes the binding only when the GPU mappings are ready. Failure rolls back pins and resources.
 - `transfer(frame, input, scratch_output, writeback_cpu)` requires exact, nonoverlapping 65,536-byte input/output buffers; output must not overlap either pinned CPU alias. The GPU readback is returned only after its real D3D12 fence completes. When explicitly requested, it is then copied to the second pinned CPU alias.
-- `unbind(frame)` closes the GPU stager and drops both CPU pins; `clear()` closes all registrations.
+- `transfer_batch(requests)` checks **every** requested frame, buffer extent, duplicate ID, output-to-output overlap, input/output overlap and pinned CPU alias overlap **before any GPU work**. It records one closed D3D12 command list per page, executes the complete array in **one `ExecuteCommandLists` call**, signals **one batch fence**, collects all GPU results into temporary scratch storage, and only then publishes the outputs and optional CPU alias writebacks. Invalid batch requests have no side effects; device loss and GPU execution errors can still abort a batch without writeback.
+- `queue_submission_count()` counts real native `ExecuteCommandLists` calls separately from per-page transfer results; `native_queue_count()` confirms one native queue while bound.
+- `unbind(frame)` closes the GPU stager and drops both CPU pins; `clear()` closes all registrations and releases the shared queue.
 - The registry must be destroyed before its owning `PhysicalMemory` and `SparseGpuWindows` objects.
 
 The GPU tile heap is physically separate from the host pagefile-backed CPU XMem section. There is **no automatic unified-memory coherency**. Only an explicit completed staging writeback changes the CPU aliases.
@@ -41,13 +43,13 @@ Run these independent test modes:
 
 The fixture allocates **four real XMem physical pages (64 KiB each)**, creates **eight CPU alias views**, reserves two logical 16 GiB guest GPU address windows, and registers **eight real D3D12 GPU tile mappings** (two per page) near logical offsets 4 GiB and 12 GiB.
 
-It tests wrong CPU-frame association, duplicate frame and GPU slots, null/invalid requests and blocked CPU unmap/release. Every frame transfers two independently generated 65,536-byte payloads through a real GPU queue and back, eight GPU submissions total. The second payload is explicitly written into a CPU alias and verified from its physical sibling.
+It tests wrong CPU-frame association, duplicate frame and GPU slots, invalid requests and blocked CPU unmap/release. Each frame first transfers one generated 65,536-byte payload individually: **four** GPU queue submissions. Then all four pages transfer different payloads in **one native queue submission and one fence** with explicit CPU alias writeback. A *second* four-page batch submits four more command lists in **one queue submission**, verifies repeated alias transitions and readback, and **does not write back** to CPU: both CPU aliases must retain the earlier bytes. Invalid/duplicate/overlapping batch requests are rejected before any GPU work.
 
 After unbinding frame 0 while the other three frames remain pinned, a scatter unmap with **unpinned first slot, pinned second slot** must fail *atomically*. A valid single-page unmap/remap of the unpinned slot then succeeds. Rebinding frame 0 works without changing other GPU tile mappings or CPU pages.
 
 Final cleanup validates **zero pending GPU tile mappings, zero CPU pins and zero allocated physical frames**, including failures and deregistration paths.
 
-**Measured on RTX 5060 Ti in x64 Release:** PASS, **4 frames, 8 CPU aliases, 8 real D3D12 GPU tile slots, 8 completed real GPU transfers**, zero leaked CPU pages and pinned mappings, HRESULT 0x0.
+**Measured on RTX 5060 Ti in x64 Release:** PASS, **4 frames, 8 CPU aliases, 8 real D3D12 GPU tile slots, 12 completed 64 KiB GPU transfers, 6 actual `ExecuteCommandLists` calls on 1 shared D3D12 queue**, zero leaked CPU pages and pinned mappings, HRESULT 0x0.
 
 ## Remaining blockers
 

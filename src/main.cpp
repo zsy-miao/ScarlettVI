@@ -137,13 +137,16 @@ int wmain(int argc, wchar_t** argv) {
             const size_t pins =
                 scarlett::memory::PhysicalMemory::instance().pinned_alias_count();
             const bool pass = SUCCEEDED(hr) &&
-                pages == 0 && pins == 0 && gpu.submitted_commands() == 8;
+                pages == 0 && pins == 0 && gpu.submitted_commands() == 12 &&
+                gpu.registry_queue_submissions() == 6;
             std::wcout << L"ScarlettVI | pinned guest page registry + real D3D12"
                        << L" tile staging: " << (pass ? L"PASS" : L"FAIL")
                        << L"\nGPU: " << gpu.adapter_name() << L"\n";
             std::cout << "4 guest physical frames / 8 CPU aliases / 8 GPU tile slots"
-                      << " | real GPU transfer fences: "
+                      << " | GPU page transfer results: "
                       << gpu.submitted_commands()
+                      << " | native ExecuteCommandLists calls: "
+                      << gpu.registry_queue_submissions()
                       << " | leaked CPU pages: " << pages
                       << " | pinned aliases left: " << pins
                       << " | HRESULT 0x" << std::hex
