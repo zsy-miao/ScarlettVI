@@ -3,6 +3,7 @@
 #include "analysis/xg_field_projection.h"
 #include "analysis/xg_vcall_candidates.h"
 #include "analysis/xg_vcall_loads.h"
+#include "analysis/xg_vcall_arguments.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -111,6 +112,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-field-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-links-fixture\n"
+               << L"  ScarlettVI.exe xg-vcall-args-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -142,6 +144,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-vcall-args-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_dispatch_argument_setup_fixtures();
+            std::cout << "ScarlettVI | generated XG dispatch argument "
+                      << "signature fixture: " << (passed ? "PASS" : "FAIL")
+                      << "\nBounded MOV/LEA patterns only; "
+                      << "no Xbox method ABI inferred.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-vcall-links-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -215,8 +227,30 @@ int wmain(int argc, wchar_t** argv) {
                           << " | byte gap "
                           << static_cast<unsigned>(load.distance_to_call_bytes)
                           << "\n";
-            std::cout << "All evidence is byte-pattern-only, NOT a complete "
-                      << "instruction decoder or Xbox object-method ABI.\n";
+            std::vector<scarlett::analysis::XgArgSetupCandidate> arguments;
+            if (!scarlett::analysis::scan_xg_dispatch_argument_setups(
+                    create_contexts, found, arguments)) {
+                std::cerr << "Bounded XG argument-setup survey failed.\n";
+                return 3;
+            }
+            std::cout << "Local argument-setup signatures: "
+                      << arguments.size() << "\n";
+            for (const auto& arg : arguments)
+                std::cout << "  indirect VA 0x" << std::hex
+                          << (report.image_base + arg.indirect_call_rva)
+                          << " | setup VA 0x"
+                          << (report.image_base + arg.setup_rva)
+                          << " | "
+                          << (arg.form == scarlett::analysis::XgArgSetupForm::mov_rcx_from_memory
+                              ? "MOV RCX,[base+disp]" : "LEA RDX,[RSP+disp]")
+                          << " | base GPR " << std::dec
+                          << static_cast<unsigned>(arg.memory_base_register)
+                          << " | +0x" << std::hex << arg.displacement
+                          << std::dec << " | gap "
+                          << static_cast<unsigned>(arg.bytes_between_setup_and_call)
+                          << "\n";
+            std::cout << "These byte patterns do not establish register "
+                      << "liveness or a verified Xbox object-method ABI.\n";
             return 0;
         }
         if (verb == L"xg-field-fixture") {

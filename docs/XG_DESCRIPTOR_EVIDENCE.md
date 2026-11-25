@@ -36,7 +36,10 @@ and `+0x50` displacements. A second bounded signature check correlates all
 five candidates with a nearby RCX-sourced table-register load; the full
 dispatch-table layout, method semantics
 and memory ownership remain unverified. Treating the object as ordinary
-desktop COM without proof would be unsafe.
+desktop COM without proof would be unsafe. The [dispatch argument survey](XG_DISPATCH_ARGUMENTS.md)
+now reports six corroborated RCX/RDX setup instructions. In particular, two
+`+0x10` dispatch calls prepare stack-address RDX arguments, but method output
+semantics, ownership and any `+0x08` cleanup convention remain unproven.
 
 ## Decision and next checks
 

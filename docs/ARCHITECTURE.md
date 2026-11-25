@@ -144,7 +144,10 @@ patterns corroborated by Dumpbin at three caller sites. A bounded 32-byte
 backward signature check now also finds a matching RCX-sourced table-register
 load for each of the five indirect calls, and rejects inconsistent call
 metadata. These are not decoded control flow and no COM method or lifetime
-interpretation is claimed.
+interpretation is claimed. The [bounded XG dispatch-argument survey](XG_DISPATCH_ARGUMENTS.md)
+finds six RCX/RDX setup signatures before four of the five indirect calls,
+revalidating call-site metadata and avoiding stale evidence across an
+intervening indirect call; it does not establish method argument semantics.
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs
 across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24

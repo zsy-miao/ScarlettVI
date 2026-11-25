@@ -13,6 +13,7 @@ From the project folder:
 ```powershell
 .\build\x64\Release\ScarlettVI.exe xg-vcalls-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcall-links-fixture
+.\build\x64\Release\ScarlettVI.exe xg-vcall-args-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcalls '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 ```
 
@@ -46,10 +47,14 @@ The fourth XG creation site, `0x1416F7141`, had **no matching indirect call in i
 
 The immediately preceding read-only disassembly at `0x140344283`, `0x140979C9F` and `0x145121A84` indicates that the relevant table register is loaded from a pointer in RCX. At `0x14034428D` and `0x145121A8F`, the caller again retrieves the pointer before the second indirect call. That is useful evidence of a pointer-to-dispatch-table pattern, **not** proof that the actual Xbox object implements ordinary COM, nor proof of method names, return values, argument widths, lifetime or thread safety.
 
+## Bounded RCX/RDX argument-setup evidence
+
+The [new read-only argument survey](XG_DISPATCH_ARGUMENTS.md) searches 24 bytes preceding each verified indirect-call candidate for narrow MOV RCX-from-memory and LEA RDX-from-RSP signatures. It reports **six** locally corroborated setup instructions across four call sites. Both `+0x10` calls have a nearby stack-address preparation in RDX; the two `+0x08` calls reload RCX from a stored pointer. The scanner excludes preceding indirect calls as a conservative register-clobber barrier. None of this proves argument liveness across arbitrary instructions, method purpose, or an Xbox object lifetime rule.
+
 ## Next steps / gates
 
 - Establish actual object identity, dispatch-table extent, and method semantics from multiple call paths before writing any ABI adapter.
 - Identify which call(s), if any, release ownership or return metadata.
 - Keep the two `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED` until the ABI and broader console runtime are actually implemented and verified.
 
-See [XG_DESCRIPTOR_EVIDENCE.md](XG_DESCRIPTOR_EVIDENCE.md), [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).
+See [XG_DISPATCH_ARGUMENTS.md](XG_DISPATCH_ARGUMENTS.md), [XG_DESCRIPTOR_EVIDENCE.md](XG_DESCRIPTOR_EVIDENCE.md), [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).
