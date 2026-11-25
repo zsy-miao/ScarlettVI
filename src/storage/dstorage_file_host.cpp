@@ -1,5 +1,6 @@
 #include "dstorage_file_host.h"
 #include "../runtime/physical_memory.h"
+#include "../runtime/xmem_bridge.h"
 #include <atomic>
 #include <cwctype>
 #include <vector>
@@ -356,8 +357,12 @@ HRESULT open_host_dstorage_file(
             clear_host_dstorage_fixture_path();
         } else if (!memory::PhysicalMemory::instance()
                        .snapshot_mapped_alias_utf16(
-                           relative_path, 240, snapshot)) {
-            // Unknown guest and host pointers are never dereferenced.
+                           relative_path, 240, snapshot) &&
+                   !xmem::snapshot_owned_xmem_utf16(
+                       relative_path, 240, snapshot)) {
+            // The fallback recognizes only live, host-owned XMemAlloc
+            // heap memory. All unknown stack/heap/foreign pointers fail
+            // without being dereferenced.
             return E_INVALIDARG;
         }
         if (snapshot.empty() || snapshot.size() > 240)

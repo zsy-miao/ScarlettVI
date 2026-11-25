@@ -57,20 +57,23 @@ A different build may have different addresses and must be reanalyzed.
   snapshot of the request and a host vector or
   [pinned XMem CPU alias span](XBOX_DSTORAGE_CPU_ALIAS.md). Permits are
   one-shot, and are not exported as title services.
-- **New:** unregistered request structures are also accepted when the
-  **entire 64-byte structure** resides in a currently mapped
-  ScarlettVI-owned **XMem CPU alias**. Before any read of the pointer,
-  `PhysicalMemory::snapshot_mapped_alias` checks all intersected
-  mapped pages under its registry lock and copies the struct once.
-  This works even when the request crosses a 64KiB boundary.
+- **Expanded:** unregistered request structures are accepted only when
+  the **entire 64-byte structure** is backed by either a mapped,
+  ScarlettVI-owned **XMem CPU alias**, or a **live XMemAlloc heap
+  allocation**. The original physical-memory snapshot verifies all
+  intersected pages under its mapping lock; the new
+  [heap snapshot bridge](XMEM_HEAP_SNAPSHOT.md) verifies the full
+  buffer against a live allocation and copies under the registry lock.
+  Unknown raw pointers are never dereferenced; XMem heap requests can
+  be freed immediately after enqueue because the worker owns a copy.
 - The destination virtual range is resolved separately through
   `PhysicalMemory::resolve_mapped_alias_span`, which returns the
   synthetic frame identity of each intersected CPU page (up to 17).
   The queue **revalidates and pins every page** before admission.
   If a mapping changed or a page is absent, it rolls back all pins
   without writing memory.
-- Raw request pointers outside the owned XMem alias registry are **never
-  dereferenced**. Requests with nonzero/unsupported options, unknown
+- Raw request pointers outside these two XMem ownership registries
+  are **never dereferenced**. Requests with nonzero/unsupported options, unknown
   file objects, invalid sizes or unowned destinations become **ordered
   failures**, not fake successful transfers. Only a ScarlettVI-owned
   live `IDStorageFileX` can be reopened.
@@ -84,9 +87,11 @@ A different build may have different addresses and must be reanalyzed.
   destination data; cancellation or permit withdrawal releases any page
   pin. The marker observes the first real HRESULT failure since its
   previous marker.
-- Unregistered requests that are **not in verified XMem CPU aliases**
-  are never dereferenced and become ordered `E_NOTIMPL` failures.
-  Existing 64-slot and staging-budget safety limits remain active.
+- Unregistered requests that are **not verified by XMem CPU alias or
+  live heap ownership** are never dereferenced and become ordered
+  `E_NOTIMPL` failures. Ordinary heap destinations are still
+  unsupported: asynchronous output requires separately pinned,
+  validated XMem CPU alias pages. Existing queue safety limits apply.
 - Generated-file regression checks raw queue slot +0x18 invocation,
   no write before Submit, byte-for-byte writeback at a nonzero file
   offset, duplicate permit rejection, source-handle independence,
@@ -96,7 +101,11 @@ A different build may have different addresses and must be reanalyzed.
   writes exactly to a separate three-page XMem destination, even after
   the request structure has been wiped, unmapped and freed. Missing
   source pages, ordinary stack destinations and unsupported option bits
-  fail safely without leaking pins.
+  fail safely without leaking pins. A new positive case places the
+  request in a real XMemAlloc heap buffer, frees it right after enqueue,
+  and verifies genuine file-to-three-page-alias writeback, FIFO status,
+  no pre-Submit writes, and no pin leaks. Freed or clipped heap request
+  pointers produce ordered `E_NOTIMPL` failures.
 
 ## Still required before any title streaming
 

@@ -1,5 +1,6 @@
 #include "dstorage_file_host.h"
 #include "../runtime/physical_memory.h"
+#include "../runtime/xmem_bridge.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -20,6 +21,14 @@ struct FactoryOwner {
 struct FileOwner {
     HostDStorageFileX* p = nullptr;
     ~FileOwner() { if (p) p->Release(); }
+};
+struct HostXMemOwner {
+    void* ptr = nullptr;
+    ~HostXMemOwner() { if (ptr) xmem::XMemFree(ptr, 0); }
+    void release() {
+        if (ptr) xmem::XMemFree(ptr, 0);
+        ptr = nullptr;
+    }
 };
 struct FixtureRoot {
     fs::path dir;
@@ -276,6 +285,62 @@ bool verify_dstorage_file_fixture() noexcept {
         if (fixture_open(factory.p, too_long.c_str(),
                 kObservedXboxDStorageFileIid, &out) != E_INVALIDARG ||
             out) return false;
+
+        // The guest-named COM OpenFile now also accepts a live
+        // XMemAlloc heap string, not just 64KiB XMem physical aliases.
+        // Both backed heap variants are tested without a host permit.
+        {
+            constexpr wchar_t pack_name[] = L"pack0:/generated.bin";
+            HostXMemOwner heap{ xmem::XMemAlloc(192, 0) };
+            if (!heap.ptr) return false;
+            auto* guest_heap_path = reinterpret_cast<wchar_t*>(
+                static_cast<uint8_t*>(heap.ptr) + 32);
+            std::memcpy(guest_heap_path, pack_name, sizeof(pack_name));
+            FileOwner from_heap{};
+            if (factory.p->OpenFile(
+                    guest_heap_path, kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&from_heap.p)) != S_OK ||
+                !from_heap.p) return false;
+            heap.release(); // the opened file retained its own handle
+            HANDLE handle = from_heap.p->GetHandle();
+            if (handle == INVALID_HANDLE_VALUE) return false;
+            std::vector<uint8_t> received(alternate.size());
+            DWORD got = 0;
+            const bool exact = ReadFile(
+                handle, received.data(), static_cast<DWORD>(received.size()),
+                &got, nullptr) &&
+                got == received.size() && received == alternate;
+            CloseHandle(handle);
+            if (!exact) return false;
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (factory.p->OpenFile(
+                    guest_heap_path, kObservedXboxDStorageFileIid,
+                    &out) != E_INVALIDARG || out) return false;
+
+            // The page-backed XMemAlloc variant is also fully committed,
+            // unlike XMemVirtualAlloc reservations (not accepted).
+            constexpr wchar_t nested_name[] = L"packs/level1/sample.bin";
+            HostXMemOwner page_heap{
+                xmem::XMemAllocDefault(256, uint64_t{1} << 29) };
+            if (!page_heap.ptr) return false;
+            std::memcpy(page_heap.ptr, nested_name, sizeof(nested_name));
+            FileOwner from_page_heap{};
+            if (factory.p->OpenFile(
+                    static_cast<const wchar_t*>(page_heap.ptr),
+                    kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&from_page_heap.p)) != S_OK ||
+                !from_page_heap.p) return false;
+
+            // A recorded block still cannot be read past its end.
+            auto* last_units = reinterpret_cast<wchar_t*>(
+                static_cast<uint8_t*>(page_heap.ptr) + 252);
+            last_units[0] = L'x';
+            last_units[1] = L'y';
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (factory.p->OpenFile(
+                    last_units, kObservedXboxDStorageFileIid,
+                    &out) != E_INVALIDARG || out) return false;
+        }
 
         // A normal COM OpenFile call may now accept a path stored entirely
         // inside XMem CPU aliases, with no special host registration.

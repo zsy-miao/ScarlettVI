@@ -17,14 +17,16 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
 
 - **Disabled by default**. In normal readiness/title inspection the factory
   still returns `E_NOTIMPL` for file opens; no console/game filesystem is mounted.
-- **New input boundary:** guest `OpenFile` path pointers must be fully
-  backed by ScarlettVI-owned, mapped XMem CPU alias pages.
-  `PhysicalMemory::snapshot_mapped_alias_utf16` checks each UTF-16 code
-  unit with the mapping mutex held, including strings crossing 64KiB page
-  boundaries, and copies at most 240 code units before the NUL. Missing
-  pages, missing terminators and arbitrary native/guest pointers fail
-  **without dereferencing the source pointer**. The host copy is immutable
-  across later path-memory unmaps or reuse.
+- **Verified input boundary:** guest `OpenFile` path pointers must be
+  backed either by mapped XMem CPU aliases or by an actual live
+  `XMemAlloc`/`XMemAllocDefault` host allocation. The separate
+  [heap snapshot bridge](XMEM_HEAP_SNAPSHOT.md) verifies the entire
+  UTF-16 path within one live recorded allocation and holds its
+  registry mutex across copying, including concurrent `XMemFree`.
+  `PhysicalMemory::snapshot_mapped_alias_utf16` still supports paths
+  crossing 64KiB physical aliases. Both methods cap the copy at 240
+  UTF-16 characters plus NUL, reject unknown native/guest pointers
+  **without dereferencing them**, and return an immutable host copy.
 - For original C++ tests using ordinary string literals, a **host-only
   per-thread, one-shot permit** supplies a trusted immutable path
   snapshot. `register_host_dstorage_fixture_path` and
@@ -59,8 +61,12 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
   to the fixture-only queue. Unknown and closed file objects fail safely.
   This allows already-submitted host reads to survive closing the source
   file COM object without retaining arbitrary game memory.
-- The API is not yet wired to an Xbox virtual filesystem, guest queue
-  `DSTORAGE_REQUEST`, decompression engine, destination buffers or asset streaming.
+- The factory file objects now feed a restricted, real
+  [guest-IID `DSTORAGE_REQUEST` queue](XBOX_DSTORAGE_REQUEST_ABI.md)
+  using registered or validated XMem-owned request snapshots and pinned
+  CPU physical-alias destinations. Actual Xbox volume semantics,
+  decompression, guest-heap destinations and title asset streaming
+  remain unimplemented.
 
 ## Host-only read-only virtual mounts
 
@@ -124,7 +130,9 @@ traversal, DOS device names, overlong paths, and nine-component paths.
 It now also opens the nested file via the **actual guest-named COM
 `OpenFile` slot using a two-page mapped XMem UTF-16 source path**,
 then safely wipes/reuses the path memory while preserving the independent
-open file. It checks invalid/unregistered host pointers, absent second
+open file. Additional cases exercise regular and page-backed XMemAlloc
+heap paths, and confirm that an opened file is still valid after the
+heap path is freed. It checks invalid/unregistered host pointers, absent second
 source page, unterminated 241-unit strings, short paths that end before
 an unmapped page, failure output immutability and zero leaked XMem
 frames/pins.

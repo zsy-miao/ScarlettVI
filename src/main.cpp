@@ -138,6 +138,7 @@ void usage() {
                << L"  ScarlettVI.exe xmem-tools-fixture\n"
                << L"  ScarlettVI.exe xmem-stats-fixture\n"
                << L"  ScarlettVI.exe xmem-transfer-fixture\n"
+               << L"  ScarlettVI.exe xmem-heap-fixture\n"
                << L"  ScarlettVI.exe storage-factory-fixture\n"
                << L"  ScarlettVI.exe storage-async-fixture\n"
                << L"  ScarlettVI.exe storage-submit-fixture\n"
@@ -187,6 +188,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xmem-heap-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed = scarlett::xmem::verify_xmem_heap_snapshots_fixture();
+            std::cout << "ScarlettVI | bounds-checked XMemAlloc snapshot "
+                      << "and concurrent-free lifetime: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nHost-owned heap only; arbitrary guest heap "
+                      << "memory and title execution remain BLOCKED.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"storage-queue-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -194,7 +205,7 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "ScarlettVI | fixture-rooted Xbox-IID DirectStorage "
                       << "queue COM and real FIFO status barriers: "
                       << (passed ? "PASS" : "FAIL")
-                      << "\nGenerated reads and guarded XMem CPU request snapshots only; "
+                      << "\nGenerated reads and guarded XMem alias/heap request snapshots; "
                       << "native title streaming/execution remain blocked.\n";
             return passed ? 0 : 3;
         }

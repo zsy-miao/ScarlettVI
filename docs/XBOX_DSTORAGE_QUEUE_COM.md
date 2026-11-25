@@ -60,13 +60,17 @@ Do not enable actual title asset loads on this partial evidence.
   independent reset at each barrier. The worker now auto-retires completed
   **unsupported guest request error tokens** (which have no payload
   consumer), preventing long-lived queues from exhausting 64 slots.
-- Queue `EnqueueRequest +0x18` now supports a strictly registered,
+- Queue `EnqueueRequest +0x18` now supports a strictly guarded,
   original host subset of the documented 64-byte `DSTORAGE_REQUEST`
   layout: ordinary uncompressed file sources and byte-for-byte
   asynchronous writeback into explicitly approved generated buffers or
   [real pinned, contiguous multi-page XMem CPU aliases](XBOX_DSTORAGE_CPU_ALIAS.md). The raw request is matched against a host-only permit
-  registry **before any pointer is dereferenced**. Ordinary game requests
-  still insert ordered **E_NOTIMPL failures**, never fake successful reads.
+  registry **before any pointer is dereferenced**. An independent
+  [XMemAlloc heap snapshot](XMEM_HEAP_SNAPSHOT.md) route also recognizes
+  live host XMemAlloc request records, but never unregistered host
+  pointers; output still requires pinned XMem physical aliases.
+  Ordinary unsupported game requests insert ordered **E_NOTIMPL
+  failures**, never fake successful reads.
   `EnqueueSignal` still fails closed.
 - The queue owns a manual-reset Windows error event. Unsupported calls
   signal the event and store a diagnostic HRESULT; it does not yet

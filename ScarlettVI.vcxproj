@@ -78,6 +78,7 @@
     <ClCompile Include="src\runtime\readiness_report.cpp" />
     <ClCompile Include="src\runtime\xmem_query.cpp" />
     <ClCompile Include="src\runtime\xmem_bridge.cpp" />
+    <ClCompile Include="src\runtime\xmem_heap_snapshot_test.cpp" />
     <ClCompile Include="src\runtime\xmem_tools_test.cpp" />
     <ClCompile Include="src\runtime\xmem_stats_test.cpp" />
     <ClCompile Include="src\runtime\xmem_transfer.cpp" />

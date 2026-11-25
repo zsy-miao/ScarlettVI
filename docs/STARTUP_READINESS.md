@@ -104,9 +104,11 @@ Measured working address bindings:
   reopened handles from fixture-rooted file COM objects. The
   [file COM adapter](XBOX_DSTORAGE_FILE_HOST.md) now supports validated
   nested paths with final-handle root containment. The guest path
-  pointer is now copied only from **verified XMem-mapped CPU UTF-16**
-  memory; host fixture literals have one-shot admission and unknown
-  native pointers are never read. The new
+  pointer is now copied only from **verified XMem CPU physical
+  aliases or live XMemAlloc heap allocations**, using independent,
+  bounded [heap snapshot ownership](XMEM_HEAP_SNAPSHOT.md);
+  host fixture literals have one-shot admission and unknown native
+  pointers are never read. The new
   [host-only read-only mount registry](XBOX_DSTORAGE_FILE_HOST.md) resolves
   synthetic paths like `pack0:/generated.bin` to independently protected
   canonical fixture roots, and the queue fixture performs real
@@ -116,9 +118,12 @@ Measured working address bindings:
   A separate [bounded multi-page pinned XMem CPU-alias bridge](XBOX_DSTORAGE_CPU_ALIAS.md)
   verifies three-page mapped writeback, all-or-nothing page pin admission,
   rollback and unmap interlocks. A request structure stored inside
-  verified XMem-managed CPU mappings can now be snapshotted without a
-  host-only permit, but general title heap/stack memory, guest VFS and
-  Xbox physical page-array destinations remain unavailable.
+  verified XMem-managed CPU mappings **or live host-owned XMemAlloc
+  heap allocations** can now be snapshotted without a host-only permit.
+  The [heap snapshot fixture](XMEM_HEAP_SNAPSHOT.md) checks request
+  lifetime across immediate free; the output is still written only
+  into pinned physical aliases. General title heap/stack memory,
+  guest VFS and Xbox physical page-array destinations remain unavailable.
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.

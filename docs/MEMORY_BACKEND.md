@@ -40,6 +40,20 @@ The title's host import of `VirtualFree` is transparently routed through
 a local adapter which releases ScarlettVI-managed placeholder regions
 correctly and delegates all other allocations to Windows.
 
+## Safe snapshots of host-owned XMemAlloc heap memory
+
+The original [XMemAlloc heap snapshot bridge](XMEM_HEAP_SNAPSHOT.md)
+now recognizes live `XMemAlloc` and `XMemAllocDefault` allocations
+in addition to mapped 64KiB CPU physical aliases. Both byte ranges
+and bounded NUL-terminated UTF-16 paths are validated against one
+live recorded allocation and copied under the same lock used by
+`XMemFree`. The new `xmem-heap-fixture` tests ownership,
+allocation-end clipping, failure immutability, and concurrent free.
+The DirectStorage adapter and queue can consume these snapshots
+without reading unknown raw guest pointers. The heap is NOT pinned
+for asynchronous output, and general title heap/stack/process
+memory translation remains unavailable.
+
 ## Pinned alias lifetimes for host GPU staging
 
 The new original [GuestGpuPageRegistry](GUEST_GPU_PAGE_REGISTRY.md) registers

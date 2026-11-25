@@ -91,11 +91,15 @@ now supports a real, contiguous **multi-page CPU virtual destination**, pinning
 each intersected 64KiB mapping before the queued read begins and releasing
 all pins on completion/failure. Generated-file regressions verify a genuine
 three-page write and rollback on a wrong or unmapped middle page. A
-[guarded request snapshot bridge](docs/XBOX_DSTORAGE_REQUEST_ABI.md) also
-reads unregistered guest requests **only from currently mapped XMem
-CPU aliases**, verifying both request bytes and their destination pages
-without trusting arbitrary title pointers. General guest heap memory,
-Xbox physical-page arrays and title asset streaming remain unsupported.
+[guarded request snapshot bridge](docs/XBOX_DSTORAGE_REQUEST_ABI.md) now
+copies request records from either validated XMem CPU physical aliases
+or **live, bounded XMemAlloc heap allocations** via the new
+[heap snapshot bridge](docs/XMEM_HEAP_SNAPSHOT.md). It can copy
+a generated request from host-owned heap memory, free the source
+immediately and complete a real read into pinned XMem CPU aliases.
+Unknown host or title heap pointers and ordinary heap write
+destinations are still unsupported; actual title asset streaming
+is not implemented.
 The [actual Xbox status-array COM interface](docs/XBOX_DSTORAGE_STATUS_ARRAY.md)
 now works through the corrected factory vtable slot `+0x28`, and its
 status entries receive verified S_OK/error results from host file-I/O
@@ -103,9 +107,10 @@ barriers. The [read-only DirectStorage file COM adapter](docs/XBOX_DSTORAGE_FILE
 now accepts bounded **nested generated-file paths** through the verified
 `OpenFile +0x20` slot. It checks every component, blocks traversal and
 Windows devices, and validates the opened handle's final resolved path
-against the opt-in fixture root. **COM path bytes now come from a
-registry-verified, NUL-terminated XMem CPU alias snapshot**, with
-cross-page UTF-16 handling and no arbitrary guest-pointer dereference.
+against the opt-in fixture root. **COM path bytes now come from
+a registry-verified UTF-16 snapshot**, supporting both XMem CPU
+physical aliases and live host XMemAlloc heap allocations, with
+no arbitrary guest-pointer dereference.
 Generated native C++ tests require an explicit one-shot host-only
 path permit. An [original read-only logical mount
 registry](docs/XBOX_DSTORAGE_FILE_HOST.md) now lets host fixtures

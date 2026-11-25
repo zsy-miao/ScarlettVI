@@ -5,6 +5,7 @@
 #include <malloc.h>
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <new>
 #include <unordered_map>
@@ -75,6 +76,77 @@ public:
             return nullptr;
         }
         return pointer;
+    }
+
+    bool snapshot_allocation(
+        const void* source, size_t bytes, void* host_output) noexcept {
+        if (!source || !host_output || !bytes || bytes > 1024 * 1024) {
+            SetLastError(ERROR_INVALID_PARAMETER);
+            return false;
+        }
+        const std::lock_guard lock(mutex_);
+        const auto* data = find_eligible_range(source, bytes);
+        if (!data) return false;
+        // The same registry mutex serializes XMemFree with the snapshot.
+        std::memmove(host_output, data, bytes);
+        return true;
+    }
+
+    bool snapshot_utf16(const wchar_t* source, size_t max_chars,
+                        std::wstring& output) noexcept {
+        static_assert(sizeof(wchar_t) == 2);
+        if (!source || !max_chars || max_chars > 240 ||
+            (reinterpret_cast<uintptr_t>(source) & (alignof(wchar_t) - 1))) {
+            SetLastError(ERROR_INVALID_PARAMETER);
+            return false;
+        }
+        try {
+            std::wstring candidate;
+            candidate.reserve(max_chars);
+            const uintptr_t start = reinterpret_cast<uintptr_t>(source);
+            const std::lock_guard lock(mutex_);
+            // Every unit is checked against the SAME owning allocation.
+            // A missing terminator or a truncated allocation cannot
+            // cause a raw heap pointer to be read past the allocation.
+            const Allocation* allocation = nullptr;
+            uintptr_t limit = 0;
+            for (const auto& [base, entry] : allocations_) {
+                if (!entry.budget_charged) continue;
+                const uintptr_t at = reinterpret_cast<uintptr_t>(base);
+                if (start < at || start - at >= entry.bytes) continue;
+                allocation = &entry;
+                limit = entry.bytes - (start - at);
+                break;
+            }
+            if (!allocation) {
+                SetLastError(ERROR_INVALID_ADDRESS);
+                return false;
+            }
+            const auto* bytes = reinterpret_cast<const unsigned char*>(source);
+            for (size_t i = 0; i <= max_chars; ++i) {
+                const size_t offset = i * sizeof(wchar_t);
+                if (offset > limit || sizeof(wchar_t) > limit - offset) {
+                    SetLastError(ERROR_INVALID_ADDRESS);
+                    return false;
+                }
+                wchar_t unit = 0;
+                std::memcpy(&unit, bytes + offset, sizeof(unit));
+                if (!unit) {
+                    output.swap(candidate);
+                    return true;
+                }
+                if (i == max_chars) {
+                    SetLastError(ERROR_INVALID_PARAMETER);
+                    return false;
+                }
+                candidate.push_back(unit);
+            }
+        } catch (...) {
+            SetLastError(ERROR_OUTOFMEMORY);
+            return false;
+        }
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
     }
 
     void free(void* ptr, uint64_t) noexcept {
@@ -160,10 +232,35 @@ public:
         }
     }
 private:
+    const unsigned char* find_eligible_range(
+        const void* source, size_t bytes) const noexcept {
+        const uintptr_t start = reinterpret_cast<uintptr_t>(source);
+        for (const auto& [base, entry] : allocations_) {
+            if (!entry.budget_charged) continue;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(base);
+            if (start < begin) continue;
+            const uintptr_t offset = start - begin;
+            if (offset > entry.bytes || bytes > entry.bytes - offset)
+                continue;
+            return static_cast<const unsigned char*>(base) + offset;
+        }
+        SetLastError(ERROR_INVALID_ADDRESS);
+        return nullptr;
+    }
     std::mutex mutex_;
     std::unordered_map<void*, Allocation> allocations_;
 };
 } // namespace
+
+bool snapshot_owned_xmem_allocation(
+    const void* source, size_t bytes, void* host_output) noexcept {
+    return Registry::get().snapshot_allocation(source, bytes, host_output);
+}
+bool snapshot_owned_xmem_utf16(
+    const wchar_t* source, size_t max_chars,
+    std::wstring& output) noexcept {
+    return Registry::get().snapshot_utf16(source, max_chars, output);
+}
 
 extern "C" void* WINAPI XMemAlloc(size_t size, uint64_t attrs) {
     return Registry::get().alloc(size, attrs);

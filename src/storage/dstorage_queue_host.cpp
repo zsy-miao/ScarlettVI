@@ -2,6 +2,7 @@
 #include "dstorage_alias_destination.h"
 #include "dstorage_file_host.h"
 #include "../runtime/physical_memory.h"
+#include "../runtime/xmem_bridge.h"
 #include <atomic>
 #include <array>
 #include <limits>
@@ -92,15 +93,16 @@ public:
         HANDLE opened = INVALID_HANDLE_VALUE;
         HRESULT request_error = E_NOTIMPL;
         if (!permitted && request) {
-            // A first guest-address-space bridge: only read request bytes
-            // from XMem aliases owned and mapped by ScarlettVI. The
-            // snapshot helper validates every intersected CPU page under
-            // its registry mutex before copying; unknown stack/heap
-            // pointers are NEVER dereferenced by this route.
+            // Accept request bytes only from owned XMem CPU aliases
+            // or live XMemAlloc heap buffers. Each independent registry
+            // validates bounds and holds its lock while copying. Unknown
+            // stack/process-heap pointers are NEVER dereferenced.
             auto& physical = memory::PhysicalMemory::instance();
             GuestDStorageRequest snapshot{};
-            if (physical.snapshot_mapped_alias(
-                    request, sizeof(snapshot), &snapshot) &&
+            if ((physical.snapshot_mapped_alias(
+                     request, sizeof(snapshot), &snapshot) ||
+                 xmem::snapshot_owned_xmem_allocation(
+                     request, sizeof(snapshot), &snapshot)) &&
                 snapshot.options == 0 && snapshot.file &&
                 snapshot.destination && snapshot.source_size &&
                 snapshot.source_size <= HostAsyncFileQueue::kMaxReadBytes &&

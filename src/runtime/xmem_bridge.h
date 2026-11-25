@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include "xmem_transfer.h"
 
@@ -40,6 +41,21 @@ BOOL WINAPI XMemMapPhysicalPagesScatter(void* const* addresses,
 BOOL WINAPI VirtualFreeBridge(void* base, size_t size, DWORD flags);
 }
 FARPROC find_export(std::string_view name) noexcept;
+// Host-only validated snapshots of live XMemAlloc / XMemAllocDefault
+// allocations, not arbitrary host memory or the separate XMemVirtualAlloc
+// reservations. The registry lock covers validation AND memcpy, so a
+// concurrent XMemFree cannot release the source halfway through copying.
+// Unregistered, freed, overflowed or out-of-bounds ranges fail closed.
+// The destination is unchanged on failure; bytes capped to 1 MiB.
+bool snapshot_owned_xmem_allocation(
+    const void* source, size_t bytes, void* host_output) noexcept;
+// Copies a NUL-terminated UTF-16 path (<= max_chars) from a *single*
+// currently live host-owned heap allocation. Does not read beyond the
+// allocation even when the requested string is unterminated. The output
+// is unchanged on failure. Both helpers are not guest DLL exports.
+bool snapshot_owned_xmem_utf16(
+    const wchar_t* source, size_t max_chars, std::wstring& output) noexcept;
+bool verify_xmem_heap_snapshots_fixture() noexcept;
 // Generated host-only fixture, never calls or loads any title executable.
 bool verify_xmem_tools_capability_fixture() noexcept;
 bool verify_xmem_stats_failure_fixture() noexcept;

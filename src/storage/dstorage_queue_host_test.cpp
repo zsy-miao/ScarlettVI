@@ -1,6 +1,7 @@
 #include "dstorage_queue_host.h"
 #include "dstorage_file_host.h"
 #include "../runtime/physical_memory.h"
+#include "../runtime/xmem_bridge.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -24,6 +25,14 @@ struct QueueOwner {
 struct StatusOwner {
     HostDStorageStatusArrayX* ptr = nullptr;
     ~StatusOwner() { if (ptr) ptr->Release(); }
+};
+struct HostHeapOwner {
+    void* ptr = nullptr;
+    ~HostHeapOwner() { if (ptr) xmem::XMemFree(ptr, 0); }
+    void release() {
+        if (ptr) xmem::XMemFree(ptr, 0);
+        ptr = nullptr;
+    }
 };
 struct AliasFixture {
     uint8_t* alias = nullptr;
@@ -696,6 +705,74 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             physical.pinned_alias_count() != original_pins) {
             source->Release();
             return false;
+        }
+
+        // Live XMemAlloc HEAP request descriptors can now drive the real
+        // queue; they need no host registration or physical-alias header.
+        // The OUTPUT still must be mapped and pinned XMem CPU aliases.
+        {
+            HostHeapOwner owned{ xmem::XMemAlloc(256, 0) };
+            if (!owned.ptr) { source->Release(); return false; }
+            auto* request_on_heap = reinterpret_cast<GuestDStorageRequest*>(
+                static_cast<uint8_t*>(owned.ptr) + 64);
+            GuestDStorageRequest heap_request{};
+            heap_request.file = source;
+            heap_request.destination = multi_dest;
+            heap_request.source_size = static_cast<uint32_t>(kMultiBytes);
+            heap_request.destination_size = heap_request.source_size;
+            heap_request.file_offset = 811;
+            std::memcpy(request_on_heap, &heap_request, sizeof(heap_request));
+            std::fill_n(multi_dest, kMultiBytes, uint8_t{0x56});
+            enqueue_request(queue.ptr, request_on_heap);
+            if (physical.pinned_alias_count() != original_pins + 3) {
+                source->Release();
+                return false;
+            }
+            owned.release(); // safe: queue copied the entire request
+            enqueue_status(queue.ptr, status.ptr, 0);
+            if (status.ptr->IsComplete(0) ||
+                !std::all_of(multi_dest, multi_dest + kMultiBytes,
+                    [](uint8_t b) { return b == uint8_t{0x56}; })) {
+                source->Release();
+                return false;
+            }
+            submit(queue.ptr);
+            if (!status_equals(status.ptr, 0, S_OK) ||
+                !std::equal(multi_dest, multi_dest + kMultiBytes,
+                            data.begin() + 811) ||
+                physical.pinned_alias_count() != original_pins) {
+                source->Release();
+                return false;
+            }
+
+            // Freed request memory is not a valid guest pointer, even
+            // though the destination remains pinned-capable.
+            std::fill_n(multi_dest, kMultiBytes, uint8_t{0x48});
+            enqueue_request(queue.ptr, request_on_heap);
+            enqueue_status(queue.ptr, status.ptr, 0);
+            submit(queue.ptr);
+            if (!status_equals(status.ptr, 0, E_NOTIMPL) ||
+                physical.pinned_alias_count() != original_pins ||
+                !std::all_of(multi_dest, multi_dest + kMultiBytes,
+                    [](uint8_t b) { return b == uint8_t{0x48}; })) {
+                source->Release();
+                return false;
+            }
+
+            // A heap allocation cannot be interpreted as an entire
+            // request when fewer than 64 bytes remain at this offset.
+            HostHeapOwner short_heap{ xmem::XMemAlloc(96, 0) };
+            if (!short_heap.ptr) { source->Release(); return false; }
+            auto* clipped = reinterpret_cast<const GuestDStorageRequest*>(
+                static_cast<uint8_t*>(short_heap.ptr) + 48);
+            enqueue_request(queue.ptr, clipped);
+            enqueue_status(queue.ptr, status.ptr, 0);
+            submit(queue.ptr);
+            if (!status_equals(status.ptr, 0, E_NOTIMPL) ||
+                physical.pinned_alias_count() != original_pins) {
+                source->Release();
+                return false;
+            }
         }
 
         // Reset the sentinel for the upcoming unsubmitted cancellation
