@@ -15,6 +15,7 @@ From the project folder:
 .\build\x64\Release\ScarlettVI.exe xg-vcall-links-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcall-args-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcall-stack-fixture
+.\build\x64\Release\ScarlettVI.exe xg-vcall-regs-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcalls '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 ```
 
@@ -55,6 +56,10 @@ The [new read-only argument survey](XG_DISPATCH_ARGUMENTS.md) searches 24 bytes 
 ## Outgoing stack writes for the complex +0x50 call
 
 The [bounded stack-write survey](XG_DISPATCH_STACK_SLOTS.md) now independently corroborates three MOV stores at `0x140344272`, `0x14034427A`, and `0x14034427E`, respectively writing R8 (8 bytes) to `[RSP+0x30]`, ESI (4 bytes) to `[RSP+0x28]`, and RAX (8 bytes) to `[RSP+0x20]` before the `+0x50` indirect call at `0x140344283`. The scanner is conservative and does not claim the values, argument types, function semantics or a COM/Xbox ABI.
+
+## Local +0x50 register timeline
+
+The [bounded register-timeline survey](XG_REGISTER_TIMELINE.md) correlates six independently disassembled REX.W LEA/MOV register patterns leading into the `+0x50` dispatch. Its chronological query distinguishes R8's source at the earlier `[RSP+0x30]` store (`RSP+0xA0`) from the later copied R14 source at the call (`RSP+0x58`). This remains *pattern-chain evidence*, not proof of live values or a complete ABI.
 
 ## Next steps / gates
 

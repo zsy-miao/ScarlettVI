@@ -25,6 +25,8 @@ Their gaps to the call are 0, 5 and 12 bytes, respectively. The surrounding disa
 
 Synthetic fixtures cover mixed widths, REX registers, positive displacement boundaries, nearest-store selection, previous-call barriers, unsupported address forms, malformed metadata, duplicate contexts, oversized windows, and error atomicity. No proprietary title instruction sequences or assets are checked in.
 
+A separate [chronological register-timeline survey](XG_REGISTER_TIMELINE.md) now observes the R8 stack-address setup **before** its `[RSP+0x30]` store, and distinguishes it from the later R8←R14 register copy before dispatch.
+
 This is **pattern evidence only**, not control-flow/dataflow reconstruction or Xbox import implementation. No other post-create indirect-call site had a qualifying stack write in this bounded scan. Absence of a match does not prove absence of stack arguments. **Title execution remains BLOCKED.**
 
 See [XG_DISPATCH_ARGUMENTS.md](XG_DISPATCH_ARGUMENTS.md), [XG_VCALL_SURVEY.md](XG_VCALL_SURVEY.md) and [STARTUP_READINESS.md](STARTUP_READINESS.md).

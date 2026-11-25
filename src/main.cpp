@@ -5,6 +5,7 @@
 #include "analysis/xg_vcall_loads.h"
 #include "analysis/xg_vcall_arguments.h"
 #include "analysis/xg_vcall_stack_writes.h"
+#include "analysis/xg_vcall_registers.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -115,6 +116,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-vcall-links-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-args-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-stack-fixture\n"
+               << L"  ScarlettVI.exe xg-vcall-regs-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -146,6 +148,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-vcall-regs-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_register_pattern_fixtures();
+            std::cout << "ScarlettVI | synthetic XG register timeline fixture: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nOnly local generated instruction patterns; "
+                      << "not guest execution or a proven Xbox ABI.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-vcall-stack-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -281,8 +293,64 @@ int wmain(int argc, wchar_t** argv) {
                           << " bytes | gap "
                           << static_cast<unsigned>(store.gap_to_call_bytes)
                           << "\n";
-            std::cout << "These byte patterns do not establish register "
-                      << "liveness or a verified Xbox object-method ABI.\n";
+            std::vector<scarlett::analysis::XgRegisterPattern> timeline;
+            if (!scarlett::analysis::scan_xg_local_register_patterns(
+                    create_contexts, found, timeline)) {
+                std::cerr << "Bounded XG register-timeline scan failed.\n";
+                return 3;
+            }
+            std::cout << "Local +0x50 register setup patterns: "
+                      << timeline.size() << "\n";
+            for (const auto& p : timeline) {
+                std::cout << "  indirect VA 0x" << std::hex
+                          << (report.image_base + p.indirect_call_rva)
+                          << " | setup VA 0x"
+                          << (report.image_base + p.instruction_rva)
+                          << std::dec << " | destination GPR "
+                          << static_cast<unsigned>(p.destination_gpr);
+                if (p.kind == scarlett::analysis::XgRegPatternKind::stack_address)
+                    std::cout << " <- stack address [RSP+0x"
+                              << std::hex << p.stack_offset << std::dec << "]";
+                else
+                    std::cout << " <- GPR "
+                              << static_cast<unsigned>(p.source_gpr);
+                std::cout << "\n";
+            }
+            for (const auto& call : found) {
+                if (call.displacement != 0x50)
+                    continue;
+                for (uint8_t reg : {uint8_t{2}, uint8_t{8}, uint8_t{9}}) {
+                    uint32_t offset = 0;
+                    if (!scarlett::analysis::resolve_xg_stack_address_pattern(
+                            timeline, call.source_call_rva,
+                            call.candidate_rva, reg, call.candidate_rva,
+                            offset))
+                        continue;
+                    std::cout << "  LOCAL CHAIN at indirect VA 0x" << std::hex
+                              << (report.image_base + call.candidate_rva)
+                              << std::dec << ": GPR "
+                              << static_cast<unsigned>(reg)
+                              << " <- stack-address pattern +0x"
+                              << std::hex << offset << std::dec << "\n";
+                }
+            }
+            for (const auto& store : stack_writes) {
+                uint32_t offset = 0;
+                if (!scarlett::analysis::resolve_xg_stack_address_pattern(
+                        timeline, store.source_call_rva,
+                        store.indirect_call_rva, store.source_register,
+                        store.store_rva, offset))
+                    continue;
+                std::cout << "  LOCAL CHAIN before store VA 0x" << std::hex
+                          << (report.image_base + store.store_rva)
+                          << ": source GPR "
+                          << std::dec
+                          << static_cast<unsigned>(store.source_register)
+                          << " <- stack-address pattern +0x"
+                          << std::hex << offset << std::dec << "\n";
+            }
+            std::cout << "These local patterns do not establish live values, "
+                      << "complete control flow, or a verified Xbox method ABI.\n";
             return 0;
         }
         if (verb == L"xg-field-fixture") {

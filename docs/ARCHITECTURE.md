@@ -150,7 +150,10 @@ revalidating call-site metadata and avoiding stale evidence across an
 intervening indirect call. A separate [bounded outgoing stack-write
 survey](XG_DISPATCH_STACK_SLOTS.md) corroborates three GPR-to-stack MOV
 stores immediately before the complex `+0x50` dispatch. Neither scanner
-establishes method argument semantics or ownership.
+establishes method argument semantics or ownership. A new
+[bounded +0x50 register-timeline probe](XG_REGISTER_TIMELINE.md) observes
+six REX.W LEA/MOV patterns and conservatively distinguishes R8's
+source before its outgoing stack write from R8's later source at dispatch.
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs
 across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24
