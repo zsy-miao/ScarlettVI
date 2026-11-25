@@ -24,13 +24,16 @@ From the ScarlettVI project directory:
 ```powershell
 .\build\x64\Release\ScarlettVI.exe xg-calls-fixture
 .\build\x64\Release\ScarlettVI.exe xg-calls '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
+.\build\x64\Release\ScarlettVI.exe xg-context '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 ```
 
-The generated `xg-calls-fixture` test constructs a synthetic 160-byte x64 section containing two RIP-relative import jump stubs and three relative calls, then verifies all discovered RVAs. It also corrupts one stub displacement to ensure unrelated calls are no longer attributed to that import, and rejects a section whose range would wrap 32-bit address space. **No proprietary game instructions appear in the source or fixture.**
+The generated `xg-calls-fixture` test constructs a synthetic 160-byte x64 section containing two RIP-relative import jump stubs and three relative calls, then verifies all discovered RVAs. It also corrupts one stub displacement to ensure unrelated calls are no longer attributed to that import, and rejects a section whose range would wrap 32-bit address space. It now also tests a **bounded call-context extractor** using a separate generated 96-byte fixture: exact pre/post-call clipping, correct relative-call target, truncated 5-byte calls, overlapping executable spans, oversized window requests and all-or-nothing failure behavior. **No proprietary game instructions appear in the source or fixtures.**
+
+`xg-context` reuses the verified XG PE scanner and prints a bounded **96 bytes before** and **48 bytes after** each five-byte E8 call, clipped to the containing file-backed executable section. It verifies each original relative displacement against a discovered XG import trampoline before reporting any window. It performs no instruction decoding or automatic argument inference; the byte windows are intended for independent local disassembly. **Never copy these game-specific byte windows into the public repository.**
 
 ## Verified actual title data-only result
 
-The Release scanner read **99,875,174 bytes of executable PE sections** and identified exactly the following, consistent with earlier manually verified disassembly:
+The Release scanner read **99,875,174 bytes of executable PE sections** and identified exactly the following, consistent with earlier manually verified disassembly. The new Release context command independently validated all **six** corresponding call-to-trampoline displacements and returned bounded context windows, without executing game code:
 
 | Imported Xbox name | IAT RVA | Import-stub VA | Candidate call-site VAs |
 | --- | --- | --- | --- |

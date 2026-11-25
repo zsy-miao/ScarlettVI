@@ -126,7 +126,9 @@ retryable fence-safe cleanup with zero leaks
 verify original x64 RIP-relative FF25 import jump stubs and E8 direct
 call candidates for the two unresolved XG graphics imports. The title
 scan confirms **four XGCreateTextureComputer and two XGSuggestSwizzleMode
-call sites**, without executing title code or guessing their ABI
+call sites**. The new `xg-context` mode verifies E8 displacements and prints
+strictly bounded call-site windows for independent analysis, with generated
+negative-test fixtures. Neither command executes title code or guesses the ABI
 ([XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md)).
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs

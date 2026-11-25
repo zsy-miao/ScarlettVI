@@ -29,7 +29,9 @@ You must supply your own legitimately obtained software.
 The new [read-only XG call-site probe](docs/XG_CALLSITE_PROBE.md)
 verifies both XG jump-stub/IAT paths and all six observed direct-call
 candidates in the user's executable, using an original PE byte-pattern
-scanner and a generated negative-test fixture. The full Xbox XG texture
+scanner and generated negative-test fixtures. The new `xg-context`
+mode verifies each relative-call target and safely extracts bounded
+read-only call context for independent local ABI investigation. The full Xbox XG texture
 computer/swizzle ABI remains unknown, so both graphics imports are
 still **unresolved**.
 

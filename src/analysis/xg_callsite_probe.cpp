@@ -132,6 +132,151 @@ bool probe_xg_callsites(const scarlett::PeFile& file,
     }
 }
 
+
+bool gather_xg_call_contexts(
+    std::span<const ExecutableBytes> sections,
+    const XgCallsiteReport& report,
+    std::vector<XgCallContext>& contexts,
+    size_t before_bytes, size_t after_bytes) noexcept {
+    try {
+        // Deliberately limit data retained per callsite; callers may inspect
+        // only real executable section bytes, never adjacent PE file padding.
+        if (before_bytes > 4096 || after_bytes > 4096) return false;
+        std::vector<XgCallContext> found;
+        for (const auto& symbol : report.symbols) {
+            for (uint32_t call_rva : symbol.direct_rel32_call_rvas) {
+                size_t matches = 0;
+                XgCallContext candidate;
+                for (const auto& section : sections) {
+                    if (section.bytes.size() > UINT32_MAX ||
+                        uint64_t{section.rva} + section.bytes.size() > UINT32_MAX)
+                        return false;
+                    if (call_rva < section.rva) continue;
+                    const uint64_t offset = uint64_t{call_rva} - section.rva;
+                    if (offset > section.bytes.size() ||
+                        section.bytes.size() - static_cast<size_t>(offset) < 5)
+                        continue;
+                    const size_t at = static_cast<size_t>(offset);
+                    const auto raw = section.bytes;
+                    if (raw[at] != 0xE8) return false;
+                    uint32_t target = 0;
+                    if (!rip_target(call_rva, 5,
+                                    read_disp32(raw.data() + at + 1), target) ||
+                        std::find(symbol.trampoline_rvas.begin(),
+                                  symbol.trampoline_rvas.end(), target) ==
+                            symbol.trampoline_rvas.end())
+                        return false;
+                    ++matches;
+                    candidate.symbol = symbol.symbol;
+                    candidate.call_rva = call_rva;
+                    candidate.target_trampoline_rva = target;
+                    candidate.section_rva = section.rva;
+                    const size_t pre = std::min(at, before_bytes);
+                    const size_t post = std::min(raw.size() - at - 5,
+                                                 after_bytes);
+                    candidate.before.assign(raw.begin() + (at - pre),
+                                            raw.begin() + at);
+                    std::copy_n(raw.begin() + at, 5,
+                                candidate.call_bytes.begin());
+                    candidate.after.assign(raw.begin() + at + 5,
+                                           raw.begin() + at + 5 + post);
+                }
+                if (matches != 1) return false; // missing or overlapping sections
+                found.push_back(std::move(candidate));
+            }
+        }
+        std::sort(found.begin(), found.end(),
+                  [](const XgCallContext& a, const XgCallContext& b) {
+                      return a.call_rva < b.call_rva;
+                  });
+        contexts = std::move(found); // all-or-nothing result
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool probe_xg_call_contexts(
+    const scarlett::PeFile& file,
+    const XgCallsiteReport& report,
+    std::vector<XgCallContext>& contexts) noexcept {
+    try {
+        std::vector<ExecutableBytes> sections;
+        for (const auto& section : file.details().sections) {
+            if (!(section.characteristics & IMAGE_SCN_MEM_EXECUTE) ||
+                !section.file_size) continue;
+            const auto* raw = file.raw_rva(section.rva, section.file_size);
+            sections.push_back({
+                section.rva, std::span<const uint8_t>(
+                    raw, std::min<size_t>(section.file_size,
+                                          section.virtual_size))
+            });
+        }
+        return gather_xg_call_contexts(sections, report, contexts);
+    } catch (...) {
+        return false;
+    }
+}
+
+bool verify_xg_context_fixtures() noexcept {
+    std::array<uint8_t, 96> bytes{};
+    bytes.fill(0x90); // generated test code, never title bytes
+    constexpr uint32_t section_rva = 0x400;
+    constexpr uint32_t thunk_rva = 0x450;
+    for (size_t at : {size_t{8}, size_t{87}}) {
+        bytes[at] = 0xE8;
+        const int32_t displacement = static_cast<int32_t>(
+            int64_t{thunk_rva} - (section_rva + at + 5));
+        std::memcpy(bytes.data() + at + 1, &displacement,
+                    sizeof(displacement));
+    }
+    XgCallsiteReport report;
+    report.symbols[0].imported = true;
+    report.symbols[0].trampoline_rvas = {thunk_rva};
+    report.symbols[0].direct_rel32_call_rvas =
+        {section_rva + 8, section_rva + 87};
+    const std::array<ExecutableBytes, 1> sections{{
+        {section_rva, std::span<const uint8_t>(bytes)}
+    }};
+    std::vector<XgCallContext> contexts;
+    if (!gather_xg_call_contexts(sections, report, contexts, 24, 24) ||
+        contexts.size() != 2 ||
+        contexts[0].call_rva != section_rva + 8 ||
+        contexts[0].target_trampoline_rva != thunk_rva ||
+        contexts[0].before.size() != 8 ||
+        contexts[0].after.size() != 24 ||
+        contexts[1].before.size() != 24 ||
+        contexts[1].after.size() != 4 ||
+        contexts[1].call_bytes[0] != 0xE8)
+        return false;
+
+    // A failed attempt must not leave partially extracted windows behind.
+    const size_t expected_size = contexts.size();
+    bytes[87] = 0x90;
+    if (gather_xg_call_contexts(sections, report, contexts, 24, 24) ||
+        contexts.size() != expected_size) return false;
+    bytes[87] = 0xE8;
+
+    // A report whose call target is different from the actual rel32 is
+    // rejected instead of trusting its unverified claimed thunk.
+    report.symbols[0].trampoline_rvas = {thunk_rva + 1};
+    if (gather_xg_call_contexts(sections, report, contexts)) return false;
+    report.symbols[0].trampoline_rvas = {thunk_rva};
+
+    // A truncated five-byte call, overlapping sections, and oversized
+    // context requests are each rejected.
+    report.symbols[0].direct_rel32_call_rvas = {section_rva + 93};
+    if (gather_xg_call_contexts(sections, report, contexts)) return false;
+    report.symbols[0].direct_rel32_call_rvas = {section_rva + 8};
+    const std::array<ExecutableBytes, 2> overlap{{
+        sections[0], sections[0]
+    }};
+    if (gather_xg_call_contexts(overlap, report, contexts) ||
+        gather_xg_call_contexts(sections, report, contexts, 4097, 20))
+        return false;
+    return true;
+}
+
 bool verify_xg_callsite_fixtures() noexcept {
     // Generated x64 byte sequences: two nonadjacent import slots, two
     // RIP-relative jump stubs and three relative call instruction patterns.

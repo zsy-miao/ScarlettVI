@@ -103,6 +103,7 @@ void usage() {
                << L"Usage:\n"
                << L"  ScarlettVI.exe inspect <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe xg-calls <title.exe>\n"
+               << L"  ScarlettVI.exe xg-context <title.exe>\n"
                << L"  ScarlettVI.exe xg-calls-fixture\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -136,7 +137,8 @@ int wmain(int argc, wchar_t** argv) {
         const std::wstring verb = argv[1];
         if (verb == L"xg-calls-fixture") {
             if (argc != 2) { usage(); return 2; }
-            const bool passed = scarlett::analysis::verify_xg_callsite_fixtures();
+            const bool passed = scarlett::analysis::verify_xg_callsite_fixtures() &&
+                                scarlett::analysis::verify_xg_context_fixtures();
             std::cout << "ScarlettVI | generated XG PE callsite scanner fixture: "
                       << (passed ? "PASS" : "FAIL") << "\n"
                       << "Generated x64 FF25/E8 byte patterns only;"
@@ -180,6 +182,47 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "Byte-pattern candidates, not a full disassembler."
                       << " Xbox texture descriptors, swizzles and object"
                       << " methods remain unverified; title execution BLOCKED.\n";
+            return 0;
+        }
+        if (verb == L"xg-context") {
+            if (argc != 3) { usage(); return 2; }
+            // Read-only per-call executable-file windows for independent
+            // disassembly. Never maps or executes the title.
+            const scarlett::PeFile title(argv[2]);
+            scarlett::analysis::XgCallsiteReport report;
+            std::vector<scarlett::analysis::XgCallContext> contexts;
+            if (!scarlett::analysis::probe_xg_callsites(title, report) ||
+                !scarlett::analysis::probe_xg_call_contexts(
+                    title, report, contexts)) {
+                std::cerr << "XG executable context verification failed.\n";
+                return 3;
+            }
+            auto print_hex = [](const std::vector<uint8_t>& bytes) {
+                for (uint8_t byte : bytes)
+                    std::cout << std::hex << std::setw(2)
+                              << std::setfill('0')
+                              << static_cast<unsigned>(byte) << ' ';
+                std::cout << std::dec << std::setfill(' ') << "\n";
+            };
+            std::cout << "ScarlettVI | bounded read-only XG call contexts: "
+                      << contexts.size() << " | executable PE bytes only\n";
+            for (const auto& ctx : contexts) {
+                std::cout << ctx.symbol << " | call VA 0x" << std::hex
+                          << report.image_base + ctx.call_rva
+                          << " -> thunk VA 0x"
+                          << report.image_base + ctx.target_trampoline_rva
+                          << " | section RVA 0x" << ctx.section_rva
+                          << std::dec << "\n";
+                std::cout << "  pre (" << ctx.before.size() << " bytes): ";
+                print_hex(ctx.before);
+                std::cout << "  E8 call: ";
+                print_hex(std::vector<uint8_t>(
+                    ctx.call_bytes.begin(), ctx.call_bytes.end()));
+                std::cout << "  post (" << ctx.after.size() << " bytes): ";
+                print_hex(ctx.after);
+            }
+            std::cout << "Raw byte windows are NOT disassembly or ABI proof. "
+                      << "No import called; Xbox graphics still unresolved.\n";
             return 0;
         }
         if (verb == L"gpu-page-scattered") {

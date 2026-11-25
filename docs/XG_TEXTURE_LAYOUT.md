@@ -5,7 +5,9 @@
 The original [repeatable read-only XG PE call-site probe](XG_CALLSITE_PROBE.md)
 now verifies the two actual IAT locations, both FF25 import jump stubs,
 and all six E8 relative-call candidates directly from the original title's
-executable PE sections. Its generated synthetic scanner fixture is separately
+executable PE sections. Its `xg-context` mode extracts bounded 96-byte
+pre-call and 48-byte post-call PE sections for local, independent disassembly,
+verifies each call still targets an XG thunk, and rejects invalid ranges. Its generated synthetic scanner fixture is separately
 testable using `ScarlettVI.exe xg-calls-fixture`. It does **not** decode
 Xbox texture descriptor fields or bind either Xbox import.
 
