@@ -44,8 +44,10 @@ bool verify_xmem_stats_failure_fixture() noexcept {
         GetLastError() != ERROR_INVALID_PARAMETER)
         return false;
 
-    // The unverified memory transfer contract must remain unresolved.
-    if (find_export("XMemTransferMemory") != nullptr ||
+    // Host budget transfer is now bound with verified two-argument ABI;
+    // the stats output layout remains unknown and must fail closed.
+    if (find_export("XMemTransferMemory") !=
+            reinterpret_cast<FARPROC>(&XMemTransferMemory) ||
         find_export("xmemgetworkingsetstatistics") != nullptr ||
         find_export("XMemGetWorkingSetStatistics_ordinal") != nullptr ||
         !find_export("XMemIsToolsMemAvailable") ||

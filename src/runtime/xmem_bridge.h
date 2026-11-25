@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include "xmem_transfer.h"
 
 namespace scarlett::xmem {
 // Entry points follow the Xbox x64 XMem allocation ABI, based on publicly
@@ -42,4 +43,6 @@ FARPROC find_export(std::string_view name) noexcept;
 // Generated host-only fixture, never calls or loads any title executable.
 bool verify_xmem_tools_capability_fixture() noexcept;
 bool verify_xmem_stats_failure_fixture() noexcept;
+// Host budget accounting (NOT Xbox physical partition migration).
+bool verify_xmem_transfer_fixture() noexcept;
 } // namespace scarlett::xmem

@@ -36,25 +36,27 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `AcpHal.dll` | 0 | Eight functional host APU memory/SHAPE bindings and one partial HAL factory; DSP configuration remains unsupported |
 | `chad.dll` | 5 | Connection, activation and command dispatch are not bound; original CPU FIR DSP processing is independently tested, but the guest command/stream ABI is unverified |
 | `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
-| `xmem.dll` | 1 | `XMemTransferMemory` memory-budget transfer semantics remain unknown |
+| `xmem.dll` | 0 | One **partial** `XMemTransferMemory` host quota binding; only title-observed direction and host XMemAlloc budget admission are implemented |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **10** | |
+| **Total** | **9** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
 - **315/315** title-local DLL import references across 7 local DLL images
-- **14** experimental Xbox XMem reference bindings, including independently
+- **15** experimental Xbox XMem reference bindings, including independently
   analysed `XMemVirtualQuery` in `XboxBvhBuilder.dll` and the main title's
   `XMemMapPhysicalPagesScatter` caller pattern, plus the host-only
   [`XMemIsToolsMemAvailable` FALSE capability policy](XMEM_TOOLS_CAPABILITY.md)
   (it does **not** provide an Xbox tools-memory partition), plus the
   [XMem working-set safe failure path](XMEM_WORKING_SET_FAILURE.md) which
   returns FALSE without writing to an unknown-sized output buffer;
-  **neither is full Xbox memory-budget emulation**. Readiness explicitly
-  reports `XMem=14 (error-only=1)` and the JSON summary includes
-  `experimental_xmem_error_only_bound` so failure-only bindings are not
-  confused with functioning console services.
+  **neither is full Xbox memory-budget emulation**. The additional
+  [partial title-to-system host quota transfer](XMEM_TITLE_SYSTEM_TRANSFER.md)
+  enforces actual XMemAlloc heap admission across transfers and frees,
+  but does not migrate Xbox physical pages, GPU allocations or sparse VM.
+  Readiness reports `XMem=15 (error-only=1, budget-partial=1)` and
+  separate JSON summary counters for those two limited bindings.
 - **8** experimental [host APU heap/memory bindings](APU_HOST_MEMORY.md),
   including the [reversible owned 32-bit APU address translator](APU_ADDRESS_TRANSLATION.md)
   and [bounded family-4 SHAPE context buffers](APU_SHAPE_CONTEXTS.md).
@@ -101,7 +103,7 @@ managed worker threads. Only generated test callbacks are executed. Neither
 fixture invokes the original title, any game DLL or their callbacks;
 this is **not** proof of full guest loader lifecycle correctness.
 
-Even if all 10 outstanding references gain function addresses, startup
+Even if all 9 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

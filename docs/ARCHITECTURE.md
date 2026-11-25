@@ -22,14 +22,14 @@ console code, keys or proprietary binary libraries belong in this repository.
   import slots bound, all **489/489** nested Windows import slots bound, all
   **315/315** title-local DLL import slots linked across **7** mapped DLLs.
   **41** total console-specific import *references* were discovered.
-  The original experimental XMem bridge now links **14** references (including
+  The original experimental XMem bridge now links **15** references (including
   independently analysed `XMemVirtualQuery` and `XMemMapPhysicalPagesScatter`
   caller ABIs); a desktop D3D12 root-signature serialization bridge links **2**
   more; an original partial Xbox Device11 host COM factory links **1**
   additional reference; the original partial GPU VM configuration bridge
   links **1** more, and the original [host APU allocation bridge](APU_HOST_MEMORY.md)
   links the host `ApuCreateHeap`/`ApuAlloc`/`ApuFree` subset, leaving
-  **10** Xbox import references unresolved.
+  **9** Xbox import references unresolved.
   The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
   returns FALSE when no Xbox developer/tools partition exists; this
   reduces missing import addresses but does not supply console memory services.
@@ -58,6 +58,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   actually filters input samples through a connection's FIR state and
   atomically queues a host-defined completion only on success, including
   actual output-bit checksums. This is not an Xbox packet decoder.
+  The [partial XMem title/system host ledger](XMEM_TITLE_SYSTEM_TRANSFER.md)
+  now links the title's observed XMemTransferMemory call and actually
+  enforces transfer and allocation admission on host-owned XMemAlloc
+  heap blocks. Sparse physical pages, virtual reservations and GPU
+  allocations remain outside this quota; it is not Xbox partition emulation.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not

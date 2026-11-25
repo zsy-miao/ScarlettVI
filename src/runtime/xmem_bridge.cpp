@@ -1,4 +1,5 @@
 #include "xmem_bridge.h"
+#include "xmem_transfer.h"
 #include "physical_memory.h"
 #include "xmem_query.h"
 #include <malloc.h>
@@ -15,6 +16,7 @@ struct Allocation {
     AllocationKind kind;
     size_t bytes;
     uint64_t attributes;
+    bool budget_charged = false;
 };
 // One independent allocation registry for every title in the process.
 // Entries remain in the registry until explicitly released. This allows us
@@ -35,6 +37,13 @@ public:
             return nullptr;
         }
         const size_t size = std::max<size_t>(requested, 1);
+        // Reserve budget BEFORE allocating physical host heap memory.
+        // TransferMemory cannot shrink the admitted title quota below
+        // already-admitted XMemAlloc usage, even under concurrent calls.
+        if (!acquire_host_xmem_heap_budget(size)) {
+            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+            return nullptr;
+        }
         const size_t alignment = size_t(1) << std::max(4u, alignment_log2);
         const bool use_pages = memory_type != 0 || alignment > 4096 || page_type == 1;
         void* pointer = nullptr;
@@ -49,6 +58,7 @@ public:
             if (pointer) memset(pointer, 0, size);
         }
         if (!pointer) {
+            release_host_xmem_heap_budget(size);
             SetLastError(ERROR_OUTOFMEMORY);
             return nullptr;
         }
@@ -56,10 +66,11 @@ public:
             const std::lock_guard lock(mutex_);
             allocations_.emplace(pointer, Allocation{use_pages ? AllocationKind::ReservedPages
                                                               : AllocationKind::AlignedHeap,
-                                                      size, attrs});
+                                                      size, attrs, true});
         } catch (...) {
             if (use_pages) VirtualFree(pointer, 0, MEM_RELEASE);
             else _aligned_free(pointer);
+            release_host_xmem_heap_budget(size);
             SetLastError(ERROR_OUTOFMEMORY);
             return nullptr;
         }
@@ -81,6 +92,8 @@ public:
         }
         if (allocation.kind == AllocationKind::AlignedHeap) _aligned_free(ptr);
         else VirtualFree(ptr, 0, MEM_RELEASE);
+        if (allocation.budget_charged)
+            release_host_xmem_heap_budget(allocation.bytes);
     }
 
     void* reserve(void* address, size_t size, DWORD allocation_type,
@@ -217,6 +230,8 @@ extern "C" BOOL WINAPI XMemMapPhysicalPagesScatter(void* const* addresses,
         addresses, static_cast<size_t>(count), numbers);
 }
 FARPROC find_export(std::string_view symbol) noexcept {
+    if (symbol == "XMemTransferMemory")
+        return reinterpret_cast<FARPROC>(&XMemTransferMemory);
     if (symbol == "XMemAlloc") return reinterpret_cast<FARPROC>(&XMemAlloc);
     if (symbol == "XMemAllocDefault") return reinterpret_cast<FARPROC>(&XMemAllocDefault);
     if (symbol == "XMemIsToolsMemAvailable")

@@ -163,6 +163,7 @@ TitleBindingReport TitleModules::bind(const PeFile& executable, MappedImage& exe
         report.nested_apu_hal_partial_bound += binding.experimental_apu_hal_partial_bound;
         report.nested_xapu_partial_bound += binding.experimental_xapu_partial_bound;
         report.nested_xmem_error_only_bound += binding.experimental_xmem_error_only_bound;
+        report.nested_xmem_budget_partial_bound += binding.experimental_xmem_budget_partial_bound;
         report.nested_d3d12_exports_bound += binding.experimental_d3d12_exports_bound;
         report.nested_d3d12_device_bound += binding.experimental_d3d12_device_bound;
         report.nested_gpu_va_config_bound += binding.experimental_gpu_va_config_bound;

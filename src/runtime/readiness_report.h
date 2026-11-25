@@ -17,6 +17,7 @@ struct StartupReadiness {
     size_t title_imports_total = 0;
     size_t xbox_experimental_memory_bindings = 0;
     size_t xbox_xmem_error_only_bindings = 0;
+    size_t xbox_xmem_budget_partial_bindings = 0;
     size_t xbox_apu_host_alloc_bindings = 0;
     size_t xbox_apu_hal_partial_bindings = 0;
     size_t xbox_xapu_partial_bindings = 0;

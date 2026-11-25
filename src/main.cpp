@@ -129,6 +129,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-vcall-reads-fixture\n"
                << L"  ScarlettVI.exe xmem-tools-fixture\n"
                << L"  ScarlettVI.exe xmem-stats-fixture\n"
+               << L"  ScarlettVI.exe xmem-transfer-fixture\n"
                << L"  ScarlettVI.exe audio-memory-fixture\n"
                << L"  ScarlettVI.exe audio-address-fixture\n"
                << L"  ScarlettVI.exe audio-shape-fixture\n"
@@ -255,6 +256,16 @@ int wmain(int argc, wchar_t** argv) {
                       << (passed ? "PASS" : "FAIL")
                       << "\nActual aligned host storage and ownership; "
                       << "no Xbox DSP, APU mapping or title execution.\n";
+            return passed ? 0 : 3;
+        }
+        if (verb == L"xmem-transfer-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::xmem::verify_xmem_transfer_fixture();
+            std::cout << "ScarlettVI | bounded XMem title/system quota transfer: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nReal host XMemAlloc quota admission and release; "
+                      << "no Xbox physical partition migration or title execution.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"xmem-stats-fixture") {

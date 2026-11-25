@@ -48,6 +48,9 @@ StartupReadiness assess_startup_readiness(const PeFile& executable,
     report.xbox_xmem_error_only_bindings =
         primary.experimental_xmem_error_only_bound +
         nested.nested_xmem_error_only_bound;
+    report.xbox_xmem_budget_partial_bindings =
+        primary.experimental_xmem_budget_partial_bound +
+        nested.nested_xmem_budget_partial_bound;
     report.xbox_apu_host_alloc_bindings =
         primary.experimental_apu_host_alloc_bound +
         nested.nested_apu_host_alloc_bound;
@@ -111,7 +114,8 @@ void print_startup_readiness(const StartupReadiness& report, std::ostream& outpu
            << "Title-local import slots: " << report.title_imports_bound << "/"
            << report.title_imports_total << " across " << report.local_dlls << " DLLs\n"
            << "Experimental Xbox links: XMem=" << report.xbox_experimental_memory_bindings
-           << " (error-only=" << report.xbox_xmem_error_only_bindings << ")"
+           << " (error-only=" << report.xbox_xmem_error_only_bindings
+           << ", budget-partial=" << report.xbox_xmem_budget_partial_bindings << ")"
            << ", APU host memory=" << report.xbox_apu_host_alloc_bindings
            << ", HAL factory partial=" << report.xbox_apu_hal_partial_bindings
            << ", XAPU queue partial=" << report.xbox_xapu_partial_bindings
@@ -165,6 +169,7 @@ void write_startup_readiness_json(const StartupReadiness& report,
         << "    \"title_total\": " << report.title_imports_total << ",\n"
         << "    \"experimental_xmem_bound\": " << report.xbox_experimental_memory_bindings << ",\n"
         << "    \"experimental_xmem_error_only_bound\": " << report.xbox_xmem_error_only_bindings << ",\n"
+        << "    \"experimental_xmem_budget_partial_bound\": " << report.xbox_xmem_budget_partial_bindings << ",\n"
         << "    \"experimental_apu_host_alloc_bound\": " << report.xbox_apu_host_alloc_bindings << ",\n"
         << "    \"experimental_apu_hal_partial_bound\": " << report.xbox_apu_hal_partial_bindings << ",\n"
         << "    \"experimental_xapu_partial_bound\": " << report.xbox_xapu_partial_bindings << ",\n"

@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [APU Address Translation](docs/APU_ADDRESS_TRANSLATION.md) · [APU SHAPE Buffers](docs/APU_SHAPE_CONTEXTS.md) · [Partial AcpHal Factory](docs/APU_HAL_FACTORY.md) · [Partial XAPU Queue](docs/XAPU_QUEUE_HOST.md) · [CPU DSP Convolution](docs/DSP_CPU_CONVOLUTION.md) · [XAPU-DSP Host Integration](docs/XAPU_DSP_INTEGRATION.md) · [VIctory Reference Notes](docs/VICTORY_REFERENCE_NOTES.md) · [Generated PE and DLL Startup Tests](docs/SYNTHETIC_PE_ENTRY.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [XMem Host Budget Transfer](docs/XMEM_TITLE_SYSTEM_TRANSFER.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [APU Address Translation](docs/APU_ADDRESS_TRANSLATION.md) · [APU SHAPE Buffers](docs/APU_SHAPE_CONTEXTS.md) · [Partial AcpHal Factory](docs/APU_HAL_FACTORY.md) · [Partial XAPU Queue](docs/XAPU_QUEUE_HOST.md) · [CPU DSP Convolution](docs/DSP_CPU_CONVOLUTION.md) · [XAPU-DSP Host Integration](docs/XAPU_DSP_INTEGRATION.md) · [VIctory Reference Notes](docs/VICTORY_REFERENCE_NOTES.md) · [Generated PE and DLL Startup Tests](docs/SYNTHETIC_PE_ENTRY.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -67,7 +67,7 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **10 Xbox-specific import references remain unresolved.**
+title-local exports. **9 Xbox-specific import references remain unresolved.**
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 A [generated PE64 entrypoint smoke test](docs/SYNTHETIC_PE_ENTRY.md) now
@@ -122,6 +122,11 @@ buffer formats remain unverified and unbound.
 The [VIctory/ztrx architecture comparison](docs/VICTORY_REFERENCE_NOTES.md)
 identifies the much larger runtime, shader and streaming work ahead without
 copying either GPL project's code.
+The [partial XMem title-to-system budget bridge](docs/XMEM_TITLE_SYSTEM_TRANSFER.md)
+now links `XMemTransferMemory` for the title-observed two-argument BOOL
+contract. It enforces a real, bounded **host XMemAlloc heap quota**
+across transfer, allocation and free, with rollback and concurrent-use
+tests. It is not console physical-RAM migration or unified GPU memory.
 The original `XMemMapPhysicalPagesScatter` bridge now supports validated
 **non-contiguous 64 KiB page mappings across multiple reserved regions**, with
 real aliases and safe unmapping (see [call-site research](docs/XMEM_SCATTER.md)).
@@ -179,7 +184,8 @@ transfer **three different 64 KiB payloads** through real sparse GPU tiles
 across **two separate GPU sessions**. It explicitly writes back to a CPU
 alias and verifies both views, including GPU resource segment-boundary
 positions, invalid-input rejection and **zero leaked pages**. This **does not** provide unified CPU/GPU memory or the
-Xbox `XMemTransferMemory` ABI.
+Xbox physical-memory migration semantics; the [budget-only XMemTransferMemory](docs/XMEM_TITLE_SYSTEM_TRANSFER.md)
+address binding does not provide that GPU memory behavior.
 
 The new [pinned guest GPU page registry](docs/GUEST_GPU_PAGE_REGISTRY.md)
 tracks four real XMem-backed 64 KiB frame IDs, eight pinned CPU aliases
