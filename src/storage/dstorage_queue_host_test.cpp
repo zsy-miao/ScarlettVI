@@ -1,5 +1,6 @@
 #include "dstorage_queue_host.h"
 #include "dstorage_file_host.h"
+#include "../runtime/physical_memory.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -22,6 +23,29 @@ struct QueueOwner {
 struct StatusOwner {
     HostDStorageStatusArrayX* ptr = nullptr;
     ~StatusOwner() { if (ptr) ptr->Release(); }
+};
+struct AliasFixture {
+    uint8_t* alias = nullptr;
+    uintptr_t frame = 0;
+    bool allocated = false;
+    ~AliasFixture() {
+        auto& mem = memory::PhysicalMemory::instance();
+        if (alias) {
+            (void)mem.map_pages(alias, 1, nullptr);
+            (void)mem.release_alias_region(alias);
+        }
+        if (allocated) (void)mem.free_pages(1, &frame);
+    }
+    bool create() noexcept {
+        auto& mem = memory::PhysicalMemory::instance();
+        uintptr_t count = 1;
+        if (!mem.allocate_pages(MEM_64K_PAGES, &count, &frame) ||
+            count != 1) return false;
+        allocated = true;
+        alias = static_cast<uint8_t*>(
+            mem.reserve_alias_region(nullptr, mem.page_bytes));
+        return alias && mem.map_pages(alias, 1, &frame) == alias;
+    }
 };
 struct FileFixture {
     fs::path root;
@@ -239,6 +263,128 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             source->Release();
             return false;
         }
+        // Real XMem physical CPU aliases are now eligible as normal
+        // virtual-address destinations, but ONLY after host-only page
+        // identity verification, pinning and a one-time request permit.
+        AliasFixture pages;
+        auto& physical = memory::PhysicalMemory::instance();
+        const size_t original_pins = physical.pinned_alias_count();
+        const size_t original_pages = physical.allocated_page_count();
+        if (!pages.create()) {
+            source->Release();
+            return false;
+        }
+        constexpr size_t kAliasBytes = 512;
+        uint8_t* const mapped_destination =
+            pages.alias + memory::PhysicalMemory::page_bytes - kAliasBytes;
+        std::fill_n(mapped_destination, kAliasBytes, uint8_t{0xac});
+        GuestDStorageRequest alias_request{};
+        alias_request.destination = mapped_destination;
+        alias_request.destination_size = kAliasBytes;
+        alias_request.file = source;
+        alias_request.file_offset = 133;
+        alias_request.source_size = kAliasBytes;
+        // A frame-number mismatch fails without dereferencing destination.
+        if (register_host_dstorage_fixture_alias_request(
+                &alias_request, pages.frame + 16) == S_OK ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+        // A destination that straddles the end of the page is rejected.
+        alias_request.destination = pages.alias +
+            memory::PhysicalMemory::page_bytes - 128;
+        if (register_host_dstorage_fixture_alias_request(
+                &alias_request, pages.frame) == S_OK ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+        alias_request.destination = mapped_destination;
+        if (register_host_dstorage_fixture_alias_request(
+                &alias_request, pages.frame) != S_OK ||
+            physical.pinned_alias_count() != original_pins + 1 ||
+            physical.map_pages(pages.alias, 1, nullptr) != nullptr ||
+            GetLastError() != ERROR_BUSY ||
+            physical.release_alias_region(pages.alias) != FALSE ||
+            GetLastError() != ERROR_BUSY) {
+            source->Release();
+            return false;
+        }
+        enqueue_request(queue.ptr, &alias_request);
+        // Raw queue owns a snapshot; no reference to this caller's
+        // stack request is needed after EnqueueRequest.
+        alias_request.destination = nullptr;
+        alias_request.file = nullptr;
+        enqueue_status(queue.ptr, status.ptr, 0);
+        if (status.ptr->IsComplete(0) ||
+            physical.pinned_alias_count() != original_pins + 1 ||
+            !std::all_of(mapped_destination,
+                         mapped_destination + kAliasBytes,
+                         [](uint8_t b) { return b == uint8_t{0xac}; })) {
+            source->Release();
+            return false;
+        }
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0, S_OK) ||
+            !std::equal(mapped_destination,
+                        mapped_destination + kAliasBytes,
+                        data.begin() + 133) ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+
+        // Failed EOF reads must not write partial bytes, and must
+        // release the alias pin before a later status marker completes.
+        std::array<uint8_t, 64> baseline{};
+        std::copy_n(mapped_destination + 7, baseline.size(),
+                    baseline.begin());
+        GuestDStorageRequest invalid_read{};
+        invalid_read.destination = mapped_destination + 7;
+        invalid_read.destination_size = static_cast<uint32_t>(baseline.size());
+        invalid_read.file = source;
+        invalid_read.file_offset = static_cast<uint64_t>(data.size()) + 17;
+        invalid_read.source_size = invalid_read.destination_size;
+        if (register_host_dstorage_fixture_alias_request(
+                &invalid_read, pages.frame) != S_OK ||
+            physical.pinned_alias_count() != original_pins + 1) {
+            source->Release();
+            return false;
+        }
+        enqueue_request(queue.ptr, &invalid_read);
+        enqueue_status(queue.ptr, status.ptr, 0);
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0,
+                HRESULT_FROM_WIN32(ERROR_HANDLE_EOF)) ||
+            !std::equal(baseline.begin(), baseline.end(),
+                        mapped_destination + 7) ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+        // A host-side discarded, unused permit also releases its pin.
+        if (register_host_dstorage_fixture_alias_request(
+                &invalid_read, pages.frame) != S_OK ||
+            physical.pinned_alias_count() != original_pins + 1) {
+            source->Release();
+            return false;
+        }
+        unregister_host_dstorage_fixture_request(&invalid_read);
+        if (physical.pinned_alias_count() != original_pins ||
+            physical.map_pages(pages.alias, 1, nullptr) != pages.alias ||
+            !physical.release_alias_region(pages.alias)) {
+            source->Release();
+            return false;
+        }
+        pages.alias = nullptr;
+        if (!physical.free_pages(1, &pages.frame) ||
+            physical.allocated_page_count() != original_pages) {
+            source->Release();
+            return false;
+        }
+        pages.allocated = false;
+
         HANDLE invalid = reinterpret_cast<HANDLE>(uintptr_t{0x1234});
         if (reopen_owned_dstorage_file_for_read(
                 reinterpret_cast<HostDStorageFileX*>(uintptr_t{0x1234}),

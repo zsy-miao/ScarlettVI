@@ -96,7 +96,10 @@ Measured working address bindings:
   reopened handles from fixture-rooted file COM objects. Normal title
   paths, guest-owned destination memory and full Xbox queue features
   remain blocked; a [generated-buffer request subset](XBOX_DSTORAGE_REQUEST_ABI.md)
-  now tests real file-to-host-memory copies through queue vtable `+0x18`
+  now tests real file-to-host-memory copies through queue vtable `+0x18`.
+  A separate [single-page pinned XMem CPU-alias bridge](XBOX_DSTORAGE_CPU_ALIAS.md)
+  verifies real mapped page writeback and unmap interlocks without
+  exposing general title memory or physical page-array destinations.
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.

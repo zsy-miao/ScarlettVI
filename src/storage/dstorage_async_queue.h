@@ -15,6 +15,7 @@
 
 namespace scarlett::storage {
 struct HostDStorageStatusArrayX;
+class HostDStorageAliasDestination;
 
 // Entirely HOST-ONLY request format. This is NOT a DSTORAGE_REQUEST,
 // not a guest COM IDStorageQueueX, and never exposed to the title.
@@ -60,7 +61,8 @@ public:
     // handle on ALL outcomes, including failed admission/cancellation.
     HRESULT enqueue_file(HANDLE owned_handle, uint64_t token,
                          uint64_t offset, uint32_t bytes,
-                         std::shared_ptr<std::vector<uint8_t>> destination = {}) noexcept;
+                         std::shared_ptr<std::vector<uint8_t>> destination = {},
+                         std::shared_ptr<HostDStorageAliasDestination> alias = {}) noexcept;
     // Internal-only failed-operation token: guest requests with unknown ABI
     // become visible asynchronous failures, never fake successful reads.
     HRESULT enqueue_unsupported(uint64_t token,
@@ -122,6 +124,7 @@ private:
         // Host-generated, pinned writable destination for approved fixture
         // guest requests. Never constructed from arbitrary guest pointers.
         std::shared_ptr<std::vector<uint8_t>> destination;
+        std::shared_ptr<HostDStorageAliasDestination> alias;
         HostDStorageStatusArrayX* status = nullptr;
         uint32_t status_index = 0;
         HRESULT injected_failure = S_OK;
@@ -133,7 +136,8 @@ private:
                   uint32_t status_index = 0,
                   HRESULT injected_failure = S_OK,
                   HANDLE owned_handle = INVALID_HANDLE_VALUE,
-                  std::shared_ptr<std::vector<uint8_t>> destination = {}) noexcept;
+                  std::shared_ptr<std::vector<uint8_t>> destination = {},
+                  std::shared_ptr<HostDStorageAliasDestination> alias = {}) noexcept;
     void run() noexcept;
     HostFileReadCompletion execute(
         const HostFileReadRequest& request, uint64_t sequence,

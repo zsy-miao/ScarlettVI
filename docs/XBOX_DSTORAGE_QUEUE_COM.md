@@ -53,10 +53,10 @@ Do not enable actual title asset loads on this partial evidence.
   **unsupported guest request error tokens** (which have no payload
   consumer), preventing long-lived queues from exhausting 64 slots.
 - Queue `EnqueueRequest +0x18` now supports a strictly registered,
-  original host **generated-buffer** subset of the documented 64-byte
-  `DSTORAGE_REQUEST` layout: ordinary uncompressed file sources and
-  byte-for-byte asynchronous writeback into pinned, explicitly approved
-  test buffers. The raw request is matched against a host-only permit
+  original host subset of the documented 64-byte `DSTORAGE_REQUEST`
+  layout: ordinary uncompressed file sources and byte-for-byte
+  asynchronous writeback into explicitly approved generated buffers or
+  [real pinned 64KiB XMem CPU aliases](XBOX_DSTORAGE_CPU_ALIAS.md). The raw request is matched against a host-only permit
   registry **before any pointer is dereferenced**. Ordinary game requests
   still insert ordered **E_NOTIMPL failures**, never fake successful reads.
   `EnqueueSignal` still fails closed.
@@ -96,6 +96,9 @@ Additional regression coverage checks two real `IDStorageFileX`-backed reads
 with different offsets, unchanged file positions on the original handle,
 close/release-before-submit ownership, rejection of foreign/closed COM
 file pointers, and 160 unsupported requests across 20 successive batches.
+The expanded fixture also checks actual XMem CPU alias pins, protected
+unmap/release while queued, exact final-page writeback, malformed frame
+and crossing-range rejection, EOF no-write and zero leaked XMem resources.
 Microsoft describes independent handles through
 [`ReOpenFile`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-reopenfile).
 

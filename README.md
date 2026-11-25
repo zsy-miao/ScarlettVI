@@ -84,8 +84,11 @@ queue vtable is now independently verified at `EnqueueRequest +0x18`
 and `Close +0x40` using read-only original-title disassembly. A new
 [generated-buffer guest request subset](docs/XBOX_DSTORAGE_REQUEST_ABI.md)
 now performs exact asynchronous file-to-memory writeback only after a
-host-side permission check. Real guest destination memory and title
-asset streaming remain unsupported.
+host-side permission check. A [64KiB XMem CPU-alias writeback bridge](docs/XBOX_DSTORAGE_CPU_ALIAS.md)
+now also pins real host-mapped XMem pages through the existing physical
+memory registry, preventing unmap during queued I/O and releasing pins
+on completion/failure. Arbitrary guest destination translation, multi-page
+requests and title asset streaming remain unsupported.
 The [actual Xbox status-array COM interface](docs/XBOX_DSTORAGE_STATUS_ARRAY.md)
 now works through the corrected factory vtable slot `+0x28`, and its
 status entries receive verified S_OK/error results from host file-I/O

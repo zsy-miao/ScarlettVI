@@ -1,4 +1,5 @@
 #include "dstorage_queue_host.h"
+#include "dstorage_alias_destination.h"
 #include "dstorage_file_host.h"
 #include <atomic>
 #include <array>
@@ -16,6 +17,7 @@ std::atomic<uint32_t> live_queues{0};
 struct RegisteredFixtureRequest {
     GuestDStorageRequest snapshot;
     std::shared_ptr<std::vector<uint8_t>> destination;
+    std::shared_ptr<HostDStorageAliasDestination> alias;
 };
 std::mutex fixture_request_mutex;
 std::unordered_map<const GuestDStorageRequest*, RegisteredFixtureRequest>
@@ -89,9 +91,13 @@ public:
         HRESULT request_error = E_NOTIMPL;
         if (permitted) {
             const auto& r = approved.snapshot;
-            if (!r.options && r.file &&
+            const bool approved_vector = approved.destination &&
                 r.destination == approved.destination->data() &&
-                r.destination_size == approved.destination->size() &&
+                r.destination_size == approved.destination->size();
+            const bool approved_alias = approved.alias &&
+                r.destination_size == approved.alias->size();
+            if (!r.options && r.file &&
+                (approved_vector != approved_alias) &&
                 r.destination_size == r.source_size &&
                 r.source_size && r.source_size <=
                     HostAsyncFileQueue::kMaxReadBytes &&
@@ -117,7 +123,7 @@ public:
             const auto& r = approved.snapshot;
             const HRESULT hr = worker_->enqueue_file(
                 opened, token, r.file_offset, r.source_size,
-                std::move(approved.destination));
+                std::move(approved.destination), std::move(approved.alias));
             if (FAILED(hr)) {
                 // Admission failures must never be invisible to a later
                 // status barrier. Preserve their FIFO error when capacity
@@ -357,7 +363,35 @@ HRESULT register_host_dstorage_fixture_request(
         if (fixture_requests.contains(request))
             return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
         fixture_requests.emplace(request,
-            RegisteredFixtureRequest{snapshot, destination});
+            RegisteredFixtureRequest{snapshot, destination, {}});
+        return S_OK;
+    } catch (...) {
+        return E_OUTOFMEMORY;
+    }
+}
+HRESULT register_host_dstorage_fixture_alias_request(
+    const GuestDStorageRequest* request, uintptr_t physical_frame) noexcept {
+    if (!request || !physical_frame) return E_INVALIDARG;
+    // Trusted fixture helper: only the test-owned structure is read here.
+    // Queue EnqueueRequest itself never reads a raw guest request pointer.
+    const GuestDStorageRequest snapshot = *request;
+    if (snapshot.options || !snapshot.file || !snapshot.destination ||
+        !snapshot.destination_size ||
+        snapshot.destination_size != snapshot.source_size ||
+        snapshot.destination_size > HostDStorageAliasDestination::page_bytes ||
+        snapshot.intermediate_size)
+        return E_INVALIDARG;
+    std::shared_ptr<HostDStorageAliasDestination> pinned;
+    const HRESULT hr = HostDStorageAliasDestination::pin(
+        snapshot.destination, physical_frame, snapshot.destination_size,
+        pinned);
+    if (FAILED(hr)) return hr;
+    try {
+        const std::lock_guard lock(fixture_request_mutex);
+        if (fixture_requests.contains(request))
+            return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
+        fixture_requests.emplace(request,
+            RegisteredFixtureRequest{snapshot, {}, std::move(pinned)});
         return S_OK;
     } catch (...) {
         return E_OUTOFMEMORY;

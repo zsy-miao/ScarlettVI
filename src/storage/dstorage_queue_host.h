@@ -92,6 +92,11 @@ HRESULT enqueue_host_dstorage_queue_fixture_file_read(
 HRESULT register_host_dstorage_fixture_request(
     const GuestDStorageRequest* request,
     const std::shared_ptr<std::vector<uint8_t>>& destination) noexcept;
+// HOST-ONLY alternative: pin an actual 64KiB XMem CPU alias by its
+// synthetic physical-frame identity before queueing. Never accepts an
+// arbitrary process pointer or crosses a mapped 64KiB page boundary.
+HRESULT register_host_dstorage_fixture_alias_request(
+    const GuestDStorageRequest* request, uintptr_t physical_frame) noexcept;
 void unregister_host_dstorage_fixture_request(
     const GuestDStorageRequest* request) noexcept;
 HRESULT wait_host_dstorage_queue_fixture_read(

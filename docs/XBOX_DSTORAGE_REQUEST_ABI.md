@@ -54,23 +54,25 @@ A different build may have different addresses and must be reanalyzed.
   `options=0` selects an ordinary file-sourced, uncompressed,
   non-swizzled, non-physical-memory read.
 - A host-generated test must explicitly register a *snapshot* of the
-  request pointer and a `shared_ptr` to an owned `vector<uint8_t>`.
-  This registration function is **not** exported or available to titles.
-  Registration rejects inconsistent source/destination sizes, arbitrary
-  destination addresses, unsupported options, missing files, and duplicate
-  permits.
+  request pointer and either an owned `vector<uint8_t>` or a
+  [pinned real XMem CPU alias](XBOX_DSTORAGE_CPU_ALIAS.md) from the
+  existing 64KiB physical-memory registry. The alias requires a trusted
+  frame identity and rejects page-crossing buffers. These registration
+  functions are **not** exported or available to titles. Unapproved
+  destination pointers are never dereferenced.
 - Queue `EnqueueRequest` compares the request **address** with the
   synchronized permit registry, rather than dereferencing arbitrary
   user/guest pointers. It consumes one permit and uses the immutable
   snapshot. Only a ScarlettVI-owned live `IDStorageFileX` can be
   reopened; file-source size must be 1–1,048,576 bytes and equal
   destination size.
-- The existing host FIFO worker retains the read handle **and the
-  destination vector** until it has read exactly the requested bytes.
-  Actual destination writeback occurs before the following
+- The existing host FIFO worker retains the read handle and either
+  the destination vector **or a pinned XMem alias** until it has read
+  exactly the requested bytes. Real writeback occurs before the following
   `EnqueueStatus` marker completes. Failed reads do not write partial
-  destination data, and the marker observes the real first HRESULT
-  failure since its previous marker.
+  destination data; cancellation or permit withdrawal releases any page
+  pin. The marker observes the first real HRESULT failure since its
+  previous marker.
 - Arbitrary, unregistered, malformed, or unsupported guest requests
   are **never dereferenced**: they generate ordered `E_NOTIMPL` or
   validation-error completions, not fake success. Existing 64-slot and
@@ -83,8 +85,8 @@ A different build may have different addresses and must be reanalyzed.
 
 ## Still required before any title streaming
 
-A title-accessible secure guest memory map / pinning mechanism (not just
-host-owned vectors), Xbox page-list and compression modes, BCPack and
+A general title-accessible guest-memory translator, multi-page pinned
+CPU writes, Xbox physical page-list and compression modes, BCPack and
 swizzling, guest VFS and actual title paths, full queue vtable validation,
 cancellation and lifetime semantics, actual Xbox error records/events,
 GPU destination resources, and the outstanding graphics/audio services.

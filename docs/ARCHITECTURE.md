@@ -84,7 +84,9 @@ console code, keys or proprietary binary libraries belong in this repository.
   Direct callsites confirm queue `EnqueueRequest +0x18` and `Close +0x40`;
   a [fixture-approved generated-buffer request subset](XBOX_DSTORAGE_REQUEST_ABI.md)
   now writes exact read bytes through the real worker before status
-  completion. Unapproved guest requests become errors, not fake reads;
+  completion, including [real pinned 64KiB CPU aliases](XBOX_DSTORAGE_CPU_ALIAS.md)
+  that cannot unmap while an approved file read is pending. Unapproved
+  guest requests become errors, not fake reads;
   full console queues, game asset streaming, decompression
   and real Xbox destination buffers remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
