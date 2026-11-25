@@ -105,7 +105,9 @@ console code, keys or proprietary binary libraries belong in this repository.
   now writes exact read bytes through the real worker before status
   completion, including [contiguous multi-page XMem CPU aliases](XBOX_DSTORAGE_CPU_ALIAS.md)
   whose mapped 64KiB slots are all pinned before the read and cannot unmap
-  until completion. Raw guest requests now have a registry-guarded
+  until completion. A separate [XMemAlloc write-pin path](XMEM_HEAP_DESTINATIONS.md)
+  now supports real queued writes into live owned heap allocations,
+  with busy-free interlocks and EOF/cancellation cleanup. Raw guest requests now have a registry-guarded
   [XMem-owned alias or heap request snapshot](XBOX_DSTORAGE_REQUEST_ABI.md)
   path
   that can cross CPU page boundaries but will not read unowned pointers.

@@ -257,7 +257,6 @@ bool verify_dstorage_queue_com_fixture() noexcept {
                 kObservedXboxDStorageStatusIid,
                 reinterpret_cast<void**>(&status.ptr)) != S_OK ||
             !status.ptr) return false;
-
         // A real read and its marker stay pending until raw guest Submit.
         if (enqueue_host_dstorage_queue_fixture_read(queue.ptr,
                 {1, L"generated.bin", 3, 1024}) != S_OK)
@@ -276,7 +275,6 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             !std::equal(first.data.begin(), first.data.end(),
                         data.begin()+3))
             return false;
-
         // Real queue reads can now originate from a ScarlettVI-owned
         // DirectStorage FILE COM object rather than a filename lookup.
         // ReOpenFile provides independent file positions across producers.
@@ -476,7 +474,6 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             return false;
         }
         pages.allocated = false;
-
         // A single uncompressed request can now write across three
         // adjacent *virtual* CPU aliases (not an Xbox physical page list).
         // All three mapped frames must be independently pinned, and any
@@ -587,7 +584,6 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             source->Release();
             return false;
         }
-
         // Real mapped guest CPU request memory (not a host-registered
         // pointer) can now be copied safely by the queue. Place the
         // 64-byte struct across two mapped XMem page slots to exercise
@@ -649,7 +645,6 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             source->Release();
             return false;
         }
-
         // Request snapshots must reject partially unmapped XMem ranges,
         // not just pointers that were never managed by ScarlettVI.
         uint8_t* const request_second_page =
@@ -663,7 +658,6 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             source->Release();
             return false;
         }
-
         // Valid unregistered request uses ONLY XMem-owned source bytes.
         // The source struct can be wiped and its mappings released
         // immediately after enqueue; writeback retains DESTINATION pins.
@@ -706,7 +700,6 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             source->Release();
             return false;
         }
-
         // Live XMemAlloc HEAP request descriptors can now drive the real
         // queue; they need no host registration or physical-alias header.
         // The OUTPUT still must be mapped and pinned XMem CPU aliases.
@@ -773,6 +766,117 @@ bool verify_dstorage_queue_com_fixture() noexcept {
                 source->Release();
                 return false;
             }
+        }
+        // Fully owned XMemAlloc destination: unlike the request header,
+        // asynchronous writeback needs an actual allocation lifetime pin.
+        // The user cannot free the buffer while it is staged or running.
+        {
+            constexpr uint32_t bytes = 2048;
+            const size_t old_heap_pins = xmem::active_xmem_write_pin_count();
+            HostHeapOwner heap_buffer{ xmem::XMemAlloc(4096, 0) };
+            HostHeapOwner header{ xmem::XMemAlloc(128, 0) };
+            if (!heap_buffer.ptr || !header.ptr) {
+                source->Release(); return false;
+            }
+            auto* heap_bytes = static_cast<uint8_t*>(heap_buffer.ptr) + 111;
+            std::fill_n(heap_bytes, bytes, uint8_t{0x71});
+            GuestDStorageRequest request{};
+            request.file = source;
+            request.destination = heap_bytes;
+            request.destination_size = bytes;
+            request.source_size = bytes;
+            request.file_offset = 881;
+            std::memcpy(header.ptr, &request, sizeof(request));
+            enqueue_request(queue.ptr,
+                static_cast<const GuestDStorageRequest*>(header.ptr));
+            if (xmem::active_xmem_write_pin_count() != old_heap_pins + 1) {
+                source->Release(); return false;
+            }
+            header.release(); // queued job owns a copy, not this pointer
+            SetLastError(ERROR_SUCCESS);
+            xmem::XMemFree(heap_buffer.ptr, 0);
+            if (GetLastError() != ERROR_BUSY) {
+                source->Release(); return false;
+            }
+            enqueue_status(queue.ptr, status.ptr, 0);
+            if (status.ptr->IsComplete(0) ||
+                !std::all_of(heap_bytes, heap_bytes + bytes,
+                    [](uint8_t n) { return n == 0x71; })) {
+                source->Release(); return false;
+            }
+            submit(queue.ptr);
+            if (!status_equals(status.ptr, 0, S_OK) ||
+                !std::equal(heap_bytes, heap_bytes + bytes,
+                            data.begin() + 881) ||
+                xmem::active_xmem_write_pin_count() != old_heap_pins) {
+                source->Release(); return false;
+            }
+            // Premature XMemFree was rejected; now the allocation can
+            // actually be freed once the worker has retired its pin.
+            heap_buffer.release();
+
+            // Reads that exceed EOF do not write partial bytes and
+            // release their heap pin, with an actual failure marker.
+            HostHeapOwner failed{ xmem::XMemAlloc(4096, 0) };
+            if (!failed.ptr) { source->Release(); return false; }
+            auto* failed_bytes = static_cast<uint8_t*>(failed.ptr) + 128;
+            std::fill_n(failed_bytes, bytes, uint8_t{0x26});
+            request.destination = failed_bytes;
+            request.file_offset = data.size() - 17;
+            HostHeapOwner fail_header{ xmem::XMemAlloc(128, 0) };
+            if (!fail_header.ptr) { source->Release(); return false; }
+            std::memcpy(fail_header.ptr, &request, sizeof(request));
+            enqueue_request(queue.ptr,
+                static_cast<const GuestDStorageRequest*>(fail_header.ptr));
+            fail_header.release();
+            if (xmem::active_xmem_write_pin_count() != old_heap_pins + 1) {
+                source->Release(); return false;
+            }
+            enqueue_status(queue.ptr, status.ptr, 0);
+            submit(queue.ptr);
+            if (!status_equals(status.ptr, 0,
+                    HRESULT_FROM_WIN32(ERROR_HANDLE_EOF)) ||
+                !std::all_of(failed_bytes, failed_bytes + bytes,
+                    [](uint8_t n) { return n == 0x26; }) ||
+                xmem::active_xmem_write_pin_count() != old_heap_pins) {
+                source->Release(); return false;
+            }
+            failed.release();
+
+            // A held request that is never submitted is cancelled
+            // safely when the queue closes. No writes or retained pins.
+            QueueOwner abandoned_heap{};
+            if (factory.ptr->CreateQueue1(&desc,
+                    kObservedXboxDStorageQueueIid,
+                    reinterpret_cast<void**>(&abandoned_heap.ptr)) != S_OK ||
+                !abandoned_heap.ptr) {
+                source->Release(); return false;
+            }
+            HostHeapOwner cancelled{ xmem::XMemAlloc(4096, 0) };
+            HostHeapOwner cancelled_header{ xmem::XMemAlloc(128, 0) };
+            if (!cancelled.ptr || !cancelled_header.ptr) {
+                source->Release(); return false;
+            }
+            auto* cancelled_bytes = static_cast<uint8_t*>(cancelled.ptr) + 64;
+            std::fill_n(cancelled_bytes, bytes, uint8_t{0x4e});
+            request.destination = cancelled_bytes;
+            request.file_offset = 1011;
+            std::memcpy(cancelled_header.ptr, &request, sizeof(request));
+            abandoned_heap.ptr->EnqueueRequest(
+                static_cast<const GuestDStorageRequest*>(cancelled_header.ptr));
+            cancelled_header.release();
+            if (xmem::active_xmem_write_pin_count() != old_heap_pins + 1) {
+                source->Release(); return false;
+            }
+            abandoned_heap.ptr->Close();
+            if (xmem::active_xmem_write_pin_count() != old_heap_pins ||
+                !std::all_of(cancelled_bytes, cancelled_bytes + bytes,
+                    [](uint8_t n) { return n == 0x4e; })) {
+                source->Release(); return false;
+            }
+            abandoned_heap.ptr->Release();
+            abandoned_heap.ptr = nullptr;
+            cancelled.release();
         }
 
         // Reset the sentinel for the upcoming unsubmitted cancellation

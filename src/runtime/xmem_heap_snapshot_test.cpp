@@ -79,10 +79,34 @@ bool verify_xmem_heap_snapshots_fixture() noexcept {
             4096, uint64_t{1} << 29)};
         if (!pages.pointer) return false;
         std::memcpy(pages.pointer, path, sizeof(path));
+        // Windows VirtualFree is NOT allowed to bypass registered
+        // page-backed XMemAlloc memory, even when no pins are live.
+        SetLastError(ERROR_SUCCESS);
+        if (VirtualFreeBridge(pages.pointer, 0, MEM_RELEASE) != FALSE ||
+            GetLastError() != ERROR_INVALID_ADDRESS)
+            return false;
         if (!snapshot_owned_xmem_utf16(
                 static_cast<const wchar_t*>(pages.pointer), 240, output) ||
             output != path)
             return false;
+
+        {
+            std::shared_ptr<HostXMemWritePin> pin;
+            const size_t before = active_xmem_write_pin_count();
+            if (pin_owned_xmem_destination(pages.pointer, 128, pin) !=
+                    S_OK || !pin ||
+                active_xmem_write_pin_count() != before + 1)
+                return false;
+            SetLastError(ERROR_SUCCESS);
+            if (VirtualFreeBridge(pages.pointer, 0, MEM_RELEASE) != FALSE ||
+                GetLastError() != ERROR_BUSY)
+                return false;
+            SetLastError(ERROR_SUCCESS);
+            XMemFreeDefault(pages.pointer, 0);
+            if (GetLastError() != ERROR_BUSY) return false;
+            pin.reset();
+            if (active_xmem_write_pin_count() != before) return false;
+        }
 
         // The separate XMemVirtualAlloc reservations are explicitly
         // excluded: they may have been partially committed or protected.
@@ -124,6 +148,52 @@ bool verify_xmem_heap_snapshots_fixture() noexcept {
                 candidate, copied.size(), copied.data()) ||
             !not_modified())
             return false;
+
+        // Owned, writable host heap ranges can be pinned for asynchronous
+        // output. XMemFree MUST refuse to release the backing allocation
+        // until the final pin is gone, including when called from a
+        // different thread.
+        {
+            HostHeapOwner writable{XMemAlloc(4096, 0)};
+            if (!writable.pointer) return false;
+            auto* target = static_cast<uint8_t*>(writable.pointer) + 128;
+            const size_t before_pins = active_xmem_write_pin_count();
+            std::shared_ptr<HostXMemWritePin> first, second, invalid;
+            if (pin_owned_xmem_destination(target, 256, first) != S_OK ||
+                !first || first->size() != 256 ||
+                first->address() != target ||
+                active_xmem_write_pin_count() != before_pins + 1 ||
+                pin_owned_xmem_destination(target + 64, 128, second) != S_OK ||
+                active_xmem_write_pin_count() != before_pins + 2)
+                return false;
+            if (pin_owned_xmem_destination(
+                    target + 3900, 512, invalid) == S_OK || invalid ||
+                pin_owned_xmem_destination(
+                    copied.data(), 64, invalid) == S_OK || invalid)
+                return false;
+            SetLastError(ERROR_SUCCESS);
+            XMemFree(writable.pointer, 0);
+            if (GetLastError() != ERROR_BUSY) return false;
+            std::array<uint8_t, 256> signal{};
+            std::fill(signal.begin(), signal.end(), uint8_t{0x7c});
+            if (first->write(signal.data(), 255) != E_INVALIDARG ||
+                first->write(signal.data(), signal.size()) != S_OK ||
+                !std::equal(signal.begin(), signal.end(), target))
+                return false;
+            first.reset();
+            SetLastError(ERROR_SUCCESS);
+            XMemFree(writable.pointer, 0);
+            if (GetLastError() != ERROR_BUSY ||
+                active_xmem_write_pin_count() != before_pins + 1)
+                return false;
+            second.reset();
+            if (active_xmem_write_pin_count() != before_pins)
+                return false;
+            writable.release();
+            if (pin_owned_xmem_destination(target, 256, invalid) == S_OK ||
+                invalid || active_xmem_write_pin_count() != before_pins)
+                return false;
+        }
 
         pages.release();
         heap.release();

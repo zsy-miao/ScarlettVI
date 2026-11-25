@@ -51,11 +51,12 @@ Similarly, the queue's `EnqueueRequest +0x18` accepts generated
 uncompressed 64-byte `DSTORAGE_REQUEST` records resident in either
 registry, then verifies the file and destination. The request is
 copied before the worker accepts it, so the producer may immediately
-free its XMem heap request buffer. Asynchronous **destination** memory
-is still restricted to validated, **pinned XMem physical aliases**;
-ordinary heap destinations remain unsupported because they need a
-separate lifetime-safe write-pin system. Unknown actual Xbox command
-fields, compressed payloads and title asset paths remain unsupported.
+free its XMem heap request buffer. A later
+[write-pin bridge](XMEM_HEAP_DESTINATIONS.md) additionally supports
+asynchronous destinations backed by live, recorded **XMemAlloc heap
+allocations**, with `XMemFree(ERROR_BUSY)` while the worker owns the
+pin. Arbitrary/foreign heap memory is still rejected. Xbox-specific
+commands, compressed payloads and title asset paths remain unsupported.
 
 ## Tests
 

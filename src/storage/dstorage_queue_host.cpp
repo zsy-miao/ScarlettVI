@@ -20,6 +20,7 @@ struct RegisteredFixtureRequest {
     GuestDStorageRequest snapshot;
     std::shared_ptr<std::vector<uint8_t>> destination;
     std::shared_ptr<HostDStorageAliasDestination> alias;
+    std::shared_ptr<xmem::HostXMemWritePin> heap;
 };
 std::mutex fixture_request_mutex;
 std::unordered_map<const GuestDStorageRequest*, RegisteredFixtureRequest>
@@ -121,6 +122,24 @@ public:
                         approved.alias = std::move(pinned);
                         permitted = true;
                     }
+                } else {
+                    std::shared_ptr<xmem::HostXMemWritePin> pinned_heap;
+                    request_error = xmem::pin_owned_xmem_destination(
+                        snapshot.destination, snapshot.destination_size,
+                        pinned_heap);
+                    if (SUCCEEDED(request_error)) {
+                        approved.snapshot = snapshot;
+                        approved.heap = std::move(pinned_heap);
+                        permitted = true;
+                    } else if (request_error ==
+                               HRESULT_FROM_WIN32(ERROR_INVALID_ADDRESS) ||
+                               request_error == E_INVALIDARG) {
+                        // Unknown/unowned destinations are unsupported
+                        // Xbox guest memory, not a diagnosed file I/O
+                        // fault. Preserve the queue's established
+                        // ordered E_NOTIMPL failure contract.
+                        request_error = E_NOTIMPL;
+                    }
                 }
             }
         }
@@ -132,8 +151,13 @@ public:
             const bool approved_alias = approved.alias &&
                 r.destination == approved.alias->address() &&
                 r.destination_size == approved.alias->size();
+            const bool approved_heap = approved.heap &&
+                r.destination == approved.heap->address() &&
+                r.destination_size == approved.heap->size();
             if (!r.options && r.file &&
-                (approved_vector != approved_alias) &&
+                (static_cast<int>(approved_vector) +
+                 static_cast<int>(approved_alias) +
+                 static_cast<int>(approved_heap) == 1) &&
                 r.destination_size == r.source_size &&
                 r.source_size && r.source_size <=
                     HostAsyncFileQueue::kMaxReadBytes &&
@@ -159,7 +183,8 @@ public:
             const auto& r = approved.snapshot;
             const HRESULT hr = worker_->enqueue_file(
                 opened, token, r.file_offset, r.source_size,
-                std::move(approved.destination), std::move(approved.alias));
+                std::move(approved.destination), std::move(approved.alias),
+                std::move(approved.heap));
             if (FAILED(hr)) {
                 // Admission failures must never be invisible to a later
                 // status barrier. Preserve their FIFO error when capacity

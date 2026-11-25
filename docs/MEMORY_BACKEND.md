@@ -50,9 +50,10 @@ live recorded allocation and copied under the same lock used by
 `XMemFree`. The new `xmem-heap-fixture` tests ownership,
 allocation-end clipping, failure immutability, and concurrent free.
 The DirectStorage adapter and queue can consume these snapshots
-without reading unknown raw guest pointers. The heap is NOT pinned
-for asynchronous output, and general title heap/stack/process
-memory translation remains unavailable.
+without reading unknown raw guest pointers. The later [heap destination pin](XMEM_HEAP_DESTINATIONS.md)
+now supports bounded, owned asynchronous XMemAlloc writes while
+preventing premature `XMemFree`. General foreign title
+heap/stack/process memory translation remains unavailable.
 
 ## Pinned alias lifetimes for host GPU staging
 

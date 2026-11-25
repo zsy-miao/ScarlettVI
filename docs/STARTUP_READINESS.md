@@ -121,9 +121,12 @@ Measured working address bindings:
   verified XMem-managed CPU mappings **or live host-owned XMemAlloc
   heap allocations** can now be snapshotted without a host-only permit.
   The [heap snapshot fixture](XMEM_HEAP_SNAPSHOT.md) checks request
-  lifetime across immediate free; the output is still written only
-  into pinned physical aliases. General title heap/stack memory,
-  guest VFS and Xbox physical page-array destinations remain unavailable.
+  lifetime across immediate free. The new
+  [XMemAlloc destination pin](XMEM_HEAP_DESTINATIONS.md) also supports
+  genuine queued file writes into host-owned heap memory, with
+  `XMemFree(ERROR_BUSY)` while pinned and EOF/cancellation cleanup.
+  General foreign title heap/stack memory, guest VFS and Xbox
+  physical page-array destinations remain unavailable.
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.

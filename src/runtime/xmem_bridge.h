@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include "xmem_transfer.h"
@@ -55,6 +56,30 @@ bool snapshot_owned_xmem_allocation(
 // is unchanged on failure. Both helpers are not guest DLL exports.
 bool snapshot_owned_xmem_utf16(
     const wchar_t* source, size_t max_chars, std::wstring& output) noexcept;
+// Lifetime pin for an exact writable subspan of a registered XMemAlloc
+// block. A pinned allocation refuses XMemFree with ERROR_BUSY. This
+// type never owns a guest pointer unless admitted by the registry.
+class HostXMemWritePin final {
+public:
+    ~HostXMemWritePin() noexcept;
+    HostXMemWritePin(const HostXMemWritePin&) = delete;
+    HostXMemWritePin& operator=(const HostXMemWritePin&) = delete;
+    size_t size() const noexcept { return bytes_; }
+    void* address() const noexcept { return address_; }
+    HRESULT write(const uint8_t* source, size_t bytes) noexcept;
+private:
+    friend HRESULT pin_owned_xmem_destination(
+        void*, size_t, std::shared_ptr<HostXMemWritePin>&) noexcept;
+    HostXMemWritePin(void* base, void* address, size_t bytes) noexcept
+        : allocation_base_(base), address_(address), bytes_(bytes) {}
+    void* allocation_base_ = nullptr;
+    void* address_ = nullptr;
+    size_t bytes_ = 0;
+};
+HRESULT pin_owned_xmem_destination(
+    void* destination, size_t bytes,
+    std::shared_ptr<HostXMemWritePin>& output) noexcept;
+size_t active_xmem_write_pin_count() noexcept;
 bool verify_xmem_heap_snapshots_fixture() noexcept;
 // Generated host-only fixture, never calls or loads any title executable.
 bool verify_xmem_tools_capability_fixture() noexcept;

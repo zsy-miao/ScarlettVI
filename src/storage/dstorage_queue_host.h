@@ -13,9 +13,11 @@ struct HostDStorageFileX;
 // Public Xbox GDK DSTORAGE_REQUEST layout; the EnqueueRequest METHOD SLOT
 // is separately confirmed at guest +0x18 (0x1428C9A0B). The full layout
 // follows public docs, not independently recovered for every title field.
-// The queue may
-// execute ONLY explicitly registered, generated-file fixture requests.
-// All other guest pointers remain unread and yield E_NOTIMPL.
+// Only original generated-file fixture requests are executed. The
+// request may be explicitly registered by host tests or safely copied
+// from live XMem CPU aliases / XMemAlloc heap buffers. Destinations
+// require distinct lifetime pins for XMem aliases or XMemAlloc.
+// Unknown guest pointers are never dereferenced and yield E_NOTIMPL.
 struct GuestDStorageRequest {
     uint64_t options = 0;
     void* destination = nullptr;

@@ -1,5 +1,6 @@
 #include "dstorage_async_queue.h"
 #include "dstorage_alias_destination.h"
+#include "../runtime/xmem_bridge.h"
 #include "dstorage_factory_host.h"
 #include "dstorage_status_host.h"
 #include <algorithm>
@@ -114,12 +115,17 @@ HRESULT HostAsyncFileQueue::admit(
     HostDStorageStatusArrayX* status, uint32_t status_index,
     HRESULT injected_failure, HANDLE owned_handle,
     std::shared_ptr<std::vector<uint8_t>> destination,
-    std::shared_ptr<HostDStorageAliasDestination> alias) noexcept {
+    std::shared_ptr<HostDStorageAliasDestination> alias,
+    std::shared_ptr<xmem::HostXMemWritePin> heap) noexcept {
     OwnedFileHandle incoming(owned_handle); // consumed even on validation failure
-    if (!request.token || (destination && alias) ||
-        ((destination || alias) && owned_handle == INVALID_HANDLE_VALUE) ||
+    const unsigned destinations = static_cast<unsigned>(bool(destination)) +
+                                  static_cast<unsigned>(bool(alias)) +
+                                  static_cast<unsigned>(bool(heap));
+    if (!request.token || destinations > 1 ||
+        (destinations && owned_handle == INVALID_HANDLE_VALUE) ||
         (destination && destination->size() != request.bytes) ||
-        (alias && alias->size() != request.bytes)) return E_INVALIDARG;
+        (alias && alias->size() != request.bytes) ||
+        (heap && heap->size() != request.bytes)) return E_INVALIDARG;
     if (FAILED(injected_failure)) {
         if (!staged || status || owned_handle != INVALID_HANDLE_VALUE ||
             !request.filename.empty() || request.offset || request.bytes)
@@ -150,6 +156,7 @@ HRESULT HostAsyncFileQueue::admit(
         job.file_handle = std::move(incoming);
         job.destination = std::move(destination);
         job.alias = std::move(alias);
+        job.heap = std::move(heap);
         job.status = status;
         job.status_index = status_index;
         job.injected_failure = injected_failure;
@@ -211,14 +218,16 @@ HRESULT HostAsyncFileQueue::enqueue_file(
     HANDLE owned_handle, uint64_t token,
     uint64_t offset, uint32_t bytes,
     std::shared_ptr<std::vector<uint8_t>> destination,
-    std::shared_ptr<HostDStorageAliasDestination> alias) noexcept {
+    std::shared_ptr<HostDStorageAliasDestination> alias,
+    std::shared_ptr<xmem::HostXMemWritePin> heap) noexcept {
     if (owned_handle == nullptr || owned_handle == INVALID_HANDLE_VALUE) {
         if (owned_handle && owned_handle != INVALID_HANDLE_VALUE)
             CloseHandle(owned_handle);
         return E_INVALIDARG;
     }
     return admit({token, L"", offset, bytes}, true, nullptr, 0,
-                 S_OK, owned_handle, std::move(destination), std::move(alias));
+                 S_OK, owned_handle, std::move(destination),
+                 std::move(alias), std::move(heap));
 }
 HRESULT HostAsyncFileQueue::enqueue_unsupported(
     uint64_t token, HRESULT error) noexcept {
@@ -259,6 +268,7 @@ HRESULT HostAsyncFileQueue::cancel_unsubmitted(
     job->second.file_handle.reset();
     job->second.destination.reset();
     job->second.alias.reset();
+    job->second.heap.reset();
     job->second.result.status = kIoCancelled;
     job->second.result.data.clear();
     if (job->second.status) {
@@ -365,6 +375,7 @@ void HostAsyncFileQueue::run() noexcept {
         HANDLE read_handle = INVALID_HANDLE_VALUE;
         std::shared_ptr<std::vector<uint8_t>> destination;
         std::shared_ptr<HostDStorageAliasDestination> alias;
+        std::shared_ptr<xmem::HostXMemWritePin> heap;
         {
             std::unique_lock lock(mutex_);
             ready_.wait(lock, [&]{ return stopped_ || !fifo_.empty(); });
@@ -387,6 +398,7 @@ void HostAsyncFileQueue::run() noexcept {
             read_handle = found->second.file_handle.release();
             destination = std::move(found->second.destination);
             alias = std::move(found->second.alias);
+            heap = std::move(found->second.heap);
         }
         HostFileReadCompletion completion;
         if (status) {
@@ -407,6 +419,11 @@ void HostAsyncFileQueue::run() noexcept {
                 completion = execute(request, sequence, read_handle);
                 if (SUCCEEDED(completion.status) && alias) {
                     completion.status = alias->write(
+                        completion.data.data(), completion.data.size());
+                    if (FAILED(completion.status)) completion.data.clear();
+                }
+                if (SUCCEEDED(completion.status) && heap) {
+                    completion.status = heap->write(
                         completion.data.data(), completion.data.size());
                     if (FAILED(completion.status)) completion.data.clear();
                 }
@@ -486,6 +503,7 @@ void HostAsyncFileQueue::shutdown() noexcept {
                         it->second.file_handle.reset();
                         it->second.destination.reset();
                         it->second.alias.reset();
+                        it->second.heap.reset();
                         it->second.result.status = kIoCancelled;
                         it->second.result.data.clear();
                         it->second.ready = true;

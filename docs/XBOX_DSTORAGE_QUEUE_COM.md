@@ -68,7 +68,9 @@ Do not enable actual title asset loads on this partial evidence.
   registry **before any pointer is dereferenced**. An independent
   [XMemAlloc heap snapshot](XMEM_HEAP_SNAPSHOT.md) route also recognizes
   live host XMemAlloc request records, but never unregistered host
-  pointers; output still requires pinned XMem physical aliases.
+  pointers. Output now supports either pinned XMem physical aliases
+  or [pinned, live XMemAlloc heap subranges](XMEM_HEAP_DESTINATIONS.md),
+  with cancellation/EOF pin cleanup and premature free rejection.
   Ordinary unsupported game requests insert ordered **E_NOTIMPL
   failures**, never fake successful reads.
   `EnqueueSignal` still fails closed.

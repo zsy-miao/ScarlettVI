@@ -80,18 +80,21 @@ A different build may have different addresses and must be reanalyzed.
 - Both paths remain gated by the trusted generated-file fixture root:
   `CreateQueue1` remains unavailable by default to native titles,
   and neither method mounts or reads the title's actual game assets.
-- The existing host FIFO worker retains the read handle and either
-  the destination vector **or a pinned XMem alias** until it has read
-  exactly the requested bytes. Real writeback occurs before the following
+- The existing host FIFO worker retains the read handle and exactly
+  one approved destination: a host fixture vector, pinned XMem CPU
+  alias or [pinned XMemAlloc heap subrange](XMEM_HEAP_DESTINATIONS.md).
+  Real writeback occurs before the following
   `EnqueueStatus` marker completes. Failed reads do not write partial
   destination data; cancellation or permit withdrawal releases any page
   pin. The marker observes the first real HRESULT failure since its
   previous marker.
 - Unregistered requests that are **not verified by XMem CPU alias or
   live heap ownership** are never dereferenced and become ordered
-  `E_NOTIMPL` failures. Ordinary heap destinations are still
-  unsupported: asynchronous output requires separately pinned,
-  validated XMem CPU alias pages. Existing queue safety limits apply.
+  `E_NOTIMPL` failures. XMemAlloc heap destinations are now
+  admitted only with [reference-counted write pins](XMEM_HEAP_DESTINATIONS.md)
+  that block premature `XMemFree`; ordinary process heaps and
+  arbitrary guest pointers remain unsupported. Existing queue
+  safety limits apply.
 - Generated-file regression checks raw queue slot +0x18 invocation,
   no write before Submit, byte-for-byte writeback at a nonzero file
   offset, duplicate permit rejection, source-handle independence,
@@ -105,7 +108,10 @@ A different build may have different addresses and must be reanalyzed.
   request in a real XMemAlloc heap buffer, frees it right after enqueue,
   and verifies genuine file-to-three-page-alias writeback, FIFO status,
   no pre-Submit writes, and no pin leaks. Freed or clipped heap request
-  pointers produce ordered `E_NOTIMPL` failures.
+  pointers produce ordered `E_NOTIMPL` failures. The latest
+  regression also writes real generated-file bytes directly to a
+  live XMemAlloc destination and verifies busy free, exact success,
+  all-or-nothing EOF and cancellation pin cleanup.
 
 ## Still required before any title streaming
 

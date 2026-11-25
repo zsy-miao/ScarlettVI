@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+namespace scarlett::xmem { class HostXMemWritePin; }
+
 namespace scarlett::storage {
 struct HostDStorageStatusArrayX;
 class HostDStorageAliasDestination;
@@ -62,7 +64,8 @@ public:
     HRESULT enqueue_file(HANDLE owned_handle, uint64_t token,
                          uint64_t offset, uint32_t bytes,
                          std::shared_ptr<std::vector<uint8_t>> destination = {},
-                         std::shared_ptr<HostDStorageAliasDestination> alias = {}) noexcept;
+                         std::shared_ptr<HostDStorageAliasDestination> alias = {},
+                         std::shared_ptr<xmem::HostXMemWritePin> heap = {}) noexcept;
     // Internal-only failed-operation token: guest requests with unknown ABI
     // become visible asynchronous failures, never fake successful reads.
     HRESULT enqueue_unsupported(uint64_t token,
@@ -121,10 +124,12 @@ private:
     struct Job {
         HostFileReadRequest request;
         OwnedFileHandle file_handle;
-        // Host-generated, pinned writable destination for approved fixture
-        // guest requests. Never constructed from arbitrary guest pointers.
+        // Each generated-only request may have exactly one writable
+        // destination type: owned host vector, pinned XMem alias, or
+        // pinned XMemAlloc heap subrange. No arbitrary guest pointers.
         std::shared_ptr<std::vector<uint8_t>> destination;
         std::shared_ptr<HostDStorageAliasDestination> alias;
+        std::shared_ptr<xmem::HostXMemWritePin> heap;
         HostDStorageStatusArrayX* status = nullptr;
         uint32_t status_index = 0;
         HRESULT injected_failure = S_OK;
@@ -137,7 +142,8 @@ private:
                   HRESULT injected_failure = S_OK,
                   HANDLE owned_handle = INVALID_HANDLE_VALUE,
                   std::shared_ptr<std::vector<uint8_t>> destination = {},
-                  std::shared_ptr<HostDStorageAliasDestination> alias = {}) noexcept;
+                  std::shared_ptr<HostDStorageAliasDestination> alias = {},
+                  std::shared_ptr<xmem::HostXMemWritePin> heap = {}) noexcept;
     void run() noexcept;
     HostFileReadCompletion execute(
         const HostFileReadRequest& request, uint64_t sequence,

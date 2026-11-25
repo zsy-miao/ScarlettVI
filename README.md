@@ -96,10 +96,13 @@ copies request records from either validated XMem CPU physical aliases
 or **live, bounded XMemAlloc heap allocations** via the new
 [heap snapshot bridge](docs/XMEM_HEAP_SNAPSHOT.md). It can copy
 a generated request from host-owned heap memory, free the source
-immediately and complete a real read into pinned XMem CPU aliases.
-Unknown host or title heap pointers and ordinary heap write
-destinations are still unsupported; actual title asset streaming
-is not implemented.
+immediately and complete a real read into either pinned XMem CPU aliases
+**or a lifetime-pinned XMemAlloc heap destination**. The new
+[heap write-pin bridge](docs/XMEM_HEAP_DESTINATIONS.md) prevents
+`XMemFree` while I/O owns the destination and releases pins after
+successful reads, EOF failures and cancellations. Unknown native
+heap pointers, real title VFS mounts and asset streaming remain
+unsupported.
 The [actual Xbox status-array COM interface](docs/XBOX_DSTORAGE_STATUS_ARRAY.md)
 now works through the corrected factory vtable slot `+0x28`, and its
 status entries receive verified S_OK/error results from host file-I/O

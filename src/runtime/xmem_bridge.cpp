@@ -18,6 +18,7 @@ struct Allocation {
     size_t bytes;
     uint64_t attributes;
     bool budget_charged = false;
+    size_t pins = 0;
 };
 // One independent allocation registry for every title in the process.
 // Entries remain in the registry until explicitly released. This allows us
@@ -149,6 +150,79 @@ public:
         return false;
     }
 
+    HRESULT acquire_write_pin(void* destination, size_t bytes,
+                              void*& allocation_base) noexcept {
+        allocation_base = nullptr;
+        if (!destination || !bytes || bytes > 1024 * 1024)
+            return E_INVALIDARG;
+        const std::lock_guard lock(mutex_);
+        const uintptr_t target = reinterpret_cast<uintptr_t>(destination);
+        for (auto& [base, entry] : allocations_) {
+            if (!entry.budget_charged) continue;
+            const uintptr_t start = reinterpret_cast<uintptr_t>(base);
+            if (target < start) continue;
+            const uintptr_t offset = target - start;
+            if (offset >= entry.bytes || bytes > entry.bytes - offset)
+                continue;
+            if (entry.pins == std::numeric_limits<size_t>::max())
+                return HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES);
+            ++entry.pins;
+            allocation_base = base;
+            return S_OK;
+        }
+        return HRESULT_FROM_WIN32(ERROR_INVALID_ADDRESS);
+    }
+
+    void release_write_pin(void* base) noexcept {
+        const std::lock_guard lock(mutex_);
+        const auto found = allocations_.find(base);
+        if (found != allocations_.end() && found->second.pins)
+            --found->second.pins;
+    }
+
+    HRESULT write_pinned(void* base, void* destination,
+                         const uint8_t* source, size_t bytes) noexcept {
+        if (!source || !bytes) return E_INVALIDARG;
+        const std::lock_guard lock(mutex_);
+        const auto found = allocations_.find(base);
+        if (found == allocations_.end() || !found->second.pins ||
+            destination != base && reinterpret_cast<uintptr_t>(destination) <
+                                   reinterpret_cast<uintptr_t>(base))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_ADDRESS);
+        const uintptr_t offset =
+            reinterpret_cast<uintptr_t>(destination) -
+            reinterpret_cast<uintptr_t>(base);
+        if (offset >= found->second.bytes ||
+            bytes > found->second.bytes - offset)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_ADDRESS);
+        std::memmove(destination, source, bytes);
+        return S_OK;
+    }
+
+    size_t active_write_pins() noexcept {
+        const std::lock_guard lock(mutex_);
+        size_t count = 0;
+        for (const auto& [base, entry] : allocations_) count += entry.pins;
+        return count;
+    }
+
+    // Prevent VirtualFreeBridge from bypassing the XMemAlloc registry.
+    // A page-backed XMemAlloc uses VirtualAlloc internally; releasing it
+    // with a generic Windows VirtualFree would invalidate active I/O
+    // pins and leave the allocator registry with a freed address.
+    DWORD reject_raw_heap_free(const void* pointer) noexcept {
+        if (!pointer) return ERROR_SUCCESS;
+        const uintptr_t target = reinterpret_cast<uintptr_t>(pointer);
+        const std::lock_guard lock(mutex_);
+        for (const auto& [base, entry] : allocations_) {
+            if (!entry.budget_charged) continue;
+            const uintptr_t start = reinterpret_cast<uintptr_t>(base);
+            if (target >= start && target - start < entry.bytes)
+                return entry.pins ? ERROR_BUSY : ERROR_INVALID_ADDRESS;
+        }
+        return ERROR_SUCCESS;
+    }
+
     void free(void* ptr, uint64_t) noexcept {
         if (!ptr) return;
         Allocation allocation{};
@@ -157,6 +231,10 @@ public:
             const auto found = allocations_.find(ptr);
             if (found == allocations_.end()) {
                 SetLastError(ERROR_INVALID_ADDRESS);
+                return;
+            }
+            if (found->second.pins) {
+                SetLastError(ERROR_BUSY);
                 return;
             }
             allocation = found->second;
@@ -252,6 +330,35 @@ private:
 };
 } // namespace
 
+HRESULT pin_owned_xmem_destination(
+    void* destination, size_t bytes,
+    std::shared_ptr<HostXMemWritePin>& output) noexcept {
+    output.reset();
+    void* base = nullptr;
+    const HRESULT result = Registry::get().acquire_write_pin(
+        destination, bytes, base);
+    if (FAILED(result)) return result;
+    try {
+        output = std::shared_ptr<HostXMemWritePin>(
+            new HostXMemWritePin(base, destination, bytes));
+        return S_OK;
+    } catch (...) {
+        Registry::get().release_write_pin(base);
+        return E_OUTOFMEMORY;
+    }
+}
+HostXMemWritePin::~HostXMemWritePin() noexcept {
+    Registry::get().release_write_pin(allocation_base_);
+}
+HRESULT HostXMemWritePin::write(
+    const uint8_t* source, size_t bytes) noexcept {
+    if (bytes != bytes_) return E_INVALIDARG;
+    return Registry::get().write_pinned(
+        allocation_base_, address_, source, bytes);
+}
+size_t active_xmem_write_pin_count() noexcept {
+    return Registry::get().active_write_pins();
+}
 bool snapshot_owned_xmem_allocation(
     const void* source, size_t bytes, void* host_output) noexcept {
     return Registry::get().snapshot_allocation(source, bytes, host_output);
@@ -299,6 +406,14 @@ extern "C" void* WINAPI XMemVirtualAlloc(void* addr, size_t bytes,
     return Registry::get().reserve(addr, bytes, flags, attrs, protect);
 }
 extern "C" BOOL WINAPI VirtualFreeBridge(void* base, size_t size, DWORD flags) {
+    // Do not let an imported VirtualFree tear down an owned XMemAlloc
+    // allocation through Windows while its registry (or async worker)
+    // still holds that pointer. Only XMemFree may release it.
+    const DWORD blocked = Registry::get().reject_raw_heap_free(base);
+    if (blocked != ERROR_SUCCESS) {
+        SetLastError(blocked);
+        return FALSE;
+    }
     auto& physical = memory::PhysicalMemory::instance();
     if (physical.owns_alias_region_base(base)) {
         if (size != 0 || flags != MEM_RELEASE) {
