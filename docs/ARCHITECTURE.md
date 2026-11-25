@@ -122,6 +122,14 @@ submissions), safe heap-slot reuse, atomic pinned-unmap rejection and
 retryable fence-safe cleanup with zero leaks
 ([GPU_FENCE_RECOVERY.md](GPU_FENCE_RECOVERY.md))
 ([GUEST_GPU_PAGE_REGISTRY.md](GUEST_GPU_PAGE_REGISTRY.md)).
+`gpu-page-batch` integrates the native tile batch helper with the
+pinned XMem frame registry: four CPU-backed physical frames, eight
+CPU aliases and eight GPU aliases are prevalidated and pinned before
+**two real native GPU tile mapping calls**, followed by a queue fence.
+It verifies **16 completed 64 KiB GPU transfers in four GPU submissions**,
+interoperability with single-frame registration, synthetic mapping-wait
+failure retention, safe re-registration and zero leaked CPU pins/pages
+([GPU_PAGE_BATCH_REGISTRATION.md](GPU_PAGE_BATCH_REGISTRATION.md)).
 `gpu-tile-batch` verifies native one-resource multi-range
 `UpdateTileMappings`: four selected physical heap tiles map to four
 adjacent GPU guest tiles per call, across two distant resource aliases,

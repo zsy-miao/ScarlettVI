@@ -124,9 +124,15 @@ pass**, then unmaps/fences and remaps a different physical tile order.
 Across both passes the fixture verifies **524,288 bytes**, with **four
 native map and four native unmap calls** rather than sixteen of each.
 
-This host primitive is distinct from `GuestGpuPageRegistry::bind`, which
-still performs independently fenced per-frame mappings; correct resource
-grouping and pin-safe batch registration remain future work.
+The [pinned GPU batch registration path](GPU_PAGE_BATCH_REGISTRATION.md)
+now builds on this primitive. It pins all CPU XMem alias mappings before
+enqueue, prepares per-frame D3D12 stagers, and groups source and alias
+GPU mapping updates by native D3D12 resource. Four frames require **two
+native mapping calls instead of eight** and share one real completion
+fence before any transfer. The independent RTX 5060 Ti `gpu-page-batch`
+fixture verifies **16 page GPU transfers in four queue submissions**,
+including recovery from a synthetic mapping-fence failure and safe GPU
+tile reuse. The original single-frame `bind` path remains unchanged.
 
 ### XMem physical-page to real GPU tile staging
 

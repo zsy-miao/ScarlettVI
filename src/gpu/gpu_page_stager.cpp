@@ -69,7 +69,8 @@ HRESULT GpuPageStager::open(
     size_t source_window, uint64_t source_offset,
     size_t alias_window, uint64_t alias_offset,
     ID3D12CommandQueue* shared_queue,
-    ID3D12Heap* shared_tile_heap, uint32_t shared_heap_tile) noexcept {
+    ID3D12Heap* shared_tile_heap, uint32_t shared_heap_tile,
+    bool defer_tile_mapping) noexcept {
     if (opened_ || windows_ || device_)
         return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
     if (!device) return E_POINTER;
@@ -179,6 +180,12 @@ HRESULT GpuPageStager::open(
                        D3D12_RESOURCE_STATE_COPY_DEST, readback_);
     if (FAILED(hr)) return fail(hr);
 
+    if (defer_tile_mapping) {
+        // Registry-owned transactional batch registration will enqueue the
+        // physical mappings and fence them before enabling roundtrip().
+        // close() is still valid while these resources are only prepared.
+        return S_OK;
+    }
     hr = windows_->map_tiles(
         queue_.Get(), source_window_, source_offset_, physical_tile_.Get(),
         physical_heap_tile_, 1);

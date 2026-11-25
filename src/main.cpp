@@ -119,6 +119,7 @@ void usage() {
                << L"  ScarlettVI.exe gpu-tile-batch\n"
                << L"  ScarlettVI.exe gpu-xmem-tiles\n"
                << L"  ScarlettVI.exe gpu-page-registry\n"
+               << L"  ScarlettVI.exe gpu-page-batch\n"
                << L"  ScarlettVI.exe gpu-texture-layout\n"
                << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
@@ -129,6 +130,36 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-page-batch") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            const HRESULT hr = gpu.guest_gpu_page_batch_test();
+            const size_t pages =
+                scarlett::memory::PhysicalMemory::instance().allocated_page_count();
+            const size_t pins =
+                scarlett::memory::PhysicalMemory::instance().pinned_alias_count();
+            const bool pass = SUCCEEDED(hr) &&
+                gpu.submitted_commands() == 16 &&
+                gpu.registry_queue_submissions() == 4 &&
+                gpu.registry_batch_mapping_updates() == 8 &&
+                pages == 0 && pins == 0;
+            std::wcout << L"ScarlettVI | four-frame pinned GPU tile batch: "
+                       << (pass ? L"PASS" : L"FAIL")
+                       << L"\nGPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "4 XMem frames / 8 CPU VA pins / 8 GPU aliases"
+                      << " | completed GPU page transfers: " << gpu.submitted_commands()
+                      << " | GPU command queue submissions: "
+                      << gpu.registry_queue_submissions()
+                      << " | native tile map calls: "
+                      << gpu.registry_batch_mapping_updates()
+                      << " | remaining pages: " << pages
+                      << " | remaining pins: " << pins
+                      << " | HRESULT 0x" << std::hex
+                      << static_cast<uint32_t>(hr) << std::dec << "\n"
+                      << "Mapping failure is synthetic; real GPU work is fenced"
+                      << " before releasing CPU pins and tile backing.\n";
+            return pass ? 0 : 3;
+        }
         if (verb == L"gpu-page-registry") {
             if (argc != 2) { usage(); return 2; }
             scarlett::gpu::DeviceContext gpu;

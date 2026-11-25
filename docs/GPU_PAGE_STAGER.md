@@ -36,6 +36,18 @@ two intentionally interrupted GPU submissions that publish no data,
 three successful four-page batches and retryable heap-slot retirement. Multi-heap scaling, batched native tile-residency
 operations and GPU eviction policies remain future work.
 
+For the new [pinned multi-page GPU batch registration](GPU_PAGE_BATCH_REGISTRATION.md),
+the stager also supports an internal deferred mapping mode: it prepares
+its native command buffers, upload/readback resources and fences but
+leaves its two GPU tiles unmapped. The registry publishes ownership of
+all pinned CPU aliases and physical heap slots, then queues two grouped
+mapping updates and waits for one real fence before enabling every
+stager for transfer. Any unconfirmed fence leaves its CPU pins and GPU
+backing allocated until retryable cleanup completes. The independent
+`gpu-page-batch` hardware test verifies **16 generated 64 KiB transfers
+in four GPU submissions** with safe recovery after a synthetic mapping
+wait failure. The ordinary standalone `open` behavior is unchanged.
+
 The component does not allocate or free guest XMem physical pages; those remain owned by PhysicalMemory. It does not update CPU aliases during a GPU transfer; callers explicitly stage the completed readback to a CPU alias after verifying it.
 
 ## Verification

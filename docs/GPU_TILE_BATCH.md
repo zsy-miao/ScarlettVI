@@ -43,6 +43,13 @@ If the sixteen virtual tile aliases had instead been mapped one at a time, they 
 
 ## Limitations
 
-The existing [GuestGpuPageRegistry](GUEST_GPU_PAGE_REGISTRY.md) still binds pages individually through separate `GpuPageStager` instances. This new method is a validated host primitive to support future registry batch registration grouped by native resource and safely fenced physical tile ownership. It does not yet accelerate existing `GuestGpuPageRegistry::bind` calls.
+The original [pinned multi-frame batch registration](GPU_PAGE_BATCH_REGISTRATION.md)
+now uses this host primitive in `GuestGpuPageRegistry::bind_batch`.
+It validates/pins an entire group before any native GPU update, then
+maps four source and four alias pages in **two total `UpdateTileMappings`
+calls** with one real fence. The original `GuestGpuPageRegistry::bind`
+remains individually fenced for compatibility; the new grouped API is
+separate, supports only contiguous regions inside native D3D12 resources,
+and does not emulate Xbox GPU page tables.
 
 The user's title executable and local DLLs remain read-only and unexecuted. No original shaders, title entrypoints, DLL initializers or TLS callbacks are executed. Startup readiness remains BLOCKED with 25 unresolved Xbox import references.

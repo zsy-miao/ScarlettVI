@@ -38,6 +38,17 @@ public:
     // Each frame and each GPU slot may be registered only once.
     HRESULT bind(uintptr_t frame, void* first_cpu_alias, void* second_cpu_alias,
                  GpuSlot source_gpu, GpuSlot alias_gpu) noexcept;
+    struct PageBinding {
+        uintptr_t frame = 0;
+        void* first_cpu_alias = nullptr;
+        void* second_cpu_alias = nullptr;
+        GpuSlot source{};
+        GpuSlot alias{};
+    };
+    // All slots in each alias group must be adjacent within ONE native
+    // 4GiB reserved GPU resource. One UpdateTileMappings per alias group;
+    // all CPU pins are retained until an acknowledged GPU completion fence.
+    HRESULT bind_batch(std::span<const PageBinding> pages) noexcept;
 
     // Uses a real D3D12 queue and fence. Source may be the first CPU alias
     // or independent generated host bytes. Output must be a disjoint 64KiB
@@ -56,6 +67,8 @@ public:
     HRESULT transfer_batch(std::span<const PageTransfer> requests) noexcept;
     uint64_t queue_submission_count() const noexcept;
     size_t native_queue_count() const noexcept;
+    // Actual native host UpdateTileMappings calls across both bind paths.
+    uint64_t native_mapping_count() const noexcept;
     // One 4MiB default heap with 64 separately assignable 64KiB host tiles.
     static constexpr uint32_t heap_capacity_tiles = 64;
     size_t physical_heap_count() const noexcept;
@@ -74,6 +87,7 @@ private:
     bool inject_next_gpu_wait_failure_for_test(
         uintptr_t frame, uint32_t successful_waits_before_failure = 0) noexcept;
     void inject_next_batch_wait_failure_for_test() noexcept;
+    void inject_next_mapping_wait_failure_for_test() noexcept;
     struct Binding {
         uint8_t* first_cpu = nullptr;
         uint8_t* second_cpu = nullptr;
@@ -95,6 +109,7 @@ private:
     uint64_t next_batch_fence_ = 1;
     uint64_t gpu_submissions_ = 0;
     bool test_fail_next_batch_wait_ = false;
+    bool test_fail_next_mapping_wait_ = false;
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Binding> bindings_;
     std::map<GpuSlot, uintptr_t> gpu_slots_;

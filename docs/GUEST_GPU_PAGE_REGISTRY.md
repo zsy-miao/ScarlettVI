@@ -56,10 +56,17 @@ The expanded [GPU fence-failure test](GPU_FENCE_RECOVERY.md) then injects synthe
 The independently tested [GPU tile selection helper](GPU_TILE_BATCH.md)
 can map multiple consecutive logical tiles to noncontiguous physical
 heap indices with one native `UpdateTileMappings` call per D3D12 reserved
-resource. It has **not yet been wired into `bind`**, whose existing per-frame
-fences and pinned CPU VA lifetime remain unchanged. Future batch binding
-must first validate and pin all frames, group by actual D3D12 segment,
-and retain those pins until every native map/unmap is acknowledged.
+resource. The new [bind_batch host API](GPU_PAGE_BATCH_REGISTRATION.md)
+now integrates this helper with pinned XMem frame registration. It
+prevalidates the whole cohort, pins all CPU aliases, prepares all GPU
+stagers, and then issues **two native mapping calls** for two contiguous
+alias groups of four pages. One real queue fence acknowledges the grouped
+mappings before any GPU page transfer. A synthetic mapping-fence failure
+retains every CPU pin, GPU tile slot, command buffer and backing heap
+until an explicitly fenced retry can retire them. The original single
+frame `bind` retains its own independently fenced path. The dedicated
+`gpu-page-batch` fixture verifies **16 successful 64 KiB GPU transfers
+in four queue submissions**, native tile-slot reuse and no leaks.
 
 ## Remaining blockers
 

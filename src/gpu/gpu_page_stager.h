@@ -23,7 +23,8 @@ public:
                  size_t alias_window, uint64_t alias_offset,
                  ID3D12CommandQueue* shared_queue = nullptr,
                  ID3D12Heap* shared_tile_heap = nullptr,
-                 uint32_t shared_heap_tile = 0) noexcept;
+                 uint32_t shared_heap_tile = 0,
+                 bool defer_tile_mapping = false) noexcept;
     // Both spans must be exactly one page and nonoverlapping. Copies GPU data
     // into output only AFTER a completed fence; does not update CPU XMem.
     HRESULT roundtrip(std::span<const uint8_t> cpu_input,
