@@ -56,6 +56,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   installed **3** current-thread TLS templates (5776 bytes) and identified
   **2** callbacks (deferred, not executed). Proper other-thread TLS initialization,
   loader callbacks, Xbox services and GPU translation remain to be implemented.
+  A [generated PE64 entrypoint fixture](SYNTHETIC_PE_ENTRY.md) now successfully
+  runs a tiny original x64 test executable with one real Windows import,
+  six forced DIR64 relocations, static TLS, deferred callback verification
+  and protected sections. This validates only a synthetic native entrypoint;
+  it does **not** execute the original Xbox title or solve DLL init.
   This does not imply that runtime behavior is correct.
 
 ## Native layer roadmap, in dependency order

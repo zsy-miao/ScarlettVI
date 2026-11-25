@@ -82,6 +82,12 @@ component lifetime, graphics semantics or startup success.
 
 ## Mandatory runtime milestones beyond imports
 
+The [generated PE64 entrypoint fixture](SYNTHETIC_PE_ENTRY.md) now passes
+an actual known-code entrypoint invocation through ScarlettVI's mapper,
+with one real Windows API import, forced relocations and current-thread TLS.
+It never executes the original title, TLS callbacks or game DLLs. That
+fixture is **not** proof of guest startup lifecycle correctness.
+
 Even if all 14 outstanding references gain function addresses, startup
 remains blocked until:
 

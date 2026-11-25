@@ -9,6 +9,7 @@
 #include "analysis/xg_vcall_successors.h"
 #include "analysis/xg_vcall_indexed_reads.h"
 #include "loader/image_mapper.h"
+#include "loader/synthetic_entry_test.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
 #include "loader/title_modules.h"
@@ -130,6 +131,7 @@ void usage() {
                << L"  ScarlettVI.exe audio-address-fixture\n"
                << L"  ScarlettVI.exe audio-shape-fixture\n"
                << L"  ScarlettVI.exe audio-hal-fixture\n"
+               << L"  ScarlettVI.exe synthetic-entry-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -161,6 +163,15 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"synthetic-entry-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed = scarlett::verify_synthetic_entry_fixture();
+            std::cout << "ScarlettVI | generated x64 PE entrypoint: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nGenerated code only; imported Kernel32 API, relocations, "
+                      << "TLS and entrypoint verified. Original title not executed.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"audio-hal-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

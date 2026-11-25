@@ -14,7 +14,7 @@ Connected Windows workstation reports an NVIDIA RTX 5060 Ti via `Win32_VideoCont
 
 ## What the comparison changes in ScarlettVI's priorities
 
-1. **Native-loader startup, not import counts alone:** create a generated synthetic PE that exercises DLL attachment, TLS, process entry and crash reporting. ScarlettVI currently maps and binds data-only and intentionally blocks execution.
+1. **Native-loader startup, not import counts alone:** the [generated PE64 entrypoint fixture](SYNTHETIC_PE_ENTRY.md) now proves original known-code entry, Windows import routing, DIR64 relocation, current-thread TLS and deferred callback detection. Next implement/test the separately missing DLL attachment order, executable TLS conventions, multi-thread TLS and crash reporting. Real title execution remains blocked.
 2. **Guest audio HAL and result queues:** the new AcpHal host object is partial. The `+0x10` vtable method is unsupported; ten XAPU/CHAD imports still require exact ABI and stateful command/result lifecycles.
 3. **Xbox GPU program translation:** RDNA2 shader instruction/descriptor lowering to valid DXIL and shader caching are mandatory for graphics beyond synthetic D3D12 tests.
 4. **Texture layout and streaming:** native swizzle and resource copying must reflect all guest memory aliases, and assets need independent archive and decompression verification.
