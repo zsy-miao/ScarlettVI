@@ -37,6 +37,25 @@ try {
         throw "Missing-game Play rejection failed: $rejected"
     }
 
+    # Existing real upstream is user data: verify its Plan against the
+    # generated, non-executable title marker without ever invoking it.
+    $realCheckout = Join-Path $external 'ztrx'
+    $realBinary = Join-Path $realCheckout 'target\release\victory.exe'
+    if ((Test-Path -LiteralPath (Join-Path $realCheckout '.git') -PathType Container) -and
+        (Test-Path -LiteralPath $realBinary -PathType Leaf)) {
+        $planned = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Mode Plan -Backend ztrx -Game $syntheticGame 2>&1 | Out-String)
+        if ($LASTEXITCODE -ne 0 -or $planned -notmatch 'PLAN ONLY: no upstream executable') {
+            throw "Existing upstream Plan validation failed: $planned"
+        }
+        $playCmd = @($planned -split '[\r\n]+' | Where-Object { $_ -match '^Backend play command:' })
+        $bindCmd = @($planned -split '[\r\n]+' | Where-Object { $_ -match '^Backend bind-only command:' })
+        if ($playCmd.Count -ne 1 -or $bindCmd.Count -ne 1 -or
+            $playCmd[0] -notmatch '\-\-execute' -or
+            $bindCmd[0] -match '\-\-execute') {
+            throw "Plan incorrectly adds/removes the execution flag: $planned"
+        }
+    }
+
     # Only create a temporary local fake upstream checkout if none exists.
     # In real use .external-compat may contain a user's compiled runner and
     # valuable shader cache/saves; tests MUST NEVER remove or overwrite it.
@@ -74,7 +93,7 @@ try {
         Write-Host 'Upstream cache exists; synthetic Plan path skipped to protect real user data.'
     }
     Write-Host 'ScarlettVI | separate upstream compatibility safety tests: PASS'
-    Write-Host 'Both explicit backends, invalid-game rejection and an isolated synthetic Plan; no game execution or upstream downloads.'
+    Write-Host 'Both backends, missing-game refusal and verified non-executing Plan where available; no title execution or upstream downloads.'
     exit 0
 } finally {
     Remove-Item -LiteralPath $syntheticGame -Force -ErrorAction SilentlyContinue

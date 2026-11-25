@@ -1,8 +1,8 @@
 # Original ScarlettVI launcher for separately licensed upstream executables.
-# Check, Prepare and Plan NEVER execute the title. Play is explicitly opt-in.
+# Check/Prepare/Plan/Bind do not run the title entry; Play is opt-in.
 [CmdletBinding()]
 param(
-    [ValidateSet('Check','Prepare','Plan','Play')][string]$Mode = 'Check',
+    [ValidateSet('Check','Prepare','Plan','Bind','Play')][string]$Mode = 'Check',
     [ValidateSet('Auto','ztrx','BelobugAMD')][string]$Backend = 'Auto',
     [string]$Game,
     [switch]$Fast
@@ -55,6 +55,14 @@ if (Test-Path -LiteralPath $gameCandidate -PathType Leaf) {
 $foundGame = ($null -ne $gamePath -and [System.IO.Path]::GetExtension($gamePath) -ieq '.exe')
 $git = Get-Command git -ErrorAction SilentlyContinue
 $cargo = Get-Command cargo -ErrorAction SilentlyContinue
+$portableCargo = Join-Path $isolated '.cargo\bin\cargo.exe'
+if (-not $cargo -and (Test-Path -LiteralPath $portableCargo -PathType Leaf)) {
+    # Isolated Rustup/Cargo roots belong to this project only; no PATH or
+    # system-wide toolchain installation is necessary.
+    $env:CARGO_HOME = Join-Path $isolated '.cargo'
+    $env:RUSTUP_HOME = Join-Path $isolated '.rustup'
+    $cargo = Get-Command $portableCargo -ErrorAction SilentlyContinue
+}
 $checkoutReady = Test-Path -LiteralPath (Join-Path $checkout '.git') -PathType Container
 $exe = if ($Backend -eq 'ztrx') {
     Join-Path $checkout 'target\release\victory.exe'
@@ -135,7 +143,8 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     Fail "Missing upstream binary: $exe. Run -Mode Prepare."
 }
 $extra = if ($Backend -eq 'ztrx') { '' } else { ' --console series-x' }
-Write-Host ('Backend execution: "{0}" run "{1}" --execute{2}' -f $exe, $gamePath, $extra)
+Write-Host ('Backend play command: "{0}" run "{1}" --execute{2}' -f $exe, $gamePath, $extra)
+Write-Host ('Backend bind-only command: "{0}" run "{1}"{2}' -f $exe, $gamePath, $extra)
 if ($Mode -eq 'Plan') {
     Write-Host 'PLAN ONLY: no upstream executable or game code executed.'
     exit 0
@@ -160,14 +169,19 @@ if ($Backend -eq 'ztrx') {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
     }
 }
-Write-Host 'Launching independent upstream process, NOT ScarlettVI native execution.'
+if ($Mode -eq 'Bind') {
+    Write-Host 'BIND ONLY: upstream maps PE and binds imports without --execute; no title entry is started.'
+} else {
+    Write-Host 'PLAY: explicitly launching separate upstream executable, NOT ScarlettVI native HLE.'
+}
+# The upstream verified `run` CLI does not execute the title entry unless
+# --execute is present. Only Play includes it; Bind is mapping diagnostics.
+$runArgs = @('run', $gamePath)
+if ($Mode -eq 'Play') { $runArgs += '--execute' }
+if ($Backend -eq 'BelobugAMD') { $runArgs += @('--console', 'series-x') }
 Push-Location $checkout
 try {
-    if ($Backend -eq 'ztrx') {
-        & $exe run $gamePath --execute
-    } else {
-        & $exe run $gamePath --execute --console series-x
-    }
+    & $exe @runArgs
     $upstreamExitCode = $LASTEXITCODE
 } finally {
     Pop-Location

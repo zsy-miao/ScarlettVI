@@ -15,7 +15,27 @@ Belobug documents three optimization/correctness ideas that are relevant to Scar
 
 ## Verified machine prerequisites
 
-The currently connected Windows machine reports an **NVIDIA GeForce RTX 5060 Ti** and the supplied title executable exists beside the ScarlettVI project. The `Auto` backend therefore selects **ztrx**. Git is installed. **Rust/Cargo is not installed**, so the external runner was not compiled or run. D3D12 feature-level eligibility and actual game compatibility have not been verified on this GPU.
+The connected Windows machine reports an **NVIDIA GeForce RTX 5060 Ti**, and the supplied title executable exists beside the ScarlettVI project. `Auto` therefore selects **ztrx**. Official **Rust 1.98.1 was installed successfully as a project-local portable toolchain** under `.external-compat/.cargo` and `.external-compat/.rustup`, without modifying the system PATH. Its official installer SHA-256 was verified before execution. The ztrx **Release `victory.exe` build succeeded** at upstream Git revision `90b529f878a4`, and its `--help` and read-only PE `inspect` commands passed. Actual game execution, GPU rendering and FPS have **not** been tested on this machine.
+
+## Verified upstream PE-binding result (without game execution)
+
+The locally built NVIDIA/ztrx `victory.exe` at GPL upstream revision `90b529f878a4` successfully ran its own **read-only `inspect`** command against this title. It identified a PE32+ executable with **587 imported symbols from 68 modules**, relocations and **two TLS callbacks**.
+
+The new ScarlettVI `-Mode Bind` was then tested on the same title using `victory.exe run <EXE>` **without `--execute`**. Its actual output ended `not executing (pass --execute to start the title)` and exited **0**, reporting:
+
+| ztrx upstream image | HLE bindings | Host bindings | Title-local bindings | Missing bindings |
+| --- | ---: | ---: | ---: | ---: |
+| Main `game_scarlett_master.exe` | 88 | 427 | 72 | **0** |
+| `XboxBvhBuilder.dll` | 9 | 48 | 0 | **0** |
+| `amd_fidelityfx_loader_xbox.dll` | 4 | 18 | 0 | **0** |
+| `libHttpClient.GDK.dll` | 27 | 171 | 0 | **0** |
+| `Bink2Scarlett.dll` | 6 | 54 | 0 | **0** |
+
+These are **ztrx's own** counts for this specific run and loader, not ScarlettVI native resolver counts. `0 missing` means named imports had callable addresses; it does **not** establish correct GPU/APU/DirectStorage semantics, title entry execution, sound, frames or FPS. ztrx maps patched image copies only in the separate Git-ignored cache; the source game remains unchanged. No title entry was started during these probes.
+
+### Important difference from upstream memory HLE
+
+Read-only MSVC Dumpbin of the supplied title shows a direct `XMemTransferMemory` call at VA `0x14221608E` via thunk `0x145F3FD70`: it passes **kind=1** in ECX and a size rounded to **2 MiB** up to **16 MiB** in RDX, then tests the BOOL result, with a breakpoint on failure. Both checked GPL upstream forks currently implement successful memory transfer only for **kind=0** (`crates/victory-hle/src/modules/xmem.rs`). Blindly copying their kind-0-only policy cannot satisfy this title's observed call. The meaning and budget effect of kind=1 require independently verified host accounting, not a fake-success shim. This is a concrete ScarlettVI-native compatibility task, and no GPL source code was copied.
 
 ## Commands (PowerShell, from ScarlettVI/)
 
@@ -25,7 +45,12 @@ The currently connected Windows machine reports an **NVIDIA GeForce RTX 5060 Ti*
 
 To choose the AMD branch explicitly (on an AMD machine), add `-Backend BelobugAMD`.
 
-**2. Install the official Rust toolchain** from [rustup.rs](https://rustup.rs/) if Cargo is missing, then open a new PowerShell window. The upstream repos pin their Rust toolchain (Belobug specifies 1.98.1); the launcher does not install toolchains automatically.
+**2. Reproducibly install pinned Rust only within `.external-compat` when missing:**
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Install-ScarlettVI-Rust.ps1 -VerifyOnly
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Install-ScarlettVI-Rust.ps1
+
+The first command downloads the **official rust-lang.org Windows installer**, verifies its official SHA-256, and **does not execute it**. The second re-verifies the hash then installs **Rust 1.98.1** into local ignored `CARGO_HOME`/`RUSTUP_HOME` roots with `--no-modify-path`, never requiring a global Rust installation. Both upstream repos pin Rust 1.98.1. The main launcher automatically detects this portable Cargo. This setup was completed on the connected PC; do not needlessly reinstall it.
 
 **3. Prepare only, no game execution:**
 
@@ -39,7 +64,13 @@ This clones the chosen GPL source into the isolated ignored directory, checks th
 
 This checks the exact external checkout origin, build product and title path, then prints the real launch command without starting it or writing saves/caches.
 
-**5. Explicitly use that external backend (only after preparation):**
+**5. Reproduce the real title's full PE import binding without executing its entry point:**
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ScarlettVI-Compat.ps1 -Mode Bind
+
+`Bind` invokes the upstream `victory.exe run <game>` **without `--execute`**. Upstream help explicitly says this stops after binding. It may create patched image-cache copies and separate virtual-storage directories under the ignored `.external-compat` folder; it never writes changes back to the original title. Do not confuse this with game boot or rendering.
+
+**6. Explicitly start the separate upstream executable (only after preparation and if you choose to run the title):**
 
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ScarlettVI-Compat.ps1 -Mode Play
 
@@ -49,7 +80,7 @@ Use `-Game 'D:\my-game-folder\game_scarlett_master.exe'` to choose an existing t
 
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Test-ScarlettVI-Compat.ps1
 
-The test creates a synthetic **data-only** fake `.exe` under the Git-ignored `reports/` folder, checks both explicit backends in `Check` mode, verifies that `Play` refuses a missing game before accessing an upstream program, tests the planned command with a disposable locally generated fake Git checkout and a non-executable text placeholder, and cleans up all fixture-created data. The connected Windows host passed these tests. An attempted `Prepare` without Cargo correctly refused before cloning. No game code was run.
+The test creates a synthetic **data-only** fake `.exe` under the ignored `reports/` folder, checks both explicit backends in `Check` mode and verifies that `Play` refuses a missing game. When `.external-compat` does not exist, it also tests the non-executing `Plan` command with a disposable synthetic Git checkout and **non-executable** placeholder. It never deletes or modifies existing real upstream checkouts, caches or saves. On the connected Windows host the tests passed, and the actual built ztrx checkout also passed `Plan` and `Bind` without starting title code.
 
 ## Boundaries and next native implementation steps
 
