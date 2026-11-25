@@ -138,6 +138,10 @@ constants and zeroed fields with 512 generated checks across three branches
 and 256 lookup-index cases, including bounds, overlap detection, explicit
 coverage metadata and output preservation.
 It does not implement a console import, or enable title execution.
+A new [read-only XG indirect-call survey](XG_VCALL_SURVEY.md) extracts bounded
+128-byte post-create code windows and finds five FF /2 indirect-call byte
+patterns corroborated by Dumpbin at three caller sites. No COM method or
+lifetime interpretation is claimed.
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs
 across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24

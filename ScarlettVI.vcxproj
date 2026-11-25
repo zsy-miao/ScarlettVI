@@ -57,6 +57,8 @@
     <ClCompile Include="src\analysis\xg_callsite_probe.cpp" />
     <ClCompile Include="src\analysis\xg_field_projection.cpp" />
     <ClCompile Include="src\analysis\xg_field_projection_test.cpp" />
+    <ClCompile Include="src\analysis\xg_vcall_candidates.cpp" />
+    <ClCompile Include="src\analysis\xg_vcall_candidates_test.cpp" />
     <ClCompile Include="src\loader\image_mapper.cpp" />
     <ClCompile Include="src\loader\title_modules.cpp" />
     <ClCompile Include="src\runtime\import_router.cpp" />
@@ -85,6 +87,7 @@
     <ClInclude Include="src\pe\pe_file.h" />
     <ClInclude Include="src\analysis\xg_callsite_probe.h" />
     <ClInclude Include="src\analysis\xg_field_projection.h" />
+    <ClInclude Include="src\analysis\xg_vcall_candidates.h" />
     <ClInclude Include="src\loader\image_mapper.h" />
     <ClInclude Include="src\loader\title_modules.h" />
     <ClInclude Include="src\runtime\import_router.h" />

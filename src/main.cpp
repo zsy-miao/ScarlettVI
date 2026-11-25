@@ -1,6 +1,7 @@
 #include "pe/pe_file.h"
 #include "analysis/xg_callsite_probe.h"
 #include "analysis/xg_field_projection.h"
+#include "analysis/xg_vcall_candidates.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -107,6 +108,8 @@ void usage() {
                << L"  ScarlettVI.exe xg-context <title.exe>\n"
                << L"  ScarlettVI.exe xg-calls-fixture\n"
                << L"  ScarlettVI.exe xg-field-fixture\n"
+               << L"  ScarlettVI.exe xg-vcalls-fixture\n"
+               << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
                << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
@@ -137,6 +140,52 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-vcalls-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_indirect_postcall_fixtures();
+            std::cout << "ScarlettVI | generated x64 indirect-call candidate fixture: "
+                      << (passed ? "PASS" : "FAIL") << "\n"
+                      << "Byte patterns, not confirmed XG object methods; "
+                      << "no title code executed.\n";
+            return passed ? 0 : 3;
+        }
+        if (verb == L"xg-vcalls") {
+            if (argc != 3) { usage(); return 2; }
+            const scarlett::PeFile title(argv[2]);
+            scarlett::analysis::XgCallsiteReport report;
+            std::vector<scarlett::analysis::XgCallContext> contexts;
+            if (!scarlett::analysis::probe_xg_callsites(title, report) ||
+                !scarlett::analysis::probe_xg_call_contexts(
+                    title, report, contexts, 0, 128)) {
+                std::cerr << "Read-only XG post-call extraction failed.\n";
+                return 3;
+            }
+            std::vector<scarlett::analysis::XgCallContext> create_contexts;
+            for (const auto& context : contexts)
+                if (context.symbol == "XGCreateTextureComputer")
+                    create_contexts.push_back(context);
+            std::vector<scarlett::analysis::XgIndirectCallCandidate> found;
+            if (!scarlett::analysis::scan_xg_indirect_postcalls(
+                    create_contexts, found)) {
+                std::cerr << "XG indirect-call candidate scan failed.\n";
+                return 3;
+            }
+            std::cout << "ScarlettVI | read-only post-create indirect-call "
+                      << "byte patterns: " << found.size() << "\n";
+            for (const auto& hit : found)
+                std::cout << "  XG call VA 0x" << std::hex
+                          << (report.image_base + hit.source_call_rva)
+                          << " | candidate VA 0x"
+                          << (report.image_base + hit.candidate_rva)
+                          << " | base GPR " << std::dec
+                          << static_cast<unsigned>(hit.base_register)
+                          << " | displacement +0x" << std::hex
+                          << hit.displacement << std::dec << "\n";
+            std::cout << "These are byte-pattern candidates, NOT an instruction "
+                      << "decoder or verified XG object-method ABI.\n";
+            return 0;
+        }
         if (verb == L"xg-field-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

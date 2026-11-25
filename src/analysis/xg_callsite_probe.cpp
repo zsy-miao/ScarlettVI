@@ -199,7 +199,9 @@ bool gather_xg_call_contexts(
 bool probe_xg_call_contexts(
     const scarlett::PeFile& file,
     const XgCallsiteReport& report,
-    std::vector<XgCallContext>& contexts) noexcept {
+    std::vector<XgCallContext>& contexts,
+    size_t before_bytes,
+    size_t after_bytes) noexcept {
     try {
         std::vector<ExecutableBytes> sections;
         for (const auto& section : file.details().sections) {
@@ -212,7 +214,8 @@ bool probe_xg_call_contexts(
                                           section.virtual_size))
             });
         }
-        return gather_xg_call_contexts(sections, report, contexts);
+        return gather_xg_call_contexts(
+            sections, report, contexts, before_bytes, after_bytes);
     } catch (...) {
         return false;
     }

@@ -30,7 +30,11 @@ The helper also branches on source bytes at `+0x06`, `+0x0B`, `+0x0C`, and `+0x0
 
 - All four `XGCreateTextureComputer` callers set RCX to prepared descriptor storage and RDX to an output-pointer location. Two capture EAX and branch on its sign after the call, consistent with—but not proof of—HRESULT-style failure handling.
 - Both `XGSuggestSwizzleMode` callers zero EDX immediately before the import. One also copies RAX into R8 before calling. Each copies EAX into ECX after returning and passes control to a shared helper; this does **not** establish what the return value means.
-- Returned texture-computer pointers are used for indirect method calls in some success paths. The dispatch-table layout, methods and memory ownership remain unverified; treating the object as ordinary desktop COM without proof would be unsafe.
+- Returned texture-computer pointers are used for indirect method calls in some success paths. The [read-only indirect-call survey](XG_VCALL_SURVEY.md) independently
+reproduces five indirect-call instruction locations with `+0x08`, `+0x10`
+and `+0x50` displacements; the full dispatch-table layout, method semantics
+and memory ownership remain unverified. Treating the object as ordinary
+desktop COM without proof would be unsafe.
 
 ## Decision and next checks
 

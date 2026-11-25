@@ -52,7 +52,9 @@ bool gather_xg_call_contexts(
 bool probe_xg_call_contexts(
     const scarlett::PeFile& file,
     const XgCallsiteReport& report,
-    std::vector<XgCallContext>& contexts) noexcept;
+    std::vector<XgCallContext>& contexts,
+    size_t before_bytes = 96,
+    size_t after_bytes = 48) noexcept;
 bool verify_xg_context_fixtures() noexcept;
 // Pure scanner for generated fixtures or independently validated PE sections.
 // Reports RIP-relative FF25 import stubs and E8 rel32 call-site candidates.

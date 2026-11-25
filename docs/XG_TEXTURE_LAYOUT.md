@@ -28,7 +28,10 @@ Independent read-only analysis of `game_scarlett_master.exe` found four direct c
 | `0x1416F7141` | RCX points to a descriptor copied into local stack storage, RDX to an output pointer; the caller processes texture format/dimensions |
 | `0x145121A5E` | RCX points to a prepared descriptor; RDX to an output pointer; HRESULT checked and returned-object vtable methods invoked |
 
-Two direct calls to `XGSuggestSwizzleMode` appear at `0x140C4B3CE` and `0x144ECCCA2` in routines working with texture format fields. Their full arguments, layout flags, true swizzle enumerations and error behavior are **not established**. A vtable pointer does not prove that its Xbox object implements a standard Windows COM interface. Neither Xbox import is bound to guessed host behavior.
+Two direct calls to `XGSuggestSwizzleMode` appear at `0x140C4B3CE` and `0x144ECCCA2` in routines working with texture format fields. Their full arguments, layout flags, true swizzle enumerations and error behavior are **not established**. The new [indirect-call candidate survey](XG_VCALL_SURVEY.md) records five
+post-creation calls with `+0x08`, `+0x10` and `+0x50` displacements.
+A vtable pointer does not prove that its Xbox object implements a standard
+Windows COM interface. Neither Xbox import is bound to guessed host behavior.
 
 ## Public documentation for context, not a binary ABI guarantee
 
