@@ -23,13 +23,25 @@ struct FileOwner {
 struct FixtureRoot {
     fs::path dir;
     fs::path file;
+    fs::path nested_dir;
+    fs::path nested_file;
+    fs::path symbolic_directory;
+    fs::path outside_file;
     bool created = false;
     ~FixtureRoot() {
         clear_dstorage_file_fixture_root();
         if (created) {
             std::error_code error;
+            if (!symbolic_directory.empty())
+                fs::remove(symbolic_directory, error);
+            if (!nested_file.empty()) fs::remove(nested_file, error);
+            if (!nested_dir.empty()) {
+                fs::remove(nested_dir, error);
+                fs::remove(nested_dir.parent_path(), error);
+            }
             fs::remove(file, error);
             fs::remove(dir, error);
+            if (!outside_file.empty()) fs::remove(outside_file, error);
         }
     }
 };
@@ -73,6 +85,17 @@ bool verify_dstorage_file_fixture() noexcept {
                               static_cast<std::streamsize>(expected.size())))
                 return false;
         }
+        // Generated nested asset directory: no title assets are mounted.
+        cleanup.nested_dir = cleanup.dir / L"packs" / L"level1";
+        if (!fs::create_directories(cleanup.nested_dir)) return false;
+        cleanup.nested_file = cleanup.nested_dir / L"sample.bin";
+        {
+            std::ofstream stream(cleanup.nested_file, std::ios::binary);
+            if (!stream ||
+                !stream.write(reinterpret_cast<const char*>(expected.data()),
+                              static_cast<std::streamsize>(expected.size())))
+                return false;
+        }
         if (configure_dstorage_file_fixture_root(cleanup.dir) != S_OK ||
             configure_dstorage_file_fixture_root(cleanup.dir) !=
                 HRESULT_FROM_WIN32(ERROR_BUSY)) return false;
@@ -84,10 +107,16 @@ bool verify_dstorage_file_fixture() noexcept {
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
         if (factory.p->OpenFile(L"generated.bin", invalid, &out) !=
                 E_NOINTERFACE || out) return false;
-        constexpr std::array<const wchar_t*, 10> bad{
+        constexpr std::array<const wchar_t*, 25> bad{
             L"", L".", L"..", L"..\\generated.bin", L"../generated.bin",
             L"C:generated.bin", L"CON.bin", L"foo.", L"foo bar.bin",
-            L"generated.bin:secret"};
+            L"generated.bin:secret", L"\\generated.bin", L"/generated.bin",
+            L"//server/share", L"packs//level1/sample.bin",
+            L"packs\\\\level1\\sample.bin", L"packs\\", L"packs/",
+            L"packs\\.\\level1\\sample.bin", L"packs\\..\\generated.bin",
+            L"packs\\CON.txt", L"packs\\lpt0.txt",
+            L"packs\\level1\\AUX.txt", L"packs\\level1\\foo.",
+            L"packs\\level1\\name:stream", L"packs\\level1\\foo bar"};
         for (const wchar_t* path : bad) {
             out = reinterpret_cast<void*>(uintptr_t{0x1234});
             if (factory.p->OpenFile(path, kObservedXboxDStorageFileIid,
@@ -97,6 +126,63 @@ bool verify_dstorage_file_fixture() noexcept {
         if (factory.p->OpenFile(L"absent.bin",
                 kObservedXboxDStorageFileIid, &out) !=
                 HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) || out) return false;
+
+        // The fixture VFS accepts bounded nested slash/backslash paths,
+        // but it does not permit drive syntax, traversal or device names.
+        for (const wchar_t* guest_path :
+             {L"packs\\level1\\sample.bin", L"packs/level1/sample.bin",
+              L"packs\\level1/sample.bin"}) {
+            FileOwner nested{};
+            if (factory.p->OpenFile(
+                    guest_path, kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&nested.p)) != S_OK ||
+                !nested.p) return false;
+            HANDLE h = nested.p->GetHandle();
+            if (h == INVALID_HANDLE_VALUE) return false;
+            std::vector<uint8_t> bytes(expected.size());
+            DWORD got = 0;
+            const bool exact = ReadFile(
+                    h, bytes.data(), static_cast<DWORD>(bytes.size()),
+                    &got, nullptr) &&
+                got == bytes.size() && bytes == expected;
+            CloseHandle(h);
+            if (!exact) return false;
+        }
+        out = reinterpret_cast<void*>(uintptr_t{0x1234});
+        const std::wstring too_deep = L"a\\b\\c\\d\\e\\f\\g\\h\\i.bin";
+        if (factory.p->OpenFile(too_deep.c_str(),
+                kObservedXboxDStorageFileIid, &out) != E_INVALIDARG ||
+            out) return false;
+        out = reinterpret_cast<void*>(uintptr_t{0x1234});
+        const std::wstring too_long(241, L'a');
+        if (factory.p->OpenFile(too_long.c_str(),
+                kObservedXboxDStorageFileIid, &out) != E_INVALIDARG ||
+            out) return false;
+
+        // If Windows allows an unprivileged directory symlink, try
+        // traversing it to a generated test file OUTSIDE the mount.
+        // The opened file's canonical HANDLE path must reject escape.
+        fs::create_directories(L"reports");
+        const std::wstring outside_name =
+            L"dstorage_escape_" +
+            std::to_wstring(GetCurrentProcessId()) + L".bin";
+        cleanup.outside_file = fs::path(L"reports") / outside_name;
+        {
+            std::ofstream stream(cleanup.outside_file, std::ios::binary);
+            if (!stream || !stream.put('z')) return false;
+        }
+        cleanup.symbolic_directory = cleanup.dir / L"link";
+        const fs::path external = fs::absolute(L"reports");
+        if (CreateSymbolicLinkW(cleanup.symbolic_directory.c_str(),
+                external.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY |
+                SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            const std::wstring escape = L"link\\" + outside_name;
+            if (factory.p->OpenFile(
+                    escape.c_str(), kObservedXboxDStorageFileIid,
+                    &out) != HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED) ||
+                out) return false;
+        }
 
         // Exercise raw COM vtable slot +0x20, not just the C++ declaration.
         auto** vtable = *reinterpret_cast<void***>(factory.p);

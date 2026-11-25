@@ -99,7 +99,14 @@ Xbox physical-page arrays and title asset streaming remain unsupported.
 The [actual Xbox status-array COM interface](docs/XBOX_DSTORAGE_STATUS_ARRAY.md)
 now works through the corrected factory vtable slot `+0x28`, and its
 status entries receive verified S_OK/error results from host file-I/O
-barriers. A new [read-only DirectStorage file COM adapter](docs/XBOX_DSTORAGE_FILE_HOST.md) now opens verified generated files through the correctly placed `OpenFile` slot `+0x20`. It remains disabled outside an explicitly configured test root: guest filesystem routing and asset streaming are not implemented.
+barriers. The [read-only DirectStorage file COM adapter](docs/XBOX_DSTORAGE_FILE_HOST.md)
+now accepts bounded **nested generated-file paths** through the verified
+`OpenFile +0x20` slot. It checks every component, blocks traversal and
+Windows devices, and validates the opened handle's final resolved path
+against the opt-in fixture root. The queue now verifies real nested-file
+readback through `IDStorageFileX` and `ReOpenFile`, without weakening the
+separate single-leaf direct host queue. Actual title VFS mounts and game
+asset streaming remain unsupported.
 
 The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial

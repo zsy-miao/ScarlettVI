@@ -14,8 +14,10 @@ struct HostDStorageFileX : public IUnknown {
 };
 
 // A fixture-only, explicitly configured HOST trust root. Unconfigured
-// guest OpenFile calls continue to fail closed with E_NOTIMPL. No title
-// directory is mounted and no game assets are opened.
+// guest OpenFile calls continue to fail closed with E_NOTIMPL. Only
+// bounded, relative generated-file paths (up to eight components) are
+// accepted after the root is set. Opened handle paths must resolve inside
+// that root. No title directory or actual console volume is mounted.
 HRESULT configure_dstorage_file_fixture_root(
     const std::filesystem::path& trusted_root) noexcept;
 void clear_dstorage_file_fixture_root() noexcept;
@@ -23,7 +25,7 @@ void clear_dstorage_file_fixture_root() noexcept;
 HRESULT snapshot_dstorage_file_fixture_root(
     std::filesystem::path& output) noexcept;
 HRESULT open_host_dstorage_file(
-    const wchar_t* leaf, REFIID iid, void** output) noexcept;
+    const wchar_t* relative_path, REFIID iid, void** output) noexcept;
 // HOST-ONLY: reopen a ScarlettVI-owned live file object for an independent
 // synchronous read position. The caller owns and must CloseHandle the result.
 // Unknown/closed COM objects fail without dereferencing untrusted pointers.

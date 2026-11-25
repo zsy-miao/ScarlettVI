@@ -76,11 +76,17 @@ struct TripleAliasFixture {
 struct FileFixture {
     fs::path root;
     fs::path file;
+    fs::path nested;
     bool created = false;
     ~FileFixture() {
         clear_dstorage_file_fixture_root();
         if (!created) return;
         std::error_code ec;
+        if (!nested.empty()) {
+            fs::remove(nested, ec);
+            fs::remove(nested.parent_path(), ec);
+            fs::remove(nested.parent_path().parent_path(), ec);
+        }
         fs::remove(file, ec);
         fs::remove(root, ec);
     }
@@ -141,6 +147,19 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             data[i] = static_cast<uint8_t>(((i*37u) ^ (i >> 4u) ^ 0x8bu) & 255u);
         {
             std::ofstream stream(cleanup.file, std::ios::binary);
+            if (!stream ||
+                !stream.write(reinterpret_cast<const char*>(data.data()),
+                              static_cast<std::streamsize>(data.size())))
+                return false;
+        }
+        // Generate a second identical file in a synthetic nested mount
+        // to verify full queue readback, not merely a file-open handle.
+        cleanup.nested = cleanup.root / L"packs" / L"batch" /
+                         L"generated.bin";
+        if (!fs::create_directories(cleanup.nested.parent_path()))
+            return false;
+        {
+            std::ofstream stream(cleanup.nested, std::ios::binary);
             if (!stream ||
                 !stream.write(reinterpret_cast<const char*>(data.data()),
                               static_cast<std::streamsize>(data.size())))
@@ -231,7 +250,7 @@ bool verify_dstorage_queue_com_fixture() noexcept {
         // DirectStorage FILE COM object rather than a filename lookup.
         // ReOpenFile provides independent file positions across producers.
         HostDStorageFileX* source = nullptr;
-        if (factory.ptr->OpenFile(L"generated.bin",
+        if (factory.ptr->OpenFile(L"packs/batch/generated.bin",
                 kObservedXboxDStorageFileIid,
                 reinterpret_cast<void**>(&source)) != S_OK ||
             !source) return false;

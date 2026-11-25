@@ -101,9 +101,12 @@ Measured working address bindings:
   disabled by default. `CreateQueue1` now also returns a
   [fixture-only queue COM object](XBOX_DSTORAGE_QUEUE_COM.md) for verified
   generated reads and status barriers, including safe independently
-  reopened handles from fixture-rooted file COM objects. Normal title
-  paths, guest-owned destination memory and full Xbox queue features
-  remain blocked; a [generated-buffer request subset](XBOX_DSTORAGE_REQUEST_ABI.md)
+  reopened handles from fixture-rooted file COM objects. The
+  [file COM adapter](XBOX_DSTORAGE_FILE_HOST.md) now supports validated
+  nested paths with final-handle root containment, and the queue fixture
+  reads actual generated nested files via the owned file object. Normal
+  Xbox title paths, general guest memory and full Xbox queues remain
+  blocked; a [generated-buffer request subset](XBOX_DSTORAGE_REQUEST_ABI.md)
   now tests real file-to-host-memory copies through queue vtable `+0x18`.
   A separate [bounded multi-page pinned XMem CPU-alias bridge](XBOX_DSTORAGE_CPU_ALIAS.md)
   verifies three-page mapped writeback, all-or-nothing page pin admission,

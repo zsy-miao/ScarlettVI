@@ -1,6 +1,7 @@
 #include "dstorage_file_host.h"
 #include <atomic>
 #include <cwctype>
+#include <vector>
 #include <limits>
 #include <mutex>
 #include <new>
@@ -21,9 +22,9 @@ HRESULT from_last_error() noexcept {
     return HRESULT_FROM_WIN32(error ? error : ERROR_GEN_FAILURE);
 }
 
-// Single leaf only: reject directory escapes, ADS, Windows device names,
-// trailing dot/space and all non-ASCII punctuation. This permits generated
-// test data without inferring title-specific virtual filesystem semantics.
+// Each component rejects directory escapes, ADS, Windows device names,
+// trailing dot/space and all non-ASCII punctuation. Relative paths here
+// are generated-test paths, not verified Xbox VFS syntax.
 bool valid_leaf(const std::wstring& leaf) {
     if (leaf.empty() || leaf.size() > 96 || leaf == L"." ||
         leaf == L".." || leaf.back() == L'.')
@@ -43,9 +44,52 @@ bool valid_leaf(const std::wstring& leaf) {
         return false;
     if (stem.size() == 4 &&
         (stem.starts_with(L"COM") || stem.starts_with(L"LPT")) &&
-        stem[3] >= L'1' && stem[3] <= L'9')
+        stem[3] >= L'0' && stem[3] <= L'9')
         return false;
     return true;
+}
+
+// Convert a bounded generated guest relative path into individually
+// validated Windows components. This is NOT verified Xbox VFS syntax.
+bool parse_fixture_relative_path(
+    const std::wstring& raw, std::filesystem::path& relative) {
+    relative.clear();
+    if (raw.empty() || raw.size() > 240) return false;
+    size_t start = 0;
+    unsigned depth = 0;
+    for (size_t i = 0; i <= raw.size(); ++i) {
+        if (i != raw.size() && raw[i] != L'/' && raw[i] != L'\\')
+            continue;
+        if (i == start || ++depth > 8) return false;
+        const std::wstring segment = raw.substr(start, i - start);
+        if (!valid_leaf(segment)) return false;
+        relative /= segment;
+        start = i + 1;
+    }
+    return true;
+}
+
+// Final HANDLE identity, not lexical pre-open paths, protects against
+// junctions and symlinks replacing an intermediate directory.
+bool final_path_of_handle(HANDLE handle, std::wstring& result) {
+    result.clear();
+    const DWORD needed = GetFinalPathNameByHandleW(
+        handle, nullptr, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (!needed || needed > 32767) return false;
+    std::vector<wchar_t> buffer(static_cast<size_t>(needed) + 1);
+    const DWORD written = GetFinalPathNameByHandleW(
+        handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (!written || written >= buffer.size()) return false;
+    result.assign(buffer.data(), written);
+    return true;
+}
+bool final_path_under_root(const std::wstring& root,
+                           const std::wstring& file) noexcept {
+    if (root.empty() || file.size() <= root.size() ||
+        file.compare(0, root.size(), root) != 0)
+        return false;
+    return root.back() == L'\\' || file[root.size()] == L'\\';
 }
 
 class HostFile final : public HostDStorageFileX {
@@ -147,15 +191,28 @@ HRESULT configure_dstorage_file_fixture_root(
     const std::filesystem::path& trusted_root) noexcept {
     try {
         const auto absolute = std::filesystem::absolute(trusted_root);
-        const DWORD attributes = GetFileAttributesW(absolute.c_str());
-        if (attributes == INVALID_FILE_ATTRIBUTES ||
-            !(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
-            (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        HANDLE directory = CreateFileW(
+            absolute.c_str(), FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            nullptr);
+        if (directory == INVALID_HANDLE_VALUE)
+            return from_last_error();
+        FILE_ATTRIBUTE_TAG_INFO info{};
+        std::wstring resolved;
+        const bool valid = GetFileInformationByHandleEx(
+                directory, FileAttributeTagInfo, &info, sizeof(info)) &&
+            (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            !(info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+            final_path_of_handle(directory, resolved);
+        CloseHandle(directory);
+        if (!valid)
             return HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER);
         std::lock_guard lock(root_mutex);
         if (!configured_root.empty())
             return HRESULT_FROM_WIN32(ERROR_BUSY);
-        configured_root = absolute;
+        configured_root = std::filesystem::path(resolved);
         return S_OK;
     } catch (...) {
         return E_OUTOFMEMORY;
@@ -180,7 +237,7 @@ HRESULT snapshot_dstorage_file_fixture_root(
 }
 
 HRESULT open_host_dstorage_file(
-    const wchar_t* leaf, REFIID iid, void** output) noexcept {
+    const wchar_t* relative_path, REFIID iid, void** output) noexcept {
     if (!output) return E_POINTER;
     *output = nullptr;
     try {
@@ -192,13 +249,15 @@ HRESULT open_host_dstorage_file(
         }
         if (!IsEqualGUID(iid, kObservedXboxDStorageFileIid))
             return E_NOINTERFACE;
-        if (!leaf) return E_INVALIDARG;
-        const size_t length = wcsnlen_s(leaf, 97);
-        if (!length || length > 96)
+        if (!relative_path) return E_INVALIDARG;
+        const size_t length = wcsnlen_s(relative_path, 241);
+        if (!length || length > 240)
             return E_INVALIDARG;
-        const std::wstring filename(leaf, length);
-        if (!valid_leaf(filename)) return E_INVALIDARG;
-        const auto absolute = root / filename;
+        std::filesystem::path relative;
+        if (!parse_fixture_relative_path(
+                std::wstring(relative_path, length), relative))
+            return E_INVALIDARG;
+        const auto absolute = root / relative;
         HANDLE handle = CreateFileW(
             absolute.c_str(), GENERIC_READ, FILE_SHARE_READ,
             nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
@@ -213,6 +272,19 @@ HRESULT open_host_dstorage_file(
         }
         if (info.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY |
                                    FILE_ATTRIBUTE_REPARSE_POINT)) {
+            CloseHandle(handle);
+            return HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED);
+        }
+        std::wstring resolved;
+        if (!final_path_of_handle(handle, resolved)) {
+            const HRESULT failure = from_last_error();
+            CloseHandle(handle);
+            return failure;
+        }
+        // Validate the final opened object after all symlink/junction
+        // resolution. An intermediate reparse point leading outside
+        // our trusted fixture directory must never escape the mount.
+        if (!final_path_under_root(root.wstring(), resolved)) {
             CloseHandle(handle);
             return HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED);
         }

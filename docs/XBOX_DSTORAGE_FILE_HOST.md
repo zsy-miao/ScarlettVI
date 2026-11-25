@@ -19,9 +19,20 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
   still returns `E_NOTIMPL` for file opens; no console/game filesystem is mounted.
 - The `storage-file-fixture` explicitly configures a directory containing only
   generated test data. The trusted root must be an existing, non-reparse directory.
-- A guest-style filename must be a single ASCII leaf of at most 96 characters.
-  Traversal, drive/ADS syntax, reserved device names and other unsafe characters
-  are refused. Read-only CreateFileW excludes file/directory reparse targets.
+- A generated relative fixture path can now contain **1–8 ASCII components**
+  (96 characters per component, 240 total). Both forward and backward
+  separators are accepted. Empty/doubled/trailing separators, dot segments,
+  absolute/drive/UNC paths, alternate streams, reserved DOS device names
+  (including COM0/LPT0), and unsafe punctuation are rejected.
+- The trusted root is opened as a Windows directory handle, validated as
+  non-reparse and normalized using `GetFinalPathNameByHandleW`. After
+  `CreateFileW`, the **opened file handle's resolved path** must be strictly
+  inside that root. This also rejects intermediate symlink/junction escapes.
+  Directory and reparse targets are rejected as final file objects.
+- The separate host-only direct async queue intentionally remains
+  **single-leaf only**. Nested files reach its worker through the validated
+  `IDStorageFileX` object and independent `ReOpenFile` handles; there is no
+  second permissive direct-read path parser. No actual Xbox volume is mounted.
 - Each successful `OpenFile` owns a real read-only Windows file handle. The
   returned `GetHandle` value is a duplicated Windows handle that the caller
   closes independently, even after the COM object has been explicitly closed.
@@ -50,11 +61,18 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
 The file and [queue COM fixture](XBOX_DSTORAGE_QUEUE_COM.md) verify
 real generated-file reads, source-object lifetime and independent handle
 positions without interpreting Xbox `DSTORAGE_REQUEST` structures.
-The new fixture verifies actual generated-file reads, raw factory OpenFile
-vtable dispatch, exact COM IID, independent duplicated handles, error propagation,
-missing and malformed paths, reference lifecycle, staging interlocks and
-parallel opens. The real game binary is only inspected in the separate
-readiness command: no title code is executed and no game data is changed.
+The expanded fixture verifies exact reads from generated single-leaf and
+nested `packs/level1/sample.bin` files, including mixed separators,
+traversal, DOS device names, overlong paths, and nine-component paths.
+Where Windows allows test-created directory symbolic links, it also checks
+that a nested link leading outside the root is refused. The original raw
+COM dispatch, IID, independent handles, staging leases, file lifecycle,
+and parallel-open tests continue to pass. The queue fixture opens
+`packs/batch/generated.bin` through file COM and performs real readback
+through queue submit and status markers.
 
-**Remaining blocker:** eight Xbox import references (CHAD 5, XAPU 1, XG 2),
-plus verified guest queue, filesystem, graphics, audio and process lifecycle.
+**Remaining blockers:** native Xbox VFS mount semantics and asset paths,
+real GPU texture/command behavior, audio streams, full memory translation,
+and process initialization. The import address count is zero, but many
+bindings are partial or error-only. Title execution is still BLOCKED.
+No protected game files are modified or executed by these fixtures.

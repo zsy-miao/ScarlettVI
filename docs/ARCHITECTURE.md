@@ -80,9 +80,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   array](XBOX_DSTORAGE_STATUS_ARRAY.md) now uses the corrected factory
   `+0x28` method and receives real S_OK/first-failure results from
   host-only FIFO barriers. An explicitly [fixture-rooted read-only file COM
-  adapter](XBOX_DSTORAGE_FILE_HOST.md) now opens genuine generated files,
+  adapter](XBOX_DSTORAGE_FILE_HOST.md) now opens generated **nested relative**
+  fixture paths, checking each component and the final opened file handle
+  for trusted-root containment (including symlink/junction escapes). It
   duplicates read handles and holds staging leases until final Release;
-  normal guest paths remain disabled. A [fixture-only queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md)
+  actual Xbox volumes and title asset paths remain disabled. A [fixture-only queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md)
   now links the observed `CreateQueue1` IID to the real host worker and
   status-array barriers. It now also reads test-only factory-created file
   COM objects through independent Win32 `ReOpenFile` handles, surviving

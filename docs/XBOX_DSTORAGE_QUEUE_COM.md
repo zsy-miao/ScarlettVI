@@ -43,10 +43,12 @@ Do not enable actual title asset loads on this partial evidence.
   batch. The queue supports both manual submission and the 32-request
   automatic threshold, consistent with the existing host-only scheduler.
 - Internal-only test hooks can queue genuine Win32 reads of **generated
-  host files**, either by validated leaf name or by a ScarlettVI-owned
-  `IDStorageFileX` object. The file-object route now calls `ReOpenFile`
-  for an independent read position and transfers that handle into the
-  bounded worker. Already-admitted reads continue after source `Close`
+  host files**, either by a single validated leaf (direct host helper)
+  or by a ScarlettVI-owned `IDStorageFileX` object. The latter now
+  supports **nested relative paths** only after the file COM layer
+  validates all components and the final file handle's trusted-root
+  containment. It calls `ReOpenFile` for an independent read position
+  and transfers that handle into the bounded worker. Already-admitted reads continue after source `Close`
   and final `Release`. No Xbox guest request buffer is interpreted.
 - The status array reports S_OK, the first actual I/O error, and an
   independent reset at each barrier. The worker now auto-retires completed
@@ -107,5 +109,6 @@ Microsoft describes independent handles through
 
 **Remaining native startup blockers:** guest request packing/ownership,
 guest filesystem and storage semantics, Xbox GPU resource/command ABI,
-audio/XAPU/CHAD, process initialization and eight unresolved Xbox import
-references. Running these host tests does not execute the game.
+audio stream operation, and process initialization. Import addresses
+are all linked but many are error-only or partial. Running these host
+tests does not execute the game.
