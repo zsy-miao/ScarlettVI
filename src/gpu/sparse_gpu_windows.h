@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <cstdint>
 #include <map>
+#include <span>
 #include <vector>
 
 namespace scarlett::gpu {
@@ -56,6 +57,16 @@ public:
     HRESULT map_tiles(ID3D12CommandQueue* queue, size_t window_index,
                       uint64_t byte_offset, ID3D12Heap* heap,
                       uint32_t first_heap_tile, uint32_t tile_count) noexcept;
+    // One native UpdateTileMappings call maps consecutive guest tiles to
+    // independently selected physical heap indices inside ONE native
+    // reserved resource segment. Never crosses a 4GiB native boundary.
+    // Caller must fence this queue before reading or retiring the heap.
+    HRESULT map_tile_selection(
+        ID3D12CommandQueue* queue, size_t window_index,
+        uint64_t byte_offset, ID3D12Heap* heap,
+        std::span<const uint32_t> selected_heap_tiles) noexcept;
+    uint64_t native_map_update_calls() const noexcept { return map_updates_; }
+    uint64_t native_unmap_update_calls() const noexcept { return unmap_updates_; }
     HRESULT unmap_tiles(ID3D12CommandQueue* queue, size_t window_index,
                         uint64_t byte_offset, uint32_t tile_count) noexcept;
 
@@ -73,5 +84,7 @@ private:
     GuestAddressSpace addresses_;
     uint32_t gpu_va_bits_ = 0;
     uint32_t resource_bits_ = 0;
+    uint64_t map_updates_ = 0;
+    uint64_t unmap_updates_ = 0;
 };
 } // namespace scarlett::gpu

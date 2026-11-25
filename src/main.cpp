@@ -116,6 +116,7 @@ void usage() {
                << L"  ScarlettVI.exe memory-sparse\n"
                << L"  ScarlettVI.exe gpu-sparse-va\n"
                << L"  ScarlettVI.exe gpu-tile-map\n"
+               << L"  ScarlettVI.exe gpu-tile-batch\n"
                << L"  ScarlettVI.exe gpu-xmem-tiles\n"
                << L"  ScarlettVI.exe gpu-page-registry\n"
                << L"  ScarlettVI.exe gpu-texture-layout\n"
@@ -202,6 +203,26 @@ int wmain(int argc, wchar_t** argv) {
                       << "Original synthetic 8x8 Morton microtiles, NOT Xbox"
                       << " XG swizzle or console texture descriptors.\n";
             return SUCCEEDED(hr) ? 0 : 3;
+        }
+        if (verb == L"gpu-tile-batch") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            const HRESULT hr = gpu.tile_batch_mapping_test();
+            const bool pass = SUCCEEDED(hr) &&
+                gpu.submitted_commands() == 2 &&
+                gpu.tile_mapping_updates() == 4 &&
+                gpu.tile_unmapping_updates() == 4;
+            std::wcout << L"ScarlettVI | native D3D12 multi-range tile mapping: "
+                       << (pass ? L"PASS" : L"FAIL")
+                       << L"\nGPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "Four 64KiB physical tiles / two distant guest aliases"
+                      << " | verified GPU copies: " << gpu.submitted_commands()
+                      << " | native map calls: " << gpu.tile_mapping_updates()
+                      << " | native unmap calls: " << gpu.tile_unmapping_updates()
+                      << " | HRESULT: 0x" << std::hex
+                      << static_cast<uint32_t>(hr) << std::dec << "\n"
+                      << "Host D3D12 tile mapping only; not Xbox GPU page tables.\n";
+            return pass ? 0 : 3;
         }
         if (verb == L"gpu-tile-map") {
             if (argc != 2) { usage(); return 2; }

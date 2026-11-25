@@ -51,6 +51,16 @@ The expanded [GPU fence-failure test](GPU_FENCE_RECOVERY.md) then injects synthe
 
 **Measured on RTX 5060 Ti in x64 Release:** PASS, **4 frames, 8 CPU aliases, 8 real GPU tile mappings backed by 4 distinct 64 KiB tiles in one 4 MiB D3D12 heap**, 17 successfully completed 64 KiB GPU transfers in 10 `ExecuteCommandLists` calls (two deliberately interrupted after submission) on 1 shared queue, verified heap-slot reuse, fault-retirement retries, zero leaked CPU pages/pins, zero remaining GPU mappings and heap allocations after clear, HRESULT 0x0.
 
+## Native batched GPU tile mapping foundation
+
+The independently tested [GPU tile selection helper](GPU_TILE_BATCH.md)
+can map multiple consecutive logical tiles to noncontiguous physical
+heap indices with one native `UpdateTileMappings` call per D3D12 reserved
+resource. It has **not yet been wired into `bind`**, whose existing per-frame
+fences and pinned CPU VA lifetime remain unchanged. Future batch binding
+must first validate and pin all frames, group by actual D3D12 segment,
+and retain those pins until every native map/unmap is acknowledged.
+
 ## Remaining blockers
 
 This is an internal Windows host resource registry, not an Xbox page-table bridge. ScarlettVI still needs real Xbox D3D12_XS/XG GPU memory semantics, correct CPU/GPU coherency, texture swizzle/console shader translation, audio/storage services and safe process startup. The supplied game was never executed or modified. Its read-only readiness report continues to show **25 unresolved Xbox imports** and a **BLOCKED** title-execution gate.

@@ -30,6 +30,9 @@ public:
     // Real Windows D3D12 UpdateTileMappings on two large sparse GPU
     // resources backed by one 64KiB heap tile, verified by GPU readback.
     HRESULT tiled_buffer_alias_test();
+    // Four independently indexed physical heap tiles are mapped to one
+    // contiguous guest region per native D3D12 resource in one API call.
+    HRESULT tile_batch_mapping_test();
     // Explicit 64KiB XMem CPU page -> real sparse GPU tile -> readback ->
     // XMem alias staging, with completed D3D12 fences. This is NOT coherent
     // unified console memory and does not emulate XMemTransferMemory.
@@ -60,6 +63,8 @@ public:
         return registry_queue_submissions_;
     }
     uint64_t staged_completed_fence() const noexcept { return staged_completed_fence_; }
+    uint64_t tile_mapping_updates() const noexcept { return tile_mapping_updates_; }
+    uint64_t tile_unmapping_updates() const noexcept { return tile_unmapping_updates_; }
     uint64_t completed_fence() const noexcept { return fence_ ? fence_->GetCompletedValue() : 0; }
 
 private:
@@ -88,6 +93,8 @@ private:
     uint64_t submitted_ = 0;
     uint64_t registry_queue_submissions_ = 0;
     uint64_t staged_completed_fence_ = 0;
+    uint64_t tile_mapping_updates_ = 0;
+    uint64_t tile_unmapping_updates_ = 0;
     HRESULT last_error_ = S_OK;
 };
 

@@ -16,6 +16,8 @@ void SparseGpuWindows::clear() noexcept {
     retired_heaps_.clear();
     gpu_va_bits_ = 0;
     resource_bits_ = 0;
+    map_updates_ = 0;
+    unmap_updates_ = 0;
 }
 
 HRESULT SparseGpuWindows::initialize(ID3D12Device11* device,
@@ -170,6 +172,74 @@ HRESULT SparseGpuWindows::map_tiles(ID3D12CommandQueue* queue,
     queue->UpdateTileMappings(resource, 1, &coord, &region, heap, 1,
                               &flags, &offset, &count,
                               D3D12_TILE_MAPPING_FLAG_NONE);
+    ++map_updates_;
+    return S_OK;
+}
+
+HRESULT SparseGpuWindows::map_tile_selection(
+    ID3D12CommandQueue* queue, size_t index, uint64_t byte_offset,
+    ID3D12Heap* heap, std::span<const uint32_t> physical_tiles) noexcept {
+    if (!queue || !heap) return E_POINTER;
+    const size_t count = physical_tiles.size();
+    if (index >= windows_.size() || count == 0 || count > 4096 ||
+        byte_offset % tile_bytes) return E_INVALIDARG;
+
+    uint64_t local_offset = 0;
+    ID3D12Resource* resource = tile_resource(index, byte_offset, &local_offset);
+    if (!resource || local_offset % tile_bytes) return E_INVALIDARG;
+    auto& window = windows_[index];
+    const auto& segment = window.segments[
+        static_cast<size_t>(byte_offset / segment_bytes)];
+    const uint64_t total_bytes = count * tile_bytes;
+    if (total_bytes > window.bytes - byte_offset ||
+        total_bytes > segment.bytes - local_offset ||
+        heap->GetDesc().SizeInBytes % tile_bytes)
+        return E_INVALIDARG;
+
+    const uint64_t heap_capacity = heap->GetDesc().SizeInBytes / tile_bytes;
+    const uint64_t global_start = byte_offset / tile_bytes;
+    auto& mappings = window.mapped_tiles;
+    for (size_t i = 0; i < count; ++i) {
+        if (physical_tiles[i] >= heap_capacity) return E_INVALIDARG;
+        if (mappings.contains(global_start + i))
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
+        // Each virtual tile refers to a separate physical tile in this API.
+        for (size_t j = 0; j < i; ++j)
+            if (physical_tiles[i] == physical_tiles[j])
+                return E_INVALIDARG;
+    }
+
+    // One native D3D12 call, with one guest region and N physical ranges.
+    // Allocate all tracking entries before enqueueing UpdateTileMappings(void).
+    std::vector<D3D12_TILE_RANGE_FLAGS> flags;
+    std::vector<UINT> heap_offsets;
+    std::vector<UINT> range_counts;
+    try {
+        flags.assign(count, D3D12_TILE_RANGE_FLAG_NONE);
+        heap_offsets.assign(physical_tiles.begin(), physical_tiles.end());
+        range_counts.assign(count, 1u);
+        for (size_t i = 0; i < count; ++i) {
+            Window::TileMapping mapping{};
+            mapping.heap = heap; // retain backing heap until ordered unmap fence
+            mapping.heap_tile = physical_tiles[i];
+            mappings.emplace(global_start + i, std::move(mapping));
+        }
+    } catch (...) {
+        for (size_t i = 0; i < count; ++i)
+            mappings.erase(global_start + i);
+        return E_OUTOFMEMORY;
+    }
+
+    D3D12_TILED_RESOURCE_COORDINATE coord{};
+    coord.X = static_cast<UINT>(local_offset / tile_bytes);
+    D3D12_TILE_REGION_SIZE region{};
+    region.NumTiles = static_cast<UINT>(count);
+    region.UseBox = FALSE;
+    queue->UpdateTileMappings(
+        resource, 1, &coord, &region, heap,
+        static_cast<UINT>(count), flags.data(), heap_offsets.data(),
+        range_counts.data(), D3D12_TILE_MAPPING_FLAG_NONE);
+    ++map_updates_;
     return S_OK;
 }
 
@@ -216,6 +286,7 @@ HRESULT SparseGpuWindows::unmap_tiles(ID3D12CommandQueue* queue,
                               D3D12_TILE_MAPPING_FLAG_NONE);
     for (uint32_t i = 0; i < tile_count; ++i)
         window.mapped_tiles.erase(global_tile + i);
+    ++unmap_updates_;
     return S_OK;
 }
 
