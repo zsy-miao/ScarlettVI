@@ -116,9 +116,11 @@ segments, explicit CPU writeback, failure rejection and zero leaked pages
 ([XMEM_GPU_STAGING.md](XMEM_GPU_STAGING.md)).
 `gpu-page-registry` validates four pinned XMem frames, eight CPU alias
 lifetime pins, eight GPU mappings using four unique 64 KiB tile slots
-inside one shared 4 MiB real D3D12 heap, 16 verified 64 KiB transfers
-in seven native submissions (three four-page batches), freed GPU heap
-slot reuse, atomic pinned-unmap rejection and zero leaks
+inside one shared 4 MiB real D3D12 heap, 17 completed 64 KiB transfers
+in ten actual native submissions (including two deliberately interrupted
+submissions), safe heap-slot reuse, atomic pinned-unmap rejection and
+retryable fence-safe cleanup with zero leaks
+([GPU_FENCE_RECOVERY.md](GPU_FENCE_RECOVERY.md))
 ([GUEST_GPU_PAGE_REGISTRY.md](GUEST_GPU_PAGE_REGISTRY.md)).
 `gpu-tile-map` verifies native D3D12 64 KiB tile residency and GPU physical
 aliasing across segmented 16 GiB guest buffers (see [GPU_TILES.md](GPU_TILES.md)).

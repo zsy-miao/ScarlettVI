@@ -28,7 +28,8 @@ public:
     // into output only AFTER a completed fence; does not update CPU XMem.
     HRESULT roundtrip(std::span<const uint8_t> cpu_input,
                       std::span<uint8_t> cpu_output) noexcept;
-    // Enqueue NULL tile mappings and wait for the queue before releasing heaps.
+    // Only release native resources after all queued work AND both NULL tile
+    // mappings are fenced. Failure preserves the session for a retry.
     HRESULT close() noexcept;
     bool is_open() const noexcept { return opened_; }
     uint64_t submissions() const noexcept { return submissions_; }
@@ -53,6 +54,9 @@ private:
     bool alias_active_ = false;
     bool prepared_ = false;
     bool in_flight_ = false;
+    // Deterministic negative test: fail a chosen future fence wait without
+    // blocking or mutating the real underlying GPU queue. -1 means disabled.
+    int test_sync_failure_countdown_ = -1;
     SparseGpuWindows* windows_ = nullptr;
     size_t source_window_ = 0, alias_window_ = 0;
     uint64_t source_offset_ = 0, alias_offset_ = 0;

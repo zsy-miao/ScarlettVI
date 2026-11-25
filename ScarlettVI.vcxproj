@@ -90,6 +90,7 @@
     <ClInclude Include="src\gpu\xbox_device_factory.h" />
     <ClInclude Include="src\gpu\sparse_gpu_windows.h" />
     <ClInclude Include="src\gpu\gpu_page_stager.h" />
+    <ClInclude Include="src\gpu\fence_safety.h" />
     <ClInclude Include="src\gpu\guest_gpu_page_registry.h" />
     <ClInclude Include="src\gpu\texture_layout.h" />
   </ItemGroup>

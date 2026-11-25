@@ -62,12 +62,18 @@ public:
     size_t used_heap_tile_count() const noexcept;
     std::optional<uint32_t> heap_tile_for(uintptr_t frame) const noexcept;
     HRESULT unbind(uintptr_t frame) noexcept;
+    // On fence failure, retains still-active frame bindings and CPU pins
+    // so callers can safely retry rather than retiring live GPU memory.
     HRESULT clear() noexcept;
     size_t binding_count() const noexcept;
     uint64_t submitted_transfers() const noexcept;
     size_t pinned_alias_count() const;
 
 private:
+    friend class DeviceContext; // fixture-only failure injection
+    bool inject_next_gpu_wait_failure_for_test(
+        uintptr_t frame, uint32_t successful_waits_before_failure = 0) noexcept;
+    void inject_next_batch_wait_failure_for_test() noexcept;
     struct Binding {
         uint8_t* first_cpu = nullptr;
         uint8_t* second_cpu = nullptr;
@@ -88,6 +94,7 @@ private:
     HANDLE batch_event_ = nullptr;
     uint64_t next_batch_fence_ = 1;
     uint64_t gpu_submissions_ = 0;
+    bool test_fail_next_batch_wait_ = false;
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Binding> bindings_;
     std::map<GpuSlot, uintptr_t> gpu_slots_;

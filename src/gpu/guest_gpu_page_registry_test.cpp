@@ -306,6 +306,125 @@ HRESULT DeviceContext::guest_gpu_page_registry_test() {
                         modified.data() + i * bytes, bytes) != 0)
             return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
 
+    // FAULT INJECTION: the host queue really submits a command list, but the
+    // stager pretends its subsequent fence wait timed out. No GPU readback or
+    // CPU alias writeback may be published. The page remains pinned until a
+    // fresh real GPU fence proves completion and unmaps both GPU aliases.
+    constexpr HRESULT kInjectedTimeout = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    output.fill(0xD5);
+    if (!registry.inject_next_gpu_wait_failure_for_test(cpu.frames[0]))
+        return last_error_ = E_FAIL;
+    const auto initial_frame = std::span<const uint8_t>(initial.data(), bytes);
+    if (registry.transfer(cpu.frames[0], initial_frame, output, true) !=
+            kInjectedTimeout ||
+        registry.submitted_transfers() != count * 4 ||
+        registry.queue_submission_count() != count + 4 ||
+        output[0] != 0xD5 ||
+        registry.binding_count() != count ||
+        registry.used_heap_tile_count() != count ||
+        registry.pinned_alias_count() != 2 * count ||
+        windows.mapped_tile_count() != 2 * count ||
+        std::memcmp(first, modified.data(), modified.size()) != 0 ||
+        std::memcmp(second, modified.data(), modified.size()) != 0)
+        return last_error_ = E_FAIL;
+
+    // The submitted page is still marked in flight: do not reset/reuse
+    // its command allocator until a real fence retires the original work.
+    if (registry.transfer(cpu.frames[0], initial_frame, output, false) !=
+            HRESULT_FROM_WIN32(ERROR_BUSY) ||
+        registry.queue_submission_count() != count + 4)
+        return last_error_ = E_FAIL;
+
+    // Inject a second timeout during unbind. Unmap/pin release must be
+    // deferred; retry after injection has been consumed can wait on the
+    // actual GPU queue and retire the tile safely.
+    if (!registry.inject_next_gpu_wait_failure_for_test(cpu.frames[0]) ||
+        registry.unbind(cpu.frames[0]) != kInjectedTimeout ||
+        registry.binding_count() != count ||
+        registry.heap_tile_for(cpu.frames[0]) != 0u ||
+        registry.used_heap_tile_count() != count ||
+        registry.pinned_alias_count() != 2 * count ||
+        windows.mapped_tile_count() != 2 * count ||
+        xmem::XMemMapPhysicalPages(first, 1, nullptr) != nullptr ||
+        GetLastError() != ERROR_BUSY)
+        return last_error_ = E_FAIL;
+    last_error_ = registry.unbind(cpu.frames[0]);
+    if (FAILED(last_error_) ||
+        registry.binding_count() != count - 1 ||
+        registry.used_heap_tile_count() != count - 1 ||
+        registry.pinned_alias_count() != 2 * (count - 1) ||
+        windows.mapped_tile_count() != 2 * (count - 1))
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+
+    last_error_ = registry.bind(
+        cpu.frames[0], first, second, source(0), alias(0));
+    if (FAILED(last_error_) ||
+        registry.heap_tile_for(cpu.frames[0]) != 0u)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+    // A successful fresh submission proves the failed page is reusable.
+    last_error_ = registry.transfer(
+        cpu.frames[0], initial_frame, output, false);
+    if (FAILED(last_error_) ||
+        registry.submitted_transfers() != count * 4 + 1 ||
+        registry.queue_submission_count() != count + 5 ||
+        std::memcmp(output.data(), initial.data(), bytes) != 0 ||
+        std::memcmp(first, modified.data(), modified.size()) != 0 ||
+        std::memcmp(second, modified.data(), modified.size()) != 0)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+
+    // A FOUR-PAGE GPU batch can also fail after actual command submission
+    // but before the shared fence is issued. The caller must see NO partial
+    // output and NO CPU writeback; each per-page stager remains in-flight.
+    // Keep additional four-page scratch off the 1 MiB Windows stack.
+    std::vector<std::array<uint8_t, bytes>> interrupted_output(count);
+    auto interrupted = reused_batch;
+    for (size_t i = 0; i < count; ++i) {
+        interrupted_output[i].fill(0xAC);
+        interrupted[i].output = interrupted_output[i];
+        interrupted[i].writeback_cpu = true;
+    }
+    registry.inject_next_batch_wait_failure_for_test();
+    if (registry.transfer_batch(interrupted) != kInjectedTimeout ||
+        registry.submitted_transfers() != count * 4 + 1 ||
+        registry.queue_submission_count() != count + 6 ||
+        registry.binding_count() != count ||
+        registry.pinned_alias_count() != 2 * count ||
+        registry.used_heap_tile_count() != count ||
+        windows.mapped_tile_count() != 2 * count ||
+        std::memcmp(first, modified.data(), modified.size()) != 0 ||
+        std::memcmp(second, modified.data(), modified.size()) != 0)
+        return last_error_ = E_FAIL;
+    for (size_t i = 0; i < count; ++i)
+        if (interrupted_output[i][0] != 0xAC ||
+            interrupted_output[i][bytes - 1] != 0xAC)
+            return last_error_ = E_FAIL;
+    // No GPU allocator may be reused until retirement fences succeed.
+    if (registry.transfer_batch(interrupted) !=
+            HRESULT_FROM_WIN32(ERROR_BUSY) ||
+        registry.queue_submission_count() != count + 6)
+        return last_error_ = E_FAIL;
+
+    // Inject failure into the SECOND close fence, after the two NULL tile
+    // mappings are enqueued and removed from the GPU VA bookkeeping.
+    // clear() must keep the frame and its CPU pins until a retry fences the
+    // pending unmap commands, despite reported GPU mapping count already 0.
+    if (!registry.inject_next_gpu_wait_failure_for_test(cpu.frames[2], 1) ||
+        registry.clear() != kInjectedTimeout ||
+        registry.binding_count() != 1 ||
+        registry.heap_tile_for(cpu.frames[2]) != 2u ||
+        registry.pinned_alias_count() != 2 ||
+        registry.used_heap_tile_count() != 1 ||
+        registry.physical_heap_count() != 1 ||
+        registry.native_queue_count() != 1 ||
+        windows.mapped_tile_count() != 0 ||
+        xmem::XMemMapPhysicalPages(first + 2 * bytes, 1, nullptr) != nullptr ||
+        GetLastError() != ERROR_BUSY ||
+        std::memcmp(first, modified.data(), modified.size()) != 0 ||
+        std::memcmp(second, modified.data(), modified.size()) != 0)
+        return last_error_ = E_FAIL;
+
+    // Retrying acknowledges the queued NULL unmaps and only then releases
+    // the pinned aliases, original heap slot and shared command queue.
     last_error_ = registry.clear();
     if (FAILED(last_error_) ||
         registry.binding_count() != 0 ||

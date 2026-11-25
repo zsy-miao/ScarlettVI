@@ -1,8 +1,10 @@
 #include "guest_gpu_page_registry.h"
+#include "fence_safety.h"
 #include <cstring>
 #include <algorithm>
 #include <array>
 #include <new>
+#include <exception>
 #include <unordered_set>
 
 namespace scarlett::gpu {
@@ -11,7 +13,11 @@ GuestGpuPageRegistry::GuestGpuPageRegistry(
     ID3D12Device11* device) noexcept
     : physical_(physical), windows_(windows), device_(device) {}
 
-GuestGpuPageRegistry::~GuestGpuPageRegistry() { clear(); }
+GuestGpuPageRegistry::~GuestGpuPageRegistry() {
+    // The caller must resolve any failed clear() before destroying the
+    // backing XMem manager and sparse D3D12 VA windows. Fail-stop otherwise.
+    if (FAILED(clear())) std::terminate();
+}
 
 bool GuestGpuPageRegistry::overlaps_cpu(
     const Binding& binding, std::span<uint8_t> output) const noexcept {
@@ -141,12 +147,15 @@ HRESULT GuestGpuPageRegistry::transfer(
     // The GpuPageStager validates input/output overlap and completes its
     // real D3D12 fence BEFORE modifying output. CPU XMem writeback is a
     // separate, opt-in operation and happens only on a successful transfer.
+    const uint64_t previous_submissions = it->second.stager->submissions();
     const HRESULT result = it->second.stager->roundtrip(input, output);
+    // Count actual queue submission even when a later fence wait fails.
+    if (it->second.stager->submissions() != previous_submissions)
+        ++gpu_submissions_;
     if (FAILED(result)) return result;
     if (writeback_cpu)
         std::memcpy(it->second.second_cpu, output.data(),
                     GpuPageStager::page_bytes);
-    ++gpu_submissions_; // standalone transfer is one ExecuteCommandLists call
     ++completed_transfers_;
     return S_OK;
 }
@@ -233,13 +242,29 @@ HRESULT GuestGpuPageRegistry::transfer_batch(
     }
 
     queue_->ExecuteCommandLists(static_cast<UINT>(lists.size()), lists.data());
-    ++gpu_submissions_; // one native ExecuteCommandLists call for N pages
+    ++gpu_submissions_; // actual submission, even if the wait later fails
     for (auto* stager : stagers) stager->mark_submitted();
+    if (test_fail_next_batch_wait_) {
+        test_fail_next_batch_wait_ = false;
+        // Fault injection AFTER real GPU submission but BEFORE batch Signal.
+        // No output is published; per-page close must fence on this queue.
+        return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    }
 
     const uint64_t fence_value = next_batch_fence_++;
     HRESULT hr = queue_->Signal(batch_fence_.Get(), fence_value);
     if (FAILED(hr)) return hr; // no readbacks or CPU writeback on failure
-    if (batch_fence_->GetCompletedValue() < fence_value) {
+    const auto observe = [this, fence_value]() noexcept {
+        return classify_fence_observation(
+            batch_fence_->GetCompletedValue(), fence_value);
+    };
+    const auto removed = [this]() noexcept {
+        const HRESULT reason = device_->GetDeviceRemovedReason();
+        return FAILED(reason) ? reason : DXGI_ERROR_DEVICE_REMOVED;
+    };
+    auto status = observe();
+    if (status == FenceObservation::device_removed) return removed();
+    if (status == FenceObservation::pending) {
         hr = batch_fence_->SetEventOnCompletion(fence_value, batch_event_);
         if (FAILED(hr)) return hr;
         const DWORD result = WaitForSingleObject(batch_event_, 10000);
@@ -247,8 +272,9 @@ HRESULT GuestGpuPageRegistry::transfer_batch(
             return HRESULT_FROM_WIN32(
                 result == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError());
     }
-    if (batch_fence_->GetCompletedValue() < fence_value)
-        return E_FAIL;
+    status = observe();
+    if (status == FenceObservation::device_removed) return removed();
+    if (status != FenceObservation::completed) return E_FAIL;
     // Do not publish any output until ALL native readback maps succeed.
     for (size_t i = 0; i < requests.size(); ++i) {
         hr = stagers[i]->collect_readback(staged_results[i]);
@@ -293,6 +319,22 @@ std::optional<uint32_t> GuestGpuPageRegistry::heap_tile_for(
     return it->second.heap_tile;
 }
 
+void GuestGpuPageRegistry::inject_next_batch_wait_failure_for_test() noexcept {
+    std::lock_guard lock(mutex_);
+    test_fail_next_batch_wait_ = true;
+}
+
+bool GuestGpuPageRegistry::inject_next_gpu_wait_failure_for_test(
+    uintptr_t frame, uint32_t successful_waits_before_failure) noexcept {
+    if (successful_waits_before_failure > 2) return false;
+    std::lock_guard lock(mutex_);
+    const auto it = bindings_.find(frame);
+    if (it == bindings_.end()) return false;
+    it->second.stager->test_sync_failure_countdown_ =
+        static_cast<int>(successful_waits_before_failure);
+    return true;
+}
+
 HRESULT GuestGpuPageRegistry::unbind(uintptr_t frame) noexcept {
     std::lock_guard lock(mutex_);
     const auto it = bindings_.find(frame);
@@ -315,15 +357,38 @@ HRESULT GuestGpuPageRegistry::unbind(uintptr_t frame) noexcept {
 HRESULT GuestGpuPageRegistry::clear() noexcept {
     std::lock_guard lock(mutex_);
     HRESULT first_error = S_OK;
-    for (auto& [frame, binding] : bindings_) {
-        const HRESULT result = binding.stager->close();
-        if (FAILED(result) && SUCCEEDED(first_error)) first_error = result;
-        if (!physical_.unpin_mapped_alias(binding.second_cpu, frame) &&
-            SUCCEEDED(first_error)) first_error = E_FAIL;
-        if (!physical_.unpin_mapped_alias(binding.first_cpu, frame) &&
-            SUCCEEDED(first_error)) first_error = E_FAIL;
+    for (auto it = bindings_.begin(); it != bindings_.end();) {
+        const uintptr_t frame = it->first;
+        const HRESULT result = it->second.stager->close();
+        if (FAILED(result)) {
+            // Keep the entire binding and BOTH CPU pins. No GPU tile can be
+            // reused while its final fence is still unconfirmed.
+            if (SUCCEEDED(first_error)) first_error = result;
+            ++it;
+            continue;
+        }
+        // Both GPU tile aliases have been unmapped and their queue fence
+        // completed. Releasing CPU pins is now safe.
+        const bool mirror = physical_.unpin_mapped_alias(
+            it->second.second_cpu, frame);
+        const bool primary = physical_.unpin_mapped_alias(
+            it->second.first_cpu, frame);
+        if (!mirror || !primary) {
+            // This indicates a programming invariant violation: the mapping
+            // manager was altered out of band. Avoid freeing the live entry.
+            if (SUCCEEDED(first_error)) first_error = E_FAIL;
+            ++it;
+            continue;
+        }
+        gpu_slots_.erase(it->second.source);
+        gpu_slots_.erase(it->second.alias);
+        occupied_heap_tiles_[it->second.heap_tile] = false;
+        it = bindings_.erase(it);
     }
-    bindings_.clear();
+    if (!bindings_.empty())
+        return FAILED(first_error) ? first_error : HRESULT_FROM_WIN32(ERROR_BUSY);
+    // Only after every active page has retired can shared heaps, queues and
+    // batch fences be released.
     gpu_slots_.clear();
     occupied_heap_tiles_.fill(false);
     shared_tile_heap_.Reset();

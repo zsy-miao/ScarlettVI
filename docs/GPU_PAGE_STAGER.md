@@ -19,7 +19,7 @@ The caller supplies the actual Windows ID3D12Device11 and two **different native
 
 - **open(device, windows, source_window, source_offset, alias_window, alias_offset, optional_shared_queue, optional_shared_heap, heap_tile_index)** validates a real device, two distinct reserved GPU resources, tile bounds and alignment. The supplied queue must be DIRECT and belong to the exact device; a supplied heap must also belong to that device, have DEFAULT/BUFFER-compatible properties and contain the requested tile index. Both native resource aliases map **the same selected heap tile**, and a fence completes both mappings before exposing an open session. It fences mappings before publishing an open session.
 - **roundtrip(input_span, output_span)** requires two disjoint host spans of **exactly 65,536 bytes**. It uploads the input to the real mapped tile, performs a resource-aliasing barrier and copies from the second D3D12 alias into readback memory. The GPU queue fence is completed before any output bytes are copied into the caller's buffer.
-- **close()** fences prior work, enqueues both NULL tile mappings, fences them, releases all owned D3D12 resources and COM references, and preserves the most recently completed fence number. It is idempotent.
+- **close()** fences prior work, enqueues both NULL tile mappings, and requires a **second successful fence** before releasing heap resources. A failed first or second wait preserves all unfinished resources and permits retry; it never frees a potentially active tile. The destructor uses a fail-stop policy for unresolved cleanup. See [GPU fence recovery](GPU_FENCE_RECOVERY.md).
 - The same instance can be **reopened after close()** at different logical offsets. Session fence values and submission counters restart with each new queue, and native GPU address translation is rechecked.
 
 The higher-level [GuestGpuPageRegistry](GUEST_GPU_PAGE_REGISTRY.md) now
@@ -30,9 +30,10 @@ page command lists to be submitted in **one `ExecuteCommandLists` call**,
 followed by one fence and staged-result publication. The independent
 `gpu-page-registry` test verifies **four frames, eight CPU aliases and
 eight GPU tile mappings backed by four different 64 KiB tiles in one
-4 MiB shared heap**. All **16 page transfers use seven native queue
-submissions**, including three four-page batches and heap-slot reuse
-after unbind/rebind. Multi-heap scaling, batched native tile-residency
+4 MiB shared heap**. The expanded regression verifies **17 completed
+page transfers across ten real native queue submissions**, including
+two intentionally interrupted GPU submissions that publish no data,
+three successful four-page batches and retryable heap-slot retirement. Multi-heap scaling, batched native tile-residency
 operations and GPU eviction policies remain future work.
 
 The component does not allocate or free guest XMem physical pages; those remain owned by PhysicalMemory. It does not update CPU aliases during a GPU transfer; callers explicitly stage the completed readback to a CPU alias after verifying it.
@@ -59,7 +60,7 @@ Negative requests are also tested: null device, same-resource mapping, unaligned
 
 ## Guarantees and limits
 
-The component owns **host D3D12** resources, but not the lifetime of SparseGpuWindows: the caller must keep the passed windows alive until close() or destructor completion. It is not safe to concurrently remap the same guest tile elsewhere during an active staging session. Fence waits have a 10-second timeout; device removal or failure may require a higher-level GPU recovery policy.
+The component owns **host D3D12** resources, but not the lifetime of SparseGpuWindows: the caller must keep the passed windows alive until close() or destructor completion. It is not safe to concurrently remap the same guest tile elsewhere during an active staging session. Fence waits have a 10-second timeout and explicitly reject D3D12's `UINT64_MAX` device-removed sentinel rather than interpreting it as completion; device recreation is not yet implemented.
 
 The two CPU virtual aliases are genuinely backed by the *same host pagefile section*. The GPU tile is a distinct physical allocation in a real D3D12 default heap; its bytes are **not naturally coherent** with that CPU section. Both directions require deliberate staging. These methods are internal host APIs only; **no XMemTransferMemory, XMemGetWorkingSetStatistics or XMemIsToolsMemAvailable console import** is patched.
 

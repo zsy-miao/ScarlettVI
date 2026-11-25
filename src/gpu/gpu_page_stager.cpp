@@ -1,8 +1,14 @@
 #include "gpu_page_stager.h"
+#include "fence_safety.h"
 #include <cstring>
+#include <exception>
 
 namespace scarlett::gpu {
-GpuPageStager::~GpuPageStager() { close(); }
+GpuPageStager::~GpuPageStager() {
+    // A failed GPU fence makes resource lifetime unknowable. Fail-stop is
+    // safer than destroying live command buffers, mapped heaps or GPU VAs.
+    if (FAILED(close())) std::terminate();
+}
 
 HRESULT GpuPageStager::create_buffer(
     D3D12_HEAP_TYPE type, D3D12_RESOURCE_STATES state,
@@ -24,12 +30,26 @@ HRESULT GpuPageStager::create_buffer(
 }
 
 HRESULT GpuPageStager::sync() noexcept {
+    if (test_sync_failure_countdown_ >= 0 &&
+        test_sync_failure_countdown_-- == 0) {
+        test_sync_failure_countdown_ = -1;
+        return HRESULT_FROM_WIN32(ERROR_TIMEOUT); // synthetic, NOT GPU stall
+    }
     if (!queue_ || !fence_ || !event_) return E_UNEXPECTED;
     if (next_fence_ == UINT64_MAX) return E_FAIL;
     const uint64_t value = next_fence_++;
     HRESULT hr = queue_->Signal(fence_.Get(), value);
     if (FAILED(hr)) return hr;
-    if (fence_->GetCompletedValue() < value) {
+    const auto observe = [this, value]() noexcept {
+        return classify_fence_observation(fence_->GetCompletedValue(), value);
+    };
+    const auto removed = [this]() noexcept {
+        const HRESULT reason = device_->GetDeviceRemovedReason();
+        return FAILED(reason) ? reason : DXGI_ERROR_DEVICE_REMOVED;
+    };
+    auto status = observe();
+    if (status == FenceObservation::device_removed) return removed();
+    if (status == FenceObservation::pending) {
         hr = fence_->SetEventOnCompletion(value, event_);
         if (FAILED(hr)) return hr;
         const DWORD outcome = WaitForSingleObject(event_, 10000);
@@ -37,7 +57,9 @@ HRESULT GpuPageStager::sync() noexcept {
             return HRESULT_FROM_WIN32(
                 outcome == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError());
     }
-    if (fence_->GetCompletedValue() < value) return E_FAIL;
+    status = observe();
+    if (status == FenceObservation::device_removed) return removed();
+    if (status != FenceObservation::completed) return E_FAIL;
     last_completed_ = value;
     return S_OK;
 }
@@ -276,29 +298,36 @@ HRESULT GpuPageStager::roundtrip(
 }
 
 HRESULT GpuPageStager::close() noexcept {
-    HRESULT result = S_OK;
+    // Never enqueue NULL tile mappings or release GPU resources if a queue
+    // fence did not complete. A timeout may simply mean GPU work is late;
+    // retain the native buffers/heap/window bindings and retry later.
     if (queue_ && fence_ && event_) {
         const HRESULT hr = sync();
-        if (FAILED(hr)) result = hr;
+        if (FAILED(hr)) return hr;
+        in_flight_ = false; // completed GPU commands; discard uncollected data
+    } else if (first_mapped_ || second_mapped_ || in_flight_) {
+        return E_UNEXPECTED;
     }
     if (windows_ && queue_) {
         if (second_mapped_) {
             const HRESULT hr = windows_->unmap_tiles(
                 queue_.Get(), alias_window_, alias_offset_, 1);
-            if (FAILED(hr) && SUCCEEDED(result)) result = hr;
+            if (FAILED(hr)) return hr;
+            second_mapped_ = false; // remember partial successful unmaps
         }
         if (first_mapped_) {
             const HRESULT hr = windows_->unmap_tiles(
                 queue_.Get(), source_window_, source_offset_, 1);
-            if (FAILED(hr) && SUCCEEDED(result)) result = hr;
+            if (FAILED(hr)) return hr;
+            first_mapped_ = false;
         }
-        if ((first_mapped_ || second_mapped_) && fence_ && event_) {
+        // NULL remaps are queued operations: the GPU must acknowledge them
+        // before releasing their heap or allowing physical tile reuse.
+        if (fence_ && event_) {
             const HRESULT hr = sync();
-            if (FAILED(hr) && SUCCEEDED(result)) result = hr;
+            if (FAILED(hr)) return hr;
         }
     }
-    first_mapped_ = false;
-    second_mapped_ = false;
     opened_ = false;
     alias_active_ = false;
     prepared_ = false;
@@ -314,6 +343,6 @@ HRESULT GpuPageStager::close() noexcept {
     device_.Reset();
     fence_.Reset();
     if (event_) { CloseHandle(event_); event_ = nullptr; }
-    return result;
+    return S_OK;
 }
 } // namespace scarlett::gpu

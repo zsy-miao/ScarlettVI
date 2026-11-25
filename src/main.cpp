@@ -137,8 +137,8 @@ int wmain(int argc, wchar_t** argv) {
             const size_t pins =
                 scarlett::memory::PhysicalMemory::instance().pinned_alias_count();
             const bool pass = SUCCEEDED(hr) &&
-                pages == 0 && pins == 0 && gpu.submitted_commands() == 16 &&
-                gpu.registry_queue_submissions() == 7;
+                pages == 0 && pins == 0 && gpu.submitted_commands() == 17 &&
+                gpu.registry_queue_submissions() == 10;
             std::wcout << L"ScarlettVI | pinned guest page registry + real D3D12"
                        << L" tile staging: " << (pass ? L"PASS" : L"FAIL")
                        << L"\nGPU: " << gpu.adapter_name() << L"\n";

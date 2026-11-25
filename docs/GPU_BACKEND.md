@@ -142,10 +142,14 @@ GPU tile mappings are tested simultaneously. All pages share **one
 D3D12 DIRECT queue and one real 4 MiB DEFAULT heap** with 64 assignable
 physical 64 KiB tiles; each frame owns a unique slot and separate GPU
 command allocator/upload/readback resources. Four individually submitted
-transfers and **three four-page batches** verify **16 GPU page transfers
-in seven native `ExecuteCommandLists` calls**. Unbind/rebind reuses the
-freed heap slot without disturbing active tiles. After clear, the shared
-heap, GPU tile mappings, CPU pins and physical frames all return to zero.
+transfers and **three successful four-page batches**, followed by
+[fence-failure recovery fixtures](GPU_FENCE_RECOVERY.md), verify **17
+completed GPU transfers in ten actual `ExecuteCommandLists` calls**.
+Two additional GPU submissions intentionally fail their synthetic
+completion waits and do **not** publish readbacks or CPU writes.
+Unbind/rebind safely reuses freed tiles; failed retirement keeps CPU
+pins and heap slots alive until retry. After successful clear, the shared
+heap, GPU tile mappings, CPU pins and physical frames return to zero.
 
 Pinned aliases cannot be unmapped or their region released through the
 XMem bridge until their GPU mapping is closed. Cross-slot unmap requests
