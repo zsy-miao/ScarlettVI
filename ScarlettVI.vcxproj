@@ -112,6 +112,8 @@
     <ClCompile Include="src\gpu\guest_gpu_page_registry_test.cpp" />
     <ClCompile Include="src\gpu\texture_layout.cpp" />
     <ClCompile Include="src\gpu\gpu_texture_detiler.cpp" />
+    <ClCompile Include="src\storage\dstorage_factory_host.cpp" />
+    <ClCompile Include="src\storage\dstorage_factory_host_test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\pe\pe_file.h" />
@@ -140,6 +142,7 @@
     <ClInclude Include="src\runtime\physical_memory.h" />
     <ClInclude Include="src\formats\rpf9_header.h" />
     <ClInclude Include="src\gpu\host_backend.h" />
+    <ClInclude Include="src\storage\dstorage_factory_host.h" />
     <ClInclude Include="src\gpu\device_context.h" />
     <ClInclude Include="src\gpu\dxil_compiler.h" />
     <ClInclude Include="src\gpu\guest_address_space.h" />

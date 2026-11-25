@@ -29,7 +29,7 @@ console code, keys or proprietary binary libraries belong in this repository.
   additional reference; the original partial GPU VM configuration bridge
   links **1** more, and the original [host APU allocation bridge](APU_HOST_MEMORY.md)
   links the host `ApuCreateHeap`/`ApuAlloc`/`ApuFree` subset, leaving
-  **9** Xbox import references unresolved.
+  **8** Xbox import references unresolved.
   The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
   returns FALSE when no Xbox developer/tools partition exists; this
   reduces missing import addresses but does not supply console memory services.
@@ -63,6 +63,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   enforces transfer and allocation admission on host-owned XMemAlloc
   heap blocks. Sparse physical pages, virtual reservations and GPU
   allocations remain outside this quota; it is not Xbox partition emulation.
+  The [partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md)
+  now provides original static COM ownership and actual configured host
+  staging memory through the title-verified +0x40 method. Xbox
+  queue/file/decompression and async completion services remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not

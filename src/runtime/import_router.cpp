@@ -3,6 +3,7 @@
 #include "xmem_bridge.h"
 #include "../audio/apu_memory.h"
 #include "../audio/xapu_host.h"
+#include "../storage/dstorage_factory_host.h"
 #include "../gpu/xbox_device_factory.h"
 #include <algorithm>
 #include <set>
@@ -181,6 +182,23 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                         image.patch_iat(symbol.iat_rva,
                                         reinterpret_cast<uint64_t>(address));
                         ++result.experimental_xapu_partial_bound;
+                    } else {
+                        ++result.xbox_symbols_pending;
+                        add_pending(imported, symbol, PendingKind::XboxHle);
+                    }
+                }
+            } else if (route == ImportRoute::XboxHle &&
+                       lower(imported.name) == "xcrdapi.dll") {
+                // Verified Xbox factory IUnknown and staging-size slot
+                // +0x40 only. Actual queues, files, decompression and
+                // guest completion semantics intentionally fail E_NOTIMPL.
+                for (const auto& symbol : imported.symbols) {
+                    FARPROC address = symbol.by_ordinal ? nullptr
+                        : storage::find_dstorage_export(symbol.name);
+                    if (address) {
+                        image.patch_iat(symbol.iat_rva,
+                                        reinterpret_cast<uint64_t>(address));
+                        ++result.experimental_dstorage_factory_partial_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);

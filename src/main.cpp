@@ -29,6 +29,7 @@
 #include "audio/xapu_host.h"
 #include "audio/dsp_convolution.h"
 #include "runtime/xmem_query.h"
+#include "storage/dstorage_factory_host.h"
 #include <Windows.h>
 #include <algorithm>
 #include <array>
@@ -130,6 +131,7 @@ void usage() {
                << L"  ScarlettVI.exe xmem-tools-fixture\n"
                << L"  ScarlettVI.exe xmem-stats-fixture\n"
                << L"  ScarlettVI.exe xmem-transfer-fixture\n"
+               << L"  ScarlettVI.exe storage-factory-fixture\n"
                << L"  ScarlettVI.exe audio-memory-fixture\n"
                << L"  ScarlettVI.exe audio-address-fixture\n"
                << L"  ScarlettVI.exe audio-shape-fixture\n"
@@ -171,6 +173,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"storage-factory-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::storage::verify_dstorage_factory_fixture();
+            std::cout << "ScarlettVI | partial Xbox DirectStorage factory"
+                      << " / real owned host staging: "
+                      << (passed ? "PASS" : "FAIL") << "\n"
+                      << "Public COM slot +0x40 and 32MiB allocation;"
+                      << " queues, file IO and decompression remain unsupported.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"synthetic-dll-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

@@ -38,8 +38,8 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
 | `xmem.dll` | 0 | One **partial** `XMemTransferMemory` host quota binding; only title-observed direction and host XMemAlloc budget admission are implemented |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI unresolved; original [D3D12 GPU detiling backend](GPU_TEXTURE_DETILE.md) now executes host Morton layouts but is NOT Xbox swizzle |
-| `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **9** | |
+| `XCRDAPI.dll` | 0 | [Partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md) binds one symbol: real 32-MiB staging COM lifecycle only; queue/file/completion methods E_NOTIMPL |
+| **Total** | **8** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -80,6 +80,10 @@ Measured working address bindings:
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
 - **1** experimental `D3D12XboxCreateDevice` import linked to a verified
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
+- **1** [partial DirectStorage factory binding](XBOX_DSTORAGE_FACTORY.md):
+  exact guest-observed IID, process-static COM object, real 32-MiB owned
+  staging memory and validated vtable `+0x40` sizing. Queue/file/asset
+  streaming and completion APIs remain E_NOTIMPL, not fabricated success
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.
@@ -105,7 +109,7 @@ managed worker threads. Only generated test callbacks are executed. Neither
 fixture invokes the original title, any game DLL or their callbacks;
 this is **not** proof of full guest loader lifecycle correctness.
 
-Even if all 9 outstanding references gain function addresses, startup
+Even if all 8 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation
