@@ -1,5 +1,6 @@
 #include "dstorage_factory_host.h"
 #include "dstorage_status_host.h"
+#include "dstorage_file_host.h"
 #include <atomic>
 #include <limits>
 #include <mutex>
@@ -60,10 +61,10 @@ public:
             capacity, name, iid, output);
     }
     HRESULT STDMETHODCALLTYPE OpenFile(
-        const wchar_t*, REFIID, void** output) noexcept override {
-        if (!output) return E_POINTER;
-        *output = nullptr;
-        return E_NOTIMPL;
+        const wchar_t* path, REFIID iid, void** output) noexcept override {
+        // No title virtual filesystem is mounted by default. Only
+        // explicitly configured generated host fixture roots can open.
+        return open_host_dstorage_file(path, iid, output);
     }
     HRESULT STDMETHODCALLTYPE SetCpuAffinity(uint64_t) noexcept override {
         // Never pretend that Xbox worker-affinity policy was installed.
@@ -84,7 +85,7 @@ public:
         std::lock_guard lock(mutex_);
         // Public contract forbids staging resize while any queue or file
         // exists, including attempts to set the same buffer size.
-        if (active_host_queues_ != 0)
+        if (active_host_queues_ != 0 || active_host_files_ != 0)
             return HRESULT_FROM_WIN32(ERROR_BUSY);
         if (bytes == staging_.size())
             return S_OK;
@@ -137,6 +138,22 @@ public:
         const std::lock_guard lock(mutex_);
         return active_host_queues_;
     }
+    bool acquire_host_file_lease() noexcept {
+        const std::lock_guard lock(mutex_);
+        if (!initialized_ || active_host_files_ ==
+            std::numeric_limits<uint32_t>::max())
+            return false;
+        ++active_host_files_;
+        return true;
+    }
+    void release_host_file_lease() noexcept {
+        const std::lock_guard lock(mutex_);
+        if (active_host_files_) --active_host_files_;
+    }
+    uint32_t active_host_file_leases() noexcept {
+        const std::lock_guard lock(mutex_);
+        return active_host_files_;
+    }
     uint32_t staging_size() noexcept {
         std::lock_guard lock(mutex_);
         return static_cast<uint32_t>(staging_.size());
@@ -166,6 +183,7 @@ private:
     ULONG references_ = 0;
     bool initialized_ = false;
     uint32_t active_host_queues_ = 0;
+    uint32_t active_host_files_ = 0;
 };
 }
 
@@ -193,6 +211,15 @@ void release_host_dstorage_queue_lease() noexcept {
 }
 uint32_t active_host_dstorage_queue_leases() noexcept {
     return HostFactory::instance().active_host_queue_leases();
+}
+bool acquire_host_dstorage_file_lease() noexcept {
+    return HostFactory::instance().acquire_host_file_lease();
+}
+void release_host_dstorage_file_lease() noexcept {
+    HostFactory::instance().release_host_file_lease();
+}
+uint32_t active_host_dstorage_file_leases() noexcept {
+    return HostFactory::instance().active_host_file_leases();
 }
 uint32_t host_dstorage_staging_bytes() noexcept {
     return HostFactory::instance().staging_size();

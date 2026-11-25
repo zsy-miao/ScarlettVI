@@ -1,6 +1,6 @@
 # Partial Xbox DirectStorage status arrays with real completion barriers
 
-**Status: guest-facing `IDStorageStatusArrayX` COM creation is functional, with a bounded original host implementation of completion state. Xbox guest `CreateQueue`, `CreateQueue1`, `OpenFile`, `DSTORAGE_REQUEST`, file routing, decompression and game-asset streaming remain unsupported. The title-execution safeguard remains BLOCKED.**
+**Status: guest-facing `IDStorageStatusArrayX` COM creation is functional, with a bounded original host implementation of completion state. Xbox guest `CreateQueue`, `CreateQueue1`, `DSTORAGE_REQUEST`, guest-path file routing, decompression and game-asset streaming remain unsupported. `OpenFile` has a separate [generated-file test-only adapter](XBOX_DSTORAGE_FILE_HOST.md). The title-execution safeguard remains BLOCKED.**
 
 ## Confirmed interface addresses and a corrected factory vtable
 
@@ -13,7 +13,7 @@ Read-only original-title disassembly plus read-only PE .rdata extraction identif
 | CreateStatusArray(capacity, name, IID, out) | **+0x28** | 0x1428C9522 (capacity 1) | cd66d752-2786-44f7-9070-e2a6fdad3f1b |
 | CreateQueue1(desc, IID, out) | **+0x50** | 0x1428C95C7 | 3c02cb0c-c050-4195-99a1-a1ce94ba33c5 |
 
-**Important ABI correction:** a prior original factory declaration used an alphabetical `CreateQueue, CreateStatusArray, OpenFile` virtual order. The actual title makes the 3-argument `OpenFile` call at slot +0x20 and the 4-argument `CreateStatusArray` call at +0x28. ScarlettVI now declares `CreateQueue, OpenFile, CreateStatusArray` in that order. Both slots are tested via raw COM function pointers, avoiding false confidence from calls that go through the same mistaken C++ declaration. This correction does **not** imply guest file objects now work: OpenFile still fails E_NOTIMPL.
+**Important ABI correction:** a prior original factory declaration used an alphabetical `CreateQueue, CreateStatusArray, OpenFile` virtual order. The actual title makes the 3-argument `OpenFile` call at slot +0x20 and the 4-argument `CreateStatusArray` call at +0x28. ScarlettVI now declares `CreateQueue, OpenFile, CreateStatusArray` in that order. Both slots are tested via raw COM function pointers, avoiding false confidence from calls that go through the same mistaken C++ declaration. This correction does **not** imply game file streaming works: normal `OpenFile` remains E_NOTIMPL, while an explicitly configured generated-file root now supports a [real host file object](XBOX_DSTORAGE_FILE_HOST.md).
 
 **Status method ordering caveat:** the Xbox public reference lists `GetHResult` and `IsComplete` but does not explicitly guarantee a vtable layout. The adapter uses `IsComplete` at +0x18 and `GetHResult` at +0x20, matching the independently published Windows DirectStorage ABI. This is a reasoned Xbox compatibility assumption until separately confirmed from actual title status-object use. It is NOT a confirmed Xbox-specific vtable result.
 
@@ -47,4 +47,4 @@ The new test constructs an original 4 KiB file in ignored `reports/`, never acce
 
 ## Readiness
 
-**8 Xbox imports remain unbound** (CHAD 5, XApuEnqueueCommand 1, XG 2). The previously bound DirectStorage factory remains **partial=1**: `CreateStatusArray` now functions, along with its real staging memory management and the separate host-only worker and queue scheduler. `OpenFile`, `CreateQueue`, `CreateQueue1`, guest status notifications, decompression, and actual title-asset streaming remain missing. `TITLE EXECUTION: BLOCKED` is unchanged.
+**8 Xbox imports remain unbound** (CHAD 5, XApuEnqueueCommand 1, XG 2). The previously bound DirectStorage factory remains **partial=1**: `CreateStatusArray` now functions, along with its real staging memory management and the separate host-only worker and queue scheduler. normal title `OpenFile` routing, `CreateQueue`, `CreateQueue1`, guest status notifications, decompression, and actual title-asset streaming remain missing. The test-only file adapter is documented separately. `TITLE EXECUTION: BLOCKED` is unchanged.

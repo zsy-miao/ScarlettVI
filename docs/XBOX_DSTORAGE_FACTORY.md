@@ -17,7 +17,7 @@ Sources: src/storage/dstorage_factory_host.h, src/storage/dstorage_factory_host.
 - Exact guest-observed IID is recognized, along with IUnknown for QueryInterface. Unknown IIDs fail E_NOINTERFACE. The original host factory is process-static and maintains synchronized COM reference counts.
 - The first successful factory lookup obtains **real, zeroed 32-MiB host staging storage**. Page touches are verified across the full allocation, not merely accounted as a number.
 - SetStagingBufferSize supports only the six documented sizes, preparing a new owned host allocation before atomically installing it. Invalid sizes fail E_INVALIDARG, allocation errors fail E_OUTOFMEMORY, preserving the previously installed buffer.
-- `CreateStatusArray` now returns a [real guest-IID status COM object](XBOX_DSTORAGE_STATUS_ARRAY.md) with host-worker-backed completion barriers. An important **factory ABI correction** also puts `OpenFile` at vtable `+0x20` and `CreateStatusArray` at `+0x28`, as verified by actual title caller arguments and raw slot tests. `CreateQueue`, `CreateQueue1` and `OpenFile` still return **E_NOTIMPL** with null outputs: no fake-success file/queue objects or protected asset access.
+- `CreateStatusArray` now returns a [real guest-IID status COM object](XBOX_DSTORAGE_STATUS_ARRAY.md) with host-worker-backed completion barriers. An important **factory ABI correction** also puts `OpenFile` at vtable `+0x20` and `CreateStatusArray` at `+0x28`, as verified by actual title caller arguments and raw slot tests. `CreateQueue` and `CreateQueue1` still return **E_NOTIMPL**. `OpenFile` now supports a [real read-only file COM object](XBOX_DSTORAGE_FILE_HOST.md) only under an explicitly configured generated fixture directory; normal title paths remain unsupported and protected assets are not accessed.
 - SetCpuAffinity returns E_NOTIMPL, and console SetDebugFlags has no claimed guest effect. GetStats is void and leaves unknown-sized guest output untouched, rather than inventing a console statistics structure.
 - Staging storage and COM reference changes are synchronized. The later [host-only async queue](XBOX_DSTORAGE_HOST_ASYNC.md) now holds an explicit factory staging lease: any live host queue blocks stage reconfiguration (including a same-size request). This does not provide guest Xbox queue objects.
 
@@ -29,9 +29,10 @@ Sources: src/storage/dstorage_factory_host.h, src/storage/dstorage_factory_host.
     .\build\x64\Release\ScarlettVI.exe storage-async-fixture
     .\build\x64\Release\ScarlettVI.exe storage-submit-fixture
     .\build\x64\Release\ScarlettVI.exe storage-status-fixture
+    .\build\x64\Release\ScarlettVI.exe storage-file-fixture
     .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 
-The generated host-only fixture exercises the exact exported function pointer, raw COM **vtable slot +0x40**, singleton and IUnknown identity, unknown-IID rejection, supported staging sizes, invalid-size rollback, real 64-KiB page writes/readback, E_NOTIMPL for queue/files, no output buffer writes for unknown-sized stats, and **4 workers ×48 GetFactory/reconfigure/Release calls**. No title code executes.
+The generated host-only fixture exercises the exact exported function pointer, raw COM **vtable slot +0x40**, singleton and IUnknown identity, unknown-IID rejection, supported staging sizes, invalid-size rollback, real 64-KiB page writes/readback, E_NOTIMPL for unconfigured file/queue calls, no output buffer writes for unknown-sized stats, and **4 workers ×48 GetFactory/reconfigure/Release calls**. No title code executes.
 
 ## Readiness change
 
@@ -43,4 +44,4 @@ The generated host-only fixture exercises the exact exported function pointer, r
 | Functional Xbox asset streaming | No | **No** |
 | Original game boot | BLOCKED | **BLOCKED** |
 
-The current eight unresolved Xbox symbols comprise CHAD DSP five, XApuEnqueueCommand one, and XG graphics two. More importantly, functional Xbox guest file/queue/request and GPU/console process systems remain missing. The [status-array COM service](XBOX_DSTORAGE_STATUS_ARRAY.md) now exists alongside the separately tested host-only file worker; neither supplies the still-missing guest queue or file service. The readiness report names the binding **DirectStorage factory partial=1**; it is not a bootability claim.
+The current eight unresolved Xbox symbols comprise CHAD DSP five, XApuEnqueueCommand one, and XG graphics two. More importantly, functional Xbox guest file/queue/request and GPU/console process systems remain missing. The [status-array COM service](XBOX_DSTORAGE_STATUS_ARRAY.md) now exists alongside the separately tested host-only file worker; neither supplies guest queue or title-path file services; the additional fixture-only file COM adapter verifies only generated data. The readiness report names the binding **DirectStorage factory partial=1**; it is not a bootability claim.

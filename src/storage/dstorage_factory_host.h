@@ -54,6 +54,10 @@ uint32_t host_dstorage_staging_bytes() noexcept;
 bool acquire_host_dstorage_queue_lease() noexcept;
 void release_host_dstorage_queue_lease() noexcept;
 uint32_t active_host_dstorage_queue_leases() noexcept;
+// Independent guest-file lifetime leases block staging reconfiguration.
+bool acquire_host_dstorage_file_lease() noexcept;
+void release_host_dstorage_file_lease() noexcept;
+uint32_t active_host_dstorage_file_leases() noexcept;
 bool verify_dstorage_staging_pages_for_fixture() noexcept;
 bool verify_dstorage_factory_fixture() noexcept;
 
