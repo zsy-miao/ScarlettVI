@@ -122,7 +122,12 @@ console code, keys or proprietary binary libraries belong in this repository.
    aliasing barriers and completion fences pass (see
    [GPU_TILES.md](GPU_TILES.md)). The staged XMem CPU-page path now verifies 64 KiB readback through separate sparse D3D12 GPU heap tiles and explicit CPU-alias writeback (see [XMEM_GPU_STAGING.md](XMEM_GPU_STAGING.md)). Remaining: Xbox GPU page-table APIs and
    coherent CPU/GPU physical memory, console D3D12/XG methods, descriptors,
-   RDNA2 shader decoding, texture swizzles and actual frame presentation.
+   RDNA2 shader decoding, real Xbox texture swizzles and frame presentation.
+   The original [GPU texture detiling backend](GPU_TEXTURE_DETILE.md)
+   now compiles actual SM6 DXIL and converts host synthetic Morton
+   tiles into linear block-compressed/uncompressed texture bytes in
+   **20 real GPU dispatch submissions** with exact readback. Xbox XG
+   object/descriptor ABI and RDNA2 texture addressing remain unimplemented.
 5. **Title features:** RPF9 header inventory implemented (12 top-level archives, 130.5 GB of file metadata examined without copying payloads); remaining RPF streaming, BCPack where applicable, shaders and render-target
    diagnostics, audio device & codec bridges, controller input, frame presentation.
 6. **Execution and diagnostics:** safe thread/exception state, fault collection,
@@ -243,6 +248,9 @@ and zero GPU mapping leaks ([GPU_TILE_BATCH.md](GPU_TILE_BATCH.md)).
 aliasing across segmented 16 GiB guest buffers (see [GPU_TILES.md](GPU_TILES.md)).
 The gpu-texture-layout command verifies block-compressed, mipmapped Windows
 GPU textures and an original reversible synthetic microtile layout.
+The gpu-texture-detile command exercises a [real cached DXIL detiling
+pipeline](GPU_TEXTURE_DETILE.md) against that layout with 20 GPU
+submissions, bounds checks and exact R8/BC readback.
 See [GPU_VIRTUAL_MEMORY.md](GPU_VIRTUAL_MEMORY.md).
 All GPU modes use only independently generated test data.
 See [GPU_BACKEND.md](GPU_BACKEND.md) and [MEMORY_BACKEND.md](MEMORY_BACKEND.md).

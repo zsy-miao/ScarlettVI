@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [XMem Host Budget Transfer](docs/XMEM_TITLE_SYSTEM_TRANSFER.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [APU Address Translation](docs/APU_ADDRESS_TRANSLATION.md) · [APU SHAPE Buffers](docs/APU_SHAPE_CONTEXTS.md) · [Partial AcpHal Factory](docs/APU_HAL_FACTORY.md) · [Partial XAPU Queue](docs/XAPU_QUEUE_HOST.md) · [CPU DSP Convolution](docs/DSP_CPU_CONVOLUTION.md) · [XAPU-DSP Host Integration](docs/XAPU_DSP_INTEGRATION.md) · [VIctory Reference Notes](docs/VICTORY_REFERENCE_NOTES.md) · [Generated PE and DLL Startup Tests](docs/SYNTHETIC_PE_ENTRY.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [Real GPU Texture Detiling](docs/GPU_TEXTURE_DETILE.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [XMem Host Budget Transfer](docs/XMEM_TITLE_SYSTEM_TRANSFER.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [APU Address Translation](docs/APU_ADDRESS_TRANSLATION.md) · [APU SHAPE Buffers](docs/APU_SHAPE_CONTEXTS.md) · [Partial AcpHal Factory](docs/APU_HAL_FACTORY.md) · [Partial XAPU Queue](docs/XAPU_QUEUE_HOST.md) · [CPU DSP Convolution](docs/DSP_CPU_CONVOLUTION.md) · [XAPU-DSP Host Integration](docs/XAPU_DSP_INTEGRATION.md) · [VIctory Reference Notes](docs/VICTORY_REFERENCE_NOTES.md) · [Generated PE and DLL Startup Tests](docs/SYNTHETIC_PE_ENTRY.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -177,7 +177,13 @@ released all CPU pins and GPU tile mappings. The new original
 [host texture-layout bridge](docs/XG_TEXTURE_LAYOUT.md)
 verifies RGBA8, R8, BC1, BC3 and BC5 block/pitch translation: **130 generated CPU
 subresources (211,460 bytes)** and **40 real GPU texture subresources** passed
-across mip levels and arrays. Xbox GPU page tables and XG swizzles are not translated.
+across mip levels and arrays. The new
+[real GPU texture detiler](docs/GPU_TEXTURE_DETILE.md) compiles original
+DXIL compute, converts the synthetic 8×8 host Morton layout into linear
+textures on the RTX 5060 Ti, and verifies every returned byte across
+**20 GPU submissions**, five DXGI formats and odd-sized mip chains. This
+is a reusable GPU data-path component, not Xbox XG swizzle or RDNA2
+guest shader translation. Xbox GPU page tables and XG APIs remain incomplete.
 The original [XMem-to-sparse-GPU staging test](docs/XMEM_GPU_STAGING.md)
 now uses a reusable [GpuPageStager host API](docs/GPU_PAGE_STAGER.md) to
 transfer **three different 64 KiB payloads** through real sparse GPU tiles
@@ -233,6 +239,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-compute
 .\build\x64\Release\ScarlettVI.exe gpu-texture-shader
 .\build\x64\Release\ScarlettVI.exe gpu-texture-layout
+.\build\x64\Release\ScarlettVI.exe gpu-texture-detile
 .\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe gpu-device11
 .\build\x64\Release\ScarlettVI.exe gpu-device-factory

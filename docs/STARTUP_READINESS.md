@@ -37,7 +37,7 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `chad.dll` | 5 | Connection, activation and command dispatch are not bound; original CPU FIR DSP processing is independently tested, but the guest command/stream ABI is unverified |
 | `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
 | `xmem.dll` | 0 | One **partial** `XMemTransferMemory` host quota binding; only title-observed direction and host XMemAlloc budget admission are implemented |
-| `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
+| `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI unresolved; original [D3D12 GPU detiling backend](GPU_TEXTURE_DETILE.md) now executes host Morton layouts but is NOT Xbox swizzle |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
 | **Total** | **9** | |
 
@@ -83,8 +83,10 @@ Measured working address bindings:
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.
-  Native host [D3D12 tile backing](GPU_TILES.md) is tested separately;
-  it does not bind additional Xbox imports
+  Native host [D3D12 tile backing](GPU_TILES.md) and the new
+  [GPU-executed host texture detiler](GPU_TEXTURE_DETILE.md) are tested
+  separately; neither binds additional Xbox imports or reproduces XG
+  console texture swizzling
 
 A [public compatibility-project comparison](PUBLIC_COMPATIBILITY_RESEARCH.md)
 identifies additional implementation work and licenses to review. The

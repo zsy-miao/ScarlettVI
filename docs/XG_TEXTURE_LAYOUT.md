@@ -55,7 +55,7 @@ No game assets, proprietary console SDK headers or code from the samples are cop
 | BC3_UNORM | 4 × 4 texels | 16 |
 | BC5_UNORM | 4 × 4 texels | 16 |
 
-It validates dimensions, mip counts, array layers, sizes and overlapping storage, computes tightly packed linear rows, and zero-fills padding in the synthetic tile order. **That order is not Xbox XG, RDNA2 tile swizzle or Xbox texture-descriptor translation.**
+It validates dimensions, mip counts, array layers, sizes and overlapping storage, computes tightly packed linear rows, and zero-fills padding in the synthetic tile order. **That order is not Xbox XG, RDNA2 tile swizzle or Xbox texture-descriptor translation.** The [real GPU compute detiler](GPU_TEXTURE_DETILE.md) now converts this host-only layout on actual D3D12 hardware and returns exact linear bytes across 20 shader dispatch submissions.
 
 The new `gpu-texture-layout` CLI mode runs:
 
@@ -69,10 +69,11 @@ Run from the project directory:
 
 ```powershell
 .\build\x64\Release\ScarlettVI.exe gpu-texture-layout
+.\build\x64\Release\ScarlettVI.exe gpu-texture-detile
 ```
 
 ## Remaining steps
 
 To link `XGCreateTextureComputer` safely, independently verify all Xbox input descriptor fields, output object methods and lifetime rules, supported XG swizzle-mode enumerations, hardware tile-addressing and error semantics. A future adapter can then translate from the **real** Xbox texture layout into this tested host format/footprint pipeline.
 
-The read-only game readiness report remains at **25 unresolved Xbox import references**, including the two XG symbols, and **title execution blocked**. Nothing in this work executes or modifies the original game.
+The historical texture-layout milestone had **25 unresolved Xbox import references**. The current data-only readiness report has **9 unresolved Xbox imports**, still including both XG symbols, and **title execution blocked**. Nothing in this work executes or modifies the original game.

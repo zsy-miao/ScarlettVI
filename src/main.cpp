@@ -161,6 +161,7 @@ void usage() {
                << L"  ScarlettVI.exe gpu-page-batch\n"
                << L"  ScarlettVI.exe gpu-page-scattered\n"
                << L"  ScarlettVI.exe gpu-texture-layout\n"
+               << L"  ScarlettVI.exe gpu-texture-detile\n"
                << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
@@ -792,6 +793,25 @@ int wmain(int argc, wchar_t** argv) {
                       << " Explicit upload, fence, readback and CPU writeback only;"
                       << " Xbox XMemTransferMemory remains unsupported.\n";
             return pass ? 0 : 3;
+        }
+        if (verb == L"gpu-texture-detile") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            const HRESULT hr = gpu.detile_host_texture_gpu_fixture();
+            std::wcout << L"ScarlettVI | real DXIL GPU texture detiling: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n"
+                       << L"GPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "20 synthetic D3D12 GPU submissions across"
+                      << " 5 DXGI formats, mip chains and odd dimensions"
+                      << " | compiled DXIL: " << gpu.detile_dxil_bytes()
+                      << " bytes | submissions: " << gpu.submitted_commands()
+                      << " | HRESULT: 0x" << std::hex
+                      << static_cast<uint32_t>(hr) << std::dec << "\n"
+                      << "Host 8x8 Morton microtiles only: NOT Xbox XG/RDNA2"
+                      << " swizzle and NOT game shader execution.\n";
+            if (FAILED(hr) && !gpu.shader_diagnostics().empty())
+                std::cerr << "DXC: " << gpu.shader_diagnostics() << "\n";
+            return SUCCEEDED(hr) && gpu.submitted_commands() == 20 ? 0 : 3;
         }
         if (verb == L"gpu-texture-layout") {
             if (argc != 2) { usage(); return 2; }

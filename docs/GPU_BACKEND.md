@@ -81,6 +81,23 @@ submissions/fence value 3 on NVIDIA RTX 5060 Ti.
 
 These implementations are original, useful Windows D3D12 building blocks.
 
+### GPU-executed texture data conversion
+
+The new [real GPU detiling bridge](GPU_TEXTURE_DETILE.md) compiles a
+third original SM6 compute shader and dispatches a byte-addressed
+host **8×8 Morton tile → linear texture** conversion on the NVIDIA
+RTX 5060 Ti. It reuses the persistent D3D12 queue, cached pipeline,
+upload/UAV/readback allocations, explicit state transitions and fences.
+An aligned intermediate GPU output layout prevents a narrow R8 mip from
+overwriting the next subresource through a four-byte GPU store.
+
+The gpu-texture-detile fixture verifies exact GPU readback for five
+supported DXGI formats across **20 real GPU submissions**, including
+four dimension cases per format, odd sizes and mip/array layouts.
+DXC compiled 4,296 bytes of original DXIL. This can support an eventual
+guest layout translation backend but **does not implement Xbox XG
+swizzle** and neither Xbox graphics import has been bound.
+
 ### Connecting virtual Xbox physical pages to real host GPU execution
 
 The new original [guest GPU address-space and CPU/GPU memory bridge](GPU_ADDRESS_BRIDGE.md)
@@ -223,6 +240,9 @@ BC1/BC3/BC5 block-aware dimensions, row pitches, array layers and mips.
 Its reversible synthetic 8x8 Morton microtiles are NOT Xbox swizzle.
 The gpu-texture-layout command verified 130 CPU subresources (211,460 bytes)
 and 40 actual Windows GPU texture subresources in five D3D12 queue submissions.
+The subsequent [GPU texture detiler](GPU_TEXTURE_DETILE.md) runs the
+same host Morton layout through real DXIL compute on GPU buffers,
+covering 20 additional texture cases with bit-exact readback.
 
 These implementations **do not decode Xbox RDNA2 ISA**, reproduce Xbox tile
 swizzles, expose Xbox-only GPU/COM semantics or render the Xbox title.

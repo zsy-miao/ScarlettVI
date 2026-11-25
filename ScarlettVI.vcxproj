@@ -111,6 +111,7 @@
     <ClCompile Include="src\gpu\guest_gpu_page_batch_test.cpp" />
     <ClCompile Include="src\gpu\guest_gpu_page_registry_test.cpp" />
     <ClCompile Include="src\gpu\texture_layout.cpp" />
+    <ClCompile Include="src\gpu\gpu_texture_detiler.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\pe\pe_file.h" />

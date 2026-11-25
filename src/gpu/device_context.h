@@ -10,6 +10,7 @@
 
 namespace scarlett::gpu {
 class GuestAddressSpace;
+class TextureLayout;
 
 // Persistent, independent Windows D3D12 backend. This does not expose the
 // Xbox D3D12_XS COM ABI; console vtables are translated in a separate layer.
@@ -52,6 +53,15 @@ public:
     // Copies generated format-aware RGBA/block-compressed texture mips
     // through real D3D12 GPU footprints and verifies every returned block.
     HRESULT texture_layout_gpu_test();
+    // Real D3D12 compute detiler for the ORIGINAL 8x8 Morton host
+    // staging layout. Not Xbox XG/RDNA2 hardware swizzle.
+    // Validates all buffer extents and computes into a private staging
+    // buffer; caller output is unchanged if GPU processing fails.
+    HRESULT detile_host_texture_gpu(const TextureLayout& layout,
+                                   std::span<const uint8_t> tiled,
+                                   std::span<uint8_t> linear);
+    HRESULT detile_host_texture_gpu_fixture();
+    uint32_t detile_dxil_bytes() const noexcept { return detile_dxil_bytes_; }
     HRESULT compute_dispatch_test(uint32_t seed);
     HRESULT texture_shader_test();
     // Submits host DXIL work between CPU-visible 64KiB console page views.
@@ -82,6 +92,7 @@ private:
     HRESULT wait_for_gpu(uint64_t value);
     HRESULT prepare_compute_pipeline();
     HRESULT prepare_texture_pipeline();
+    HRESULT prepare_texture_detile_pipeline();
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory_;
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter_;
     Microsoft::WRL::ComPtr<ID3D12Device> device_;
@@ -95,6 +106,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> texture_root_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> texture_pipeline_;
     uint32_t texture_dxil_bytes_ = 0;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> detile_root_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> detile_pipeline_;
+    uint32_t detile_dxil_bytes_ = 0;
     std::string shader_diagnostics_;
     HANDLE fence_event_ = nullptr;
     std::wstring adapter_name_;
