@@ -122,6 +122,12 @@ submissions), safe heap-slot reuse, atomic pinned-unmap rejection and
 retryable fence-safe cleanup with zero leaks
 ([GPU_FENCE_RECOVERY.md](GPU_FENCE_RECOVERY.md))
 ([GUEST_GPU_PAGE_REGISTRY.md](GUEST_GPU_PAGE_REGISTRY.md)).
+`xg-calls-fixture` and the data-only `xg-calls <title.exe>` command
+verify original x64 RIP-relative FF25 import jump stubs and E8 direct
+call candidates for the two unresolved XG graphics imports. The title
+scan confirms **four XGCreateTextureComputer and two XGSuggestSwizzleMode
+call sites**, without executing title code or guessing their ABI
+([XG_CALLSITE_PROBE.md](XG_CALLSITE_PROBE.md)).
 `gpu-page-scattered` uses a host-only planner to sort eight unordered
 XMem-backed GPU-page descriptors into four native-resource-safe runs
 across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24

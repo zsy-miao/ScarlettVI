@@ -199,6 +199,18 @@ The RTX 5060 Ti fixture verifies eight real 64 KiB physical XMem frames,
 third-run failure rollback. Zero CPU pages, pins or GPU mappings leak.
 The host pager is **not** an Xbox page-table or unified GPU memory ABI.
 
+### Read-only Xbox XG import call-site verification
+
+A new original [XG PE import call-site probe](XG_CALLSITE_PROBE.md)
+resolves the two actual `xg_xs.dll` import IAT RVAs and their jump stubs,
+then scans only file-backed executable PE sections for E8 relative calls
+into those stubs. The supplied game yielded **4 candidates for
+`XGCreateTextureComputer` and 2 for `XGSuggestSwizzleMode`**,
+corroborating independent read-only disassembly. A synthetic fixture
+rejects false import-address matches and overflow. This is not x64 full
+instruction decoding, Xbox swizzle ABI, console texture layout support
+or any title execution; both Xbox imports remain unresolved.
+
 ### Original host texture formats and XG call-site research
 
 The original [XG call-site and texture-layout research](XG_TEXTURE_LAYOUT.md)

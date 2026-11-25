@@ -1,4 +1,5 @@
 #include "pe/pe_file.h"
+#include "analysis/xg_callsite_probe.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -101,6 +102,8 @@ void usage() {
     std::wcout << L"ScarlettVI | native Xbox Series compatibility research\n"
                << L"Usage:\n"
                << L"  ScarlettVI.exe inspect <title.exe> [--json <report.json>]\n"
+               << L"  ScarlettVI.exe xg-calls <title.exe>\n"
+               << L"  ScarlettVI.exe xg-calls-fixture\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
                << L"  ScarlettVI.exe archives <title-directory-or-archive.rpf>\n"
@@ -131,6 +134,54 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-calls-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed = scarlett::analysis::verify_xg_callsite_fixtures();
+            std::cout << "ScarlettVI | generated XG PE callsite scanner fixture: "
+                      << (passed ? "PASS" : "FAIL") << "\n"
+                      << "Generated x64 FF25/E8 byte patterns only;"
+                      << " no Xbox import code executed.\n";
+            return passed ? 0 : 3;
+        }
+        if (verb == L"xg-calls") {
+            if (argc != 3) { usage(); return 2; }
+            // Parses input PE bytes only; no image is mapped into executable
+            // memory, no DllMain/TLS/entry point or Xbox import is invoked.
+            const scarlett::PeFile title(argv[2]);
+            scarlett::analysis::XgCallsiteReport report;
+            if (!scarlett::analysis::probe_xg_callsites(title, report)) {
+                std::cerr << "XG read-only PE scan failed.\n";
+                return 3;
+            }
+            std::cout << "ScarlettVI | XG static PE callsite candidates"
+                      << " | executable bytes scanned: "
+                      << report.executable_bytes_scanned
+                      << " | preferred image base: 0x"
+                      << std::hex << report.image_base << std::dec << "\n";
+            for (const auto& symbol : report.symbols) {
+                std::cout << symbol.symbol
+                          << " | import: " << (symbol.imported ? "yes" : "no")
+                          << " | IAT RVA: 0x" << std::hex << symbol.iat_rva
+                          << std::dec
+                          << " | FF25 thunk matches: "
+                          << symbol.trampoline_rvas.size()
+                          << " | E8 rel32 call candidates: "
+                          << symbol.direct_rel32_call_rvas.size() << "\n";
+                for (auto stub : symbol.trampoline_rvas)
+                    std::cout << "  thunk VA 0x" << std::hex
+                              << (report.image_base + stub)
+                              << " -> IAT VA 0x"
+                              << (report.image_base + symbol.iat_rva)
+                              << std::dec << "\n";
+                for (auto rva : symbol.direct_rel32_call_rvas)
+                    std::cout << "  candidate call VA 0x" << std::hex
+                              << (report.image_base + rva) << std::dec << "\n";
+            }
+            std::cout << "Byte-pattern candidates, not a full disassembler."
+                      << " Xbox texture descriptors, swizzles and object"
+                      << " methods remain unverified; title execution BLOCKED.\n";
+            return 0;
+        }
         if (verb == L"gpu-page-scattered") {
             if (argc != 2) { usage(); return 2; }
             scarlett::gpu::DeviceContext gpu;

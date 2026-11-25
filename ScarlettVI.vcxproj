@@ -54,6 +54,7 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\pe\pe_file.cpp" />
+    <ClCompile Include="src\analysis\xg_callsite_probe.cpp" />
     <ClCompile Include="src\loader\image_mapper.cpp" />
     <ClCompile Include="src\loader\title_modules.cpp" />
     <ClCompile Include="src\runtime\import_router.cpp" />
@@ -80,6 +81,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\pe\pe_file.h" />
+    <ClInclude Include="src\analysis\xg_callsite_probe.h" />
     <ClInclude Include="src\loader\image_mapper.h" />
     <ClInclude Include="src\loader\title_modules.h" />
     <ClInclude Include="src\runtime\import_router.h" />

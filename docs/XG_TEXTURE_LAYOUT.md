@@ -2,6 +2,13 @@
 
 **Status:** read-only game call-site analysis and independently verified Windows host texture copy/format processing. The two actual Xbox `xg_xs.dll` imports remain **unresolved**. The host swizzle is **not** a console swizzle.
 
+The original [repeatable read-only XG PE call-site probe](XG_CALLSITE_PROBE.md)
+now verifies the two actual IAT locations, both FF25 import jump stubs,
+and all six E8 relative-call candidates directly from the original title's
+executable PE sections. Its generated synthetic scanner fixture is separately
+testable using `ScarlettVI.exe xg-calls-fixture`. It does **not** decode
+Xbox texture descriptor fields or bind either Xbox import.
+
 ## What the user-owned executable shows
 
 Independent read-only analysis of `game_scarlett_master.exe` found four direct calls to the `XGCreateTextureComputer` trampoline at RVA `0x5F3FF40`:

@@ -26,6 +26,13 @@ You must supply your own legitimately obtained software.
 
 **Early development — not bootable or playable yet.**
 
+The new [read-only XG call-site probe](docs/XG_CALLSITE_PROBE.md)
+verifies both XG jump-stub/IAT paths and all six observed direct-call
+candidates in the user's executable, using an original PE byte-pattern
+scanner and a generated negative-test fixture. The full Xbox XG texture
+computer/swizzle ABI remains unknown, so both graphics imports are
+still **unresolved**.
+
 The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
@@ -134,6 +141,8 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 
 ```powershell
 .\build\x64\Release\ScarlettVI.exe inspect "D:\Games\Title\title.exe" --json "reports\imports.json"
+.\build\x64\Release\ScarlettVI.exe xg-calls "D:\Games\Title\title.exe"
+.\build\x64\Release\ScarlettVI.exe xg-calls-fixture
 .\build\x64\Release\ScarlettVI.exe map "D:\Games\Title\title.exe"
 .\build\x64\Release\ScarlettVI.exe readiness "D:\Games\Title\title.exe" --json "reports\readiness.json"
 .\build\x64\Release\ScarlettVI.exe archives "D:\Games\Title"
