@@ -135,6 +135,7 @@ void usage() {
                << L"  ScarlettVI.exe audio-hal-fixture\n"
                << L"  ScarlettVI.exe audio-xapu-fixture\n"
                << L"  ScarlettVI.exe audio-dsp-fixture\n"
+               << L"  ScarlettVI.exe audio-xapu-dsp-fixture\n"
                << L"  ScarlettVI.exe synthetic-entry-fixture\n"
                << L"  ScarlettVI.exe synthetic-dll-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
@@ -188,6 +189,16 @@ int wmain(int argc, wchar_t** argv) {
                       << "TLS and entrypoint verified. Original title not executed.\n";
             return passed ? 0 : 3;
         }
+        if (verb == L"audio-xapu-dsp-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::audio::verify_host_xapu_dsp_integration_fixture();
+            std::cout << "ScarlettVI | real host FIR -> XAPU completion FIFO: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nOnly original host-typed commands are processed. "
+                      << "Xbox XApuEnqueueCommand remains unbound; title BLOCKED.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"audio-dsp-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -203,8 +214,8 @@ int wmain(int argc, wchar_t** argv) {
             const bool passed = scarlett::audio::verify_host_xapu_fixture();
             std::cout << "ScarlettVI | partial host XAPU connection/result queue: "
                       << (passed ? "PASS" : "FAIL")
-                      << "\nReal owned queue state. Command submission and "
-                      << "DSP processing remain UNIMPLEMENTED; title BLOCKED.\n";
+                      << "\nReal owned queue state. Xbox guest command submission "
+                      << "and DSP processing remain UNIMPLEMENTED; title BLOCKED.\n";
             return passed ? 0 : 3;
         }
         if (verb == L"audio-hal-fixture") {

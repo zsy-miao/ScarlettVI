@@ -89,6 +89,7 @@
     <ClCompile Include="src\audio\acp_hal_host_test.cpp" />
     <ClCompile Include="src\audio\xapu_host.cpp" />
     <ClCompile Include="src\audio\xapu_host_test.cpp" />
+    <ClCompile Include="src\audio\xapu_dsp_integration_test.cpp" />
     <ClCompile Include="src\audio\dsp_convolution.cpp" />
     <ClCompile Include="src\audio\dsp_convolution_test.cpp" />
     <ClCompile Include="src\runtime\physical_memory.cpp" />

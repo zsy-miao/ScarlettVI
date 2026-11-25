@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace scarlett::audio {
@@ -20,6 +21,10 @@ inline constexpr size_t kHostXApuMaxConnections = 64;
 inline constexpr size_t kHostXApuResultCapacity = 64;
 inline constexpr HRESULT kHostXApuPendingResults =
     static_cast<HRESULT>(0x8AC81001u); // public Xbox GDK code
+inline constexpr HRESULT kHostXApuQueueFull =
+    static_cast<HRESULT>(0x8AC81000u); // public Xbox GDK code
+// Internal host-generated FIR receipt, NOT a guest/Xbox result ID.
+inline constexpr uint32_t kHostXApuFirResultMagic = 0x52494653u; // "SFIR"
 
 struct HostXApuStats {
     size_t total_connections = 0;
@@ -40,11 +45,22 @@ uint32_t WINAPI XApuGetResultCount(
 
 // Original partial host-backed connection and result queue. EnqueueCommand
 // intentionally remains unbound: it would require actual verified Xbox
-// command processing. A fixture-only result injection tests the queue
-// without pretending any guest command executed.
+// command processing. These host-only typed FIR operations (NOT guest
+// exports) execute real audio filtering and enqueue an actual completion
+// receipt only after successful processing, atomically with FIFO capacity.
+// They can later back a separately verified guest command translator.
 FARPROC find_xapu_export(std::string_view name) noexcept;
 HostXApuStats host_xapu_stats() noexcept;
+HRESULT configure_host_xapu_fir(
+    HostXApuConnection* connection, std::span<const float> kernel,
+    uint32_t channels) noexcept;
+HRESULT submit_host_xapu_fir(
+    HostXApuConnection* connection, std::span<const float> input,
+    std::span<float> output, uint64_t command_id) noexcept;
+
+// Fixture-only injection of host-generated test receipts.
 bool inject_synthetic_xapu_result_for_fixture(
     HostXApuConnection* connection, const XApuResultEnvelope& result) noexcept;
 bool verify_host_xapu_fixture() noexcept;
+bool verify_host_xapu_dsp_integration_fixture() noexcept;
 } // namespace scarlett::audio

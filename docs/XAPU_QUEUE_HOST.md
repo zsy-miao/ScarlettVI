@@ -27,13 +27,14 @@ Original files `src/audio/xapu_host.{h,cpp}` and `src/audio/xapu_host_test.cpp` 
 - `XApuDequeueResult`: returns `XAPU_E_PENDING_RESULTS` on an empty live connection without changing the caller's output bytes; otherwise copies an actual queued synthetic completion and removes it in FIFO order. Rejects unknown handles and null output.
 - `XApuDisconnect`: invalidates the connection, drops pending results, and disallows all later actions through the handle. Handles are retained as bounded tombstones for the process lifetime, so stale pointers cannot be silently reused for a different connection.
 - Process-wide caps: 64 total connection handles ever, 64 results per live connection. These are conservative **desktop host policies**, not Xbox hardware limits. The host mutex protects all connection and result operations.
-- A **fixture-only** helper can enqueue an explicitly generated result to test full/empty, wraparound, FIFO and concurrent behavior. Production import routing intentionally does not expose this helper and does not turn unsupported guest commands into fabricated results.
+- A **fixture-only** helper can enqueue an explicitly generated result to test full/empty, wraparound, FIFO and concurrent behavior. A subsequent [host-only real FIR processing bridge](XAPU_DSP_INTEGRATION.md) can also submit typed host commands and queue verified, actual processing receipts. Neither helper is exposed as an Xbox guest command API.
 
-`XApuEnqueueCommand` is **not** bound; actual XAPU audio decoding, activation, stream scheduling and DSP command execution are unimplemented. As a result the game may require commands this subset cannot execute. These four imports are counted separately as `experimental_xapu_partial_bound=4`, not successful device emulation.
+`XApuEnqueueCommand` is **not** bound; real *guest* XAPU audio command decoding, activation, stream scheduling and Xbox DSP execution are unimplemented. The host-only FIR bridge processes original generated commands, not title commands. As a result the game may require commands this subset cannot execute. These four imports are counted separately as `experimental_xapu_partial_bound=4`, not successful device emulation.
 
 ## Verification
 
     .\build\x64\Release\ScarlettVI.exe audio-xapu-fixture
+    .\build\x64\Release\ScarlettVI.exe audio-xapu-dsp-fixture
     .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 
 The synthetic fixture validates the four exact exported C signatures; verifies `XApuEnqueueCommand` stays unbound; checks null/missing arguments, foreign and stale handles, no-write empty queue errors, 64-entry capacity, FIFO across 64 records, 100 wraparound cycles, per-connection isolation, full state after disconnect and four worker threads with 8 real connect/queue/dequeue/disconnect cycles each. It verifies all pending synthetic test results and live connections return to initial counts. No original title code runs.

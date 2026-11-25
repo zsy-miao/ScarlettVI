@@ -66,9 +66,11 @@ Measured working address bindings:
   numerical audio primitive only: no guest DSP queue, packet handling,
   codec, sound output or CHAD lifecycle has been linked
 - **4** [partial XAPU connection/result queue bindings](XAPU_QUEUE_HOST.md):
-  bounded host-owned connections, result count and FIFO dequeue are real,
-  but command submissions remain unbound, and no DSP work is executed.
-  Readiness reports `XAPU queue partial=4` separately from full services
+  bounded host-owned connections, result count and FIFO dequeue are real.
+  The [host-only FIR-to-XAPU integration](XAPU_DSP_INTEGRATION.md) now
+  executes actual generated audio commands and records checked output
+  receipts, but the guest `XApuEnqueueCommand` remains unbound. Readiness
+  reports `XAPU queue partial=4` separately from full services
 - **1** [partial AcpHal guest factory binding](APU_HAL_FACTORY.md): the
   factory allocates a correctly shaped host object and real bounded ring
   buffers, but the unverified `+0x10` DSP configuration method returns

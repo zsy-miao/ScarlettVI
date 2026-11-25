@@ -29,7 +29,7 @@ Source: `src/audio/dsp_convolution.{h,cpp}`. Standalone original C++20 `HostDspC
 - A `reset()` operation clears channel histories while retaining the kernel; a checked 64-bit processed-frame counter tracks real work. No background worker or guest event callback is fabricated.
 - A low-overhead decrement/wrap inner loop rather than division/modulus per tap. Direct FIR remains `O(frames × channels × taps)`, so long reverberation impulses will eventually need a partitioned FFT or other optimized backend for realtime performance.
 
-**This is not Xbox SHAPE/XAPU/CHAD ABI emulation.** No address from the game's DSP heap is dereferenced; no guest client, stream, codec or result has been decoded; no system sound device is opened. The filter is an independently tested processing component that can later be integrated with exact verified command descriptors.
+**This is not Xbox SHAPE/XAPU/CHAD ABI emulation.** No address from the game's DSP heap is dereferenced; no guest client, stream, codec or result has been decoded; no system sound device is opened. A later [host-only XAPU integration](XAPU_DSP_INTEGRATION.md) now submits actual FIR processing through an owned connection and publishes checked host receipts. The Xbox command format remains unimplemented.
 
 ## Reproduce
 

@@ -54,6 +54,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   history and independent multichannel state, tested on generated samples.
   It is deliberately not bound to `chad.dll` while the guest buffer,
   stream activation and command contracts remain incomplete.
+  The [host-typed XAPU-to-DSP bridge](XAPU_DSP_INTEGRATION.md) now
+  actually filters input samples through a connection's FIR state and
+  atomically queues a host-defined completion only on success, including
+  actual output-bit checksums. This is not an Xbox packet decoder.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not

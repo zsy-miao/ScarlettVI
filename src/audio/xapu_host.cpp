@@ -1,5 +1,7 @@
 #include "xapu_host.h"
+#include "dsp_convolution.h"
 #include <array>
+#include <bit>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -11,6 +13,7 @@ struct HostXApuConnection {
     size_t tail = 0;
     size_t count = 0;
     bool active = true;
+    HostDspConvolver fir{};
 };
 
 namespace {
@@ -88,6 +91,63 @@ public:
         return S_OK;
     }
 
+    HRESULT configure_fir(HostXApuConnection* connection,
+                          std::span<const float> kernel,
+                          uint32_t channels) noexcept {
+        const std::lock_guard lock(mutex_);
+        auto* live = find_live(connection);
+        if (!live)
+            return E_INVALIDARG;
+        // Prior receipts must be consumed before a new filter generation
+        // starts. Otherwise results can be mistaken for the new kernel.
+        if (live->count)
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
+        return live->fir.configure(kernel, channels);
+    }
+
+    HRESULT submit_fir(HostXApuConnection* connection,
+                       std::span<const float> input,
+                       std::span<float> output,
+                       uint64_t command_id) noexcept {
+        const std::lock_guard lock(mutex_);
+        auto* live = find_live(connection);
+        if (!live)
+            return E_INVALIDARG;
+        // Never mutate output OR stream history if a completion cannot
+        // be recorded. This check and the queue push are serialized.
+        if (live->count == kHostXApuResultCapacity)
+            return kHostXApuQueueFull;
+        const uint32_t channels = live->fir.channels();
+        const HRESULT hr = live->fir.process(input, output);
+        if (FAILED(hr))
+            return hr;
+
+        // Receipt fields are our own host-only schema, not claimed to be
+        // an Xbox XApu completion packet:
+        // [0] magic, [1..2] ID, [3] frames, [4] channels,
+        // [5] checksum of *actual* processed float bits,
+        // [6..7] cumulative frames.
+        uint32_t checksum = 2166136261u;
+        for (size_t i = 0; i < input.size(); ++i) {
+            checksum ^= std::bit_cast<uint32_t>(output[i]);
+            checksum *= 16777619u;
+        }
+        const uint64_t processed = live->fir.frames_processed();
+        XApuResultEnvelope receipt{};
+        receipt.words[0] = kHostXApuFirResultMagic;
+        receipt.words[1] = static_cast<uint32_t>(command_id);
+        receipt.words[2] = static_cast<uint32_t>(command_id >> 32);
+        receipt.words[3] = static_cast<uint32_t>(input.size() / channels);
+        receipt.words[4] = channels;
+        receipt.words[5] = checksum;
+        receipt.words[6] = static_cast<uint32_t>(processed);
+        receipt.words[7] = static_cast<uint32_t>(processed >> 32);
+        live->results[live->tail] = receipt;
+        live->tail = (live->tail + 1) % kHostXApuResultCapacity;
+        ++live->count;
+        return S_OK;
+    }
+
     bool inject(HostXApuConnection* connection,
                 const XApuResultEnvelope& result) noexcept {
         std::lock_guard lock(mutex_);
@@ -159,6 +219,17 @@ FARPROC find_xapu_export(std::string_view name) noexcept {
 }
 HostXApuStats host_xapu_stats() noexcept {
     return XApuState::instance().stats();
+}
+HRESULT configure_host_xapu_fir(
+    HostXApuConnection* connection, std::span<const float> kernel,
+    uint32_t channels) noexcept {
+    return XApuState::instance().configure_fir(connection, kernel, channels);
+}
+HRESULT submit_host_xapu_fir(
+    HostXApuConnection* connection, std::span<const float> input,
+    std::span<float> output, uint64_t command_id) noexcept {
+    return XApuState::instance().submit_fir(
+        connection, input, output, command_id);
 }
 bool inject_synthetic_xapu_result_for_fixture(
     HostXApuConnection* connection,
