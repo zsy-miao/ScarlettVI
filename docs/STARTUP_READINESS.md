@@ -35,11 +35,11 @@ real game binaries, shader assets, extracted archive contents or title data.
 | --- | ---: | --- |
 | `AcpHal.dll` | 0 | Eight functional host APU memory/SHAPE bindings and one partial HAL factory; DSP configuration remains unsupported |
 | `chad.dll` | 5 | Connection, activation and command dispatch are not bound; original CPU FIR DSP processing is independently tested, but the guest command/stream ABI is unverified |
-| `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
+| `xapu.dll` | 0 | Four partial connection/result-queue bindings; `XApuEnqueueCommand` now links to a [strict XMem host FIR command bridge](XAPU_XMEM_GUEST_FIR.md) that returns `E_NOTIMPL` for real unknown Xbox commands |
 | `xmem.dll` | 0 | One **partial** `XMemTransferMemory` host quota binding; only title-observed direction and host XMemAlloc budget admission are implemented |
 | `xg_xs.dll` | 0 | Both symbols now link to [explicit error-only XG functions](XG_IMPORT_FAILURE_BRIDGE.md); **both remain functionally unsupported**. Host Morton GPU detiling is NOT Xbox swizzle |
 | `XCRDAPI.dll` | 0 | [Partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md) binds one symbol and real staging. The [host-only async Win32 queue](XBOX_DSTORAGE_HOST_ASYNC.md), [enqueue/submit scheduler](XBOX_DSTORAGE_SUBMIT_GATE.md) and [guest-IID status arrays](XBOX_DSTORAGE_STATUS_ARRAY.md) now work; an [explicitly fixture-rooted file COM adapter](XBOX_DSTORAGE_FILE_HOST.md) performs real read-only opens, and a [fixture-rooted queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md) processes real host barriers; general guest asset access remains unsupported |
-| **Total** | **6** | Two previously missing XG addresses now have error-only bindings; not usable texture functionality |
+| **Total** | **5** | All five pending symbols are CHAD DSP; XAPU host FIR and XG error-only links do not satisfy real console semantics |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -71,8 +71,12 @@ Measured working address bindings:
   bounded host-owned connections, result count and FIFO dequeue are real.
   The [host-only FIR-to-XAPU integration](XAPU_DSP_INTEGRATION.md) now
   executes actual generated audio commands and records checked output
-  receipts, but the guest `XApuEnqueueCommand` remains unbound. Readiness
-  reports `XAPU queue partial=4` separately from full services
+  receipts. The guest `XApuEnqueueCommand` symbol now also links to a
+  [strict versioned XMem host FIR command](XAPU_XMEM_GUEST_FIR.md) and
+  performs real generated audio processing with safe CPU-page ownership;
+  **real Xbox commands return `E_NOTIMPL`**. Readiness reports
+  `XAPU queue partial=4, XAPU XMem host FIR-only=1` separately from
+  functional Xbox DSP services
 - **1** [partial AcpHal guest factory binding](APU_HAL_FACTORY.md): the
   factory allocates a correctly shaped host object and real bounded ring
   buffers, but the unverified `+0x10` DSP configuration method returns
@@ -129,7 +133,7 @@ managed worker threads. Only generated test callbacks are executed. Neither
 fixture invokes the original title, any game DLL or their callbacks;
 this is **not** proof of full guest loader lifecycle correctness.
 
-Even if all 6 outstanding references gain function addresses, startup
+Even if all 5 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

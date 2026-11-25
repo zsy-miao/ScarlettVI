@@ -47,8 +47,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   method still returns `E_NOTIMPL` and is tracked separately.
   The [partial XAPU host connection/result FIFO](XAPU_QUEUE_HOST.md)
   now links four additional named imports with actual owned handles,
-  bounded FIFO storage and tested concurrent use; command submission
-  remains unbound and audio decoding/playback is not implemented.
+  bounded FIFO storage and tested concurrent use. The new
+  [XMem-backed FIR command bridge](XAPU_XMEM_GUEST_FIR.md) handles only
+  explicitly generated host command records through the observed
+  three-argument `XApuEnqueueCommand` entry point. Unknown Xbox packets
+  remain unsupported; audio decoding/playback is not implemented.
   The original [CPU FIR DSP backend](DSP_CPU_CONVOLUTION.md) now computes
   real, bounded interleaved floating-point convolution with streaming
   history and independent multichannel state, tested on generated samples.

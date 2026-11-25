@@ -51,7 +51,8 @@ bool verify_host_xapu_fixture() noexcept {
             disconnected != reinterpret_cast<FARPROC>(&XApuDisconnect) ||
             dequeued != reinterpret_cast<FARPROC>(&XApuDequeueResult) ||
             counted != reinterpret_cast<FARPROC>(&XApuGetResultCount) ||
-            find_xapu_export("XApuEnqueueCommand") ||
+            find_xapu_export("XApuEnqueueCommand") !=
+                reinterpret_cast<FARPROC>(&XApuEnqueueCommand) ||
             find_xapu_export("XApuConnectOrdinal") ||
             find_xapu_export("xapuconnect") ||
             find_xapu_export(""))

@@ -60,6 +60,9 @@ StartupReadiness assess_startup_readiness(const PeFile& executable,
     report.xbox_xapu_partial_bindings =
         primary.experimental_xapu_partial_bound +
         nested.nested_xapu_partial_bound;
+    report.xbox_xapu_host_fir_bindings =
+        primary.experimental_xapu_host_fir_bound +
+        nested.nested_xapu_host_fir_bound;
     report.xbox_dstorage_factory_partial_bindings =
         primary.experimental_dstorage_factory_partial_bound +
         nested.nested_dstorage_factory_partial_bound;
@@ -124,6 +127,7 @@ void print_startup_readiness(const StartupReadiness& report, std::ostream& outpu
            << ", APU host memory=" << report.xbox_apu_host_alloc_bindings
            << ", HAL factory partial=" << report.xbox_apu_hal_partial_bindings
            << ", XAPU queue partial=" << report.xbox_xapu_partial_bindings
+           << ", XAPU XMem host FIR-only=" << report.xbox_xapu_host_fir_bindings
            << ", DirectStorage factory partial=" << report.xbox_dstorage_factory_partial_bindings
            << ", D3D12 serializer=" << report.xbox_experimental_d3d12_bindings
            << ", host Device11 factory=" << report.xbox_experimental_device11_bindings
@@ -180,6 +184,7 @@ void write_startup_readiness_json(const StartupReadiness& report,
         << "    \"experimental_apu_host_alloc_bound\": " << report.xbox_apu_host_alloc_bindings << ",\n"
         << "    \"experimental_apu_hal_partial_bound\": " << report.xbox_apu_hal_partial_bindings << ",\n"
         << "    \"experimental_xapu_partial_bound\": " << report.xbox_xapu_partial_bindings << ",\n"
+        << "    \"experimental_xapu_host_fir_bound\": " << report.xbox_xapu_host_fir_bindings << ",\n"
         << "    \"experimental_dstorage_factory_partial_bound\": " << report.xbox_dstorage_factory_partial_bindings << ",\n"
         << "    \"experimental_d3d12_bound\": " << report.xbox_experimental_d3d12_bindings << ",\n"
         << "    \"experimental_device11_factory_bound\": " << report.xbox_experimental_device11_bindings << ",\n"

@@ -9,6 +9,26 @@ namespace scarlett::audio {
 
 struct HostXApuConnection;
 
+// ScarlettVI-generated host command, not an Xbox XAPU command schema.
+// This exact shape is recognized ONLY when the entire command resides
+// in a mapped XMem CPU alias; unknown Xbox commands remain E_NOTIMPL.
+inline constexpr uint32_t kHostXApuFirCommandMagic = 0x31464953u; // "SIF1"
+struct HostXApuFirCommandV1 {
+    uint32_t magic = kHostXApuFirCommandMagic;
+    uint16_t version = 1;
+    uint16_t reserved = 0;
+    const float* input = nullptr;
+    float* output = nullptr;
+    uint32_t samples = 0;
+    uint32_t reserved2 = 0;
+    uint64_t command_id = 0;
+    uint64_t reserved3 = 0;
+};
+static_assert(sizeof(HostXApuFirCommandV1) == 48);
+static_assert(offsetof(HostXApuFirCommandV1, input) == 8);
+static_assert(offsetof(HostXApuFirCommandV1, output) == 16);
+static_assert(offsetof(HostXApuFirCommandV1, command_id) == 32);
+
 // Title's one directly observed dequeue caller zeroes an 0x50-byte
 // output buffer and reads fields at +0, +4, and +0x34. No completion
 // hardware contract is implied by this host-owned result envelope.
@@ -39,16 +59,21 @@ HRESULT WINAPI XApuConnect(
 HRESULT WINAPI XApuDequeueResult(HostXApuConnection* connection,
                                 XApuResultEnvelope* output) noexcept;
 HRESULT WINAPI XApuDisconnect(HostXApuConnection* connection) noexcept;
+// Strict host-only FIR command shape; unsupported Xbox commands are
+// never decoded as success and never trigger false DSP completions.
+HRESULT WINAPI XApuEnqueueCommand(
+    HostXApuConnection* connection,
+    const void* command, uint32_t flags) noexcept;
 uint32_t WINAPI XApuGetResultCount(
     const HostXApuConnection* connection, uint32_t selector) noexcept;
 }
 
-// Original partial host-backed connection and result queue. EnqueueCommand
-// intentionally remains unbound: it would require actual verified Xbox
-// command processing. These host-only typed FIR operations (NOT guest
-// exports) execute real audio filtering and enqueue an actual completion
-// receipt only after successful processing, atomically with FIFO capacity.
-// They can later back a separately verified guest command translator.
+// Original partial host-backed connection and result queue. The
+// EnqueueCommand import now recognizes ONLY an explicitly marked,
+// XMem-resident, ScarlettVI-generated FIR command, executes true host
+// DSP and produces a real host receipt. Xbox command decoding is still
+// unsupported: all unrecognized commands return E_NOTIMPL, never a
+// fabricated completion. Typed host FIR operations remain available.
 FARPROC find_xapu_export(std::string_view name) noexcept;
 HostXApuStats host_xapu_stats() noexcept;
 HRESULT configure_host_xapu_fir(
@@ -63,4 +88,5 @@ bool inject_synthetic_xapu_result_for_fixture(
     HostXApuConnection* connection, const XApuResultEnvelope& result) noexcept;
 bool verify_host_xapu_fixture() noexcept;
 bool verify_host_xapu_dsp_integration_fixture() noexcept;
+bool verify_host_xapu_guest_fir_fixture() noexcept;
 } // namespace scarlett::audio

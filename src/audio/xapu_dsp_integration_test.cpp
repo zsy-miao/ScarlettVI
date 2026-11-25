@@ -48,9 +48,11 @@ bool floats_equal(std::span<const float> a,
 
 bool verify_host_xapu_dsp_integration_fixture() noexcept {
     try {
-        // All calls below are internal typed host operations. There is
-        // deliberately NO guest XApuEnqueueCommand export.
-        if (find_xapu_export("XApuEnqueueCommand"))
+        // This fixture uses the typed host commands. The separate guest
+        // import accepts only a recognized XMem-backed host FIR record;
+        // real Xbox command schemas remain unsupported.
+        if (find_xapu_export("XApuEnqueueCommand") !=
+                reinterpret_cast<FARPROC>(&XApuEnqueueCommand))
             return false;
         uint64_t opaque_desc = 0x1234;
         uint64_t opaque_callbacks = 0x9876;

@@ -213,8 +213,10 @@ FARPROC find_xapu_export(std::string_view name) noexcept {
         return reinterpret_cast<FARPROC>(&XApuDisconnect);
     if (name == "XApuGetResultCount")
         return reinterpret_cast<FARPROC>(&XApuGetResultCount);
-    // Real command processing remains unimplemented; never bind a
-    // fake-success XApuEnqueueCommand stub.
+    if (name == "XApuEnqueueCommand")
+        return reinterpret_cast<FARPROC>(&XApuEnqueueCommand);
+    // Only the ScarlettVI-marked, XMem-owned command schema works;
+    // unknown Xbox command payloads return E_NOTIMPL.
     return nullptr;
 }
 HostXApuStats host_xapu_stats() noexcept {

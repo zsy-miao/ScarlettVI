@@ -1,12 +1,12 @@
 # Host XAPU-to-DSP command processing integration
 
-**Status: real host-typed DSP execution and completion receipts. The Xbox `XApuEnqueueCommand` API is STILL UNBOUND.** This component is an internal C++20 service, not a console command decoder or working game-audio playback path.
+**Status: real host-typed DSP execution and completion receipts.** A [new tagged XMem host FIR bridge](XAPU_XMEM_GUEST_FIR.md) connects generated command records through the `XApuEnqueueCommand` import, but **real Xbox commands still return `E_NOTIMPL`**. This is not a console command decoder or working game-audio playback path.
 
 ## Why the host-only boundary exists
 
 Read-only `dumpbin` of the supplied Xbox executable confirms `XApuEnqueueCommand` receives RCX=connection, RDX=command pointer, and R8D=0 at four verified sites: `0x1400483D5`, `0x144EE9978`, `0x144F2092D`, `0x144F20BB8` (the thunk resolves to IAT `0x146794158`). A first DWORD with values **1, 2, or 5** is visible in several generated command buffers. The rest of these records contain additional ID, format, routing and payload fields whose effects and completion layouts are not independently established. In particular, the opcode is **not** proof that a command describes a CPU FIR filter, or that a guessed completion would be valid.
 
-The actual Xbox command remains pending rather than returning a no-op or copying a fabricated completion. The original title's executable and DLLs are never invoked or modified by the host tests.
+The actual Xbox command packet remains unsupported rather than returning a no-op or copying a fabricated completion. The original title's executable and DLLs are never invoked or modified by the host tests.
 
 ## What the original host implementation does
 
@@ -44,6 +44,6 @@ Only generated samples and buffers are used. This does not read or execute any g
 
 ## Readiness and priorities
 
-The actual title readiness import count is unchanged: **10 pending Xbox imports** — CHAD 5, `XApuEnqueueCommand` 1, XG 2, Xbox DirectStorage factory 1, and `XMemTransferMemory` 1. XAPU's four existing partial host import bindings remain partial. `TITLE EXECUTION: BLOCKED` is unchanged.
+Current readiness is **5 pending Xbox import addresses**, all from CHAD DSP. `XApuEnqueueCommand` is bound only for ScarlettVI-generated XMem host FIR commands; real Xbox packets remain unsupported. The other four XAPU connection/result imports remain partial and both XG bindings are error-only. **`TITLE EXECUTION: BLOCKED` remains unchanged.**
 
 The next productive step is determining real guest XAPU command sizes, field ownership, IDs and completion semantics, mapping the supported processing subset to this host filter, and separately completing CHAD stream activation and lifecycle. None of these interfaces should claim `S_OK` without performing the corresponding operation.

@@ -105,8 +105,10 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **6 Xbox-specific import references remain unresolved**; two XG
-imports are counted as error-only links, not working graphics functions.
+title-local exports. **5 Xbox-specific import references remain unresolved** (all CHAD audio);
+the two XG imports remain error-only, and `XApuEnqueueCommand` is now linked
+only for ScarlettVI-generated XMem host FIR commands. Neither represents
+full Xbox graphics/audio emulation.
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 A [generated PE64 entrypoint smoke test](docs/SYNTHETIC_PE_ENTRY.md) now
@@ -147,17 +149,20 @@ verified guest vtable layout, but its DSP configuration call returns
 `E_NOTIMPL`; audio playback is not implemented. A separate
 [partial XAPU connection/result queue](docs/XAPU_QUEUE_HOST.md) now
 has real bounded host ownership, FIFO completion bookkeeping and a
-synthetic concurrency test. Actual `XApuEnqueueCommand` and hardware
-command processing remain unimplemented, so four linked XAPU services
-are **not** a playable audio device. An independently written
+synthetic concurrency test. A new [XMem host FIR command import
+bridge](docs/XAPU_XMEM_GUEST_FIR.md) actually handles a tagged,
+ScarlettVI-generated request through `XApuEnqueueCommand`, including
+cross-page CPU memory snapshots, real FIR filtering and receipt output.
+**Actual Xbox audio commands remain unsupported**, so the import being
+linked does not make a playable audio device. An independently written
 [CPU FIR DSP convolution engine](docs/DSP_CPU_CONVOLUTION.md) now actually
 processes generated interleaved PCM buffers with streaming history,
 thread-safe stream state and numerical output validation. The
 [XAPU-to-DSP host integration](docs/XAPU_DSP_INTEGRATION.md) now submits
 real, typed host FIR processing through an owned XAPU connection, with
 actual processed samples, FIFO completion receipts, checksums, and
-transactional queue-full rejection. The Xbox command API and CHAD
-buffer formats remain unverified and unbound.
+transactional queue-full rejection. The Xbox command packet and CHAD
+buffer formats remain unverified; only the host-generated FIR subset runs.
 The [VIctory/ztrx architecture comparison](docs/VICTORY_REFERENCE_NOTES.md)
 identifies the much larger runtime, shader and streaming work ahead without
 copying either GPL project's code.

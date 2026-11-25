@@ -1,6 +1,6 @@
 # Partial XAPU connection and result-queue service
 
-**Status: original Windows-hosted connection/result FIFO with real ownership, but NO guest command execution.** The Xbox title cannot boot with this service alone. `XApuEnqueueCommand` remains **unbound** until its command structures, asynchronous completion contract, and effects can be verified and implemented.
+**Status: original Windows-hosted connection/result FIFO with real ownership.** The `XApuEnqueueCommand` symbol now links to a [strict host-generated XMem FIR record bridge](XAPU_XMEM_GUEST_FIR.md); **real Xbox guest command decoding remains unsupported** and the title cannot boot with this service alone.
 
 ## Direct title caller evidence
 
@@ -11,7 +11,7 @@ Using Microsoft `dumpbin /disasm:nobytes` on the adjacent user-provided game exe
 | `XApuConnect` | thunk `0x145F40110`, call `0x1443AEE69` | RCX and RDX are two caller-owned descriptor pointers; R8 is a writable `HostXApuConnection**`; EAX is checked for negative HRESULT |
 | `XApuDequeueResult` | thunk `0x145F40120`, call `0x144EAA89A` | RCX is saved connection handle; RDX points to a stack result buffer; EAX checked for negative HRESULT; result fields read at +0 and +4 |
 | `XApuDisconnect` | thunk `0x145F40130`, call `0x1443AE930` | RCX is saved connection handle; caller then zeroes that handle |
-| `XApuEnqueueCommand` | thunk `0x145F40140`, four calls including `0x1400483D5` and `0x144EE9978` | RCX handle, RDX command pointer, R8D=0; command DWORD at +0. Actual audio command effects are not verified; remains pending |
+| `XApuEnqueueCommand` | thunk `0x145F40140`, four calls including `0x1400483D5` and `0x144EE9978` | RCX handle, RDX command pointer, R8D=0; command DWORD at +0. Actual Xbox audio command effects are unverified; only tagged host FIR records are accepted |
 | `XApuGetResultCount` | thunk `0x145F40150`, call `0x144EAA86B` | RCX handle and EDX=0; returns EAX as number of queued completions |
 
 The inspected result caller clears at least 0x50 bytes of stack output and interprets several fields. `XApuResultEnvelope` is a zero-initialized, original 0x50-byte layout used for **synthetic test-generated completions only**. This is not a claim that the full Xbox completion union is understood. None of the two opaque Connect descriptors are dereferenced or retained because their fields are unverified.
@@ -29,24 +29,30 @@ Original files `src/audio/xapu_host.{h,cpp}` and `src/audio/xapu_host_test.cpp` 
 - Process-wide caps: 64 total connection handles ever, 64 results per live connection. These are conservative **desktop host policies**, not Xbox hardware limits. The host mutex protects all connection and result operations.
 - A **fixture-only** helper can enqueue an explicitly generated result to test full/empty, wraparound, FIFO and concurrent behavior. A subsequent [host-only real FIR processing bridge](XAPU_DSP_INTEGRATION.md) can also submit typed host commands and queue verified, actual processing receipts. Neither helper is exposed as an Xbox guest command API.
 
-`XApuEnqueueCommand` is **not** bound; real *guest* XAPU audio command decoding, activation, stream scheduling and Xbox DSP execution are unimplemented. The host-only FIR bridge processes original generated commands, not title commands. As a result the game may require commands this subset cannot execute. These four imports are counted separately as `experimental_xapu_partial_bound=4`, not successful device emulation.
+`XApuEnqueueCommand` now binds the [generated-only XMem FIR path](XAPU_XMEM_GUEST_FIR.md); real Xbox XAPU command decoding, activation, stream scheduling and hardware DSP execution remain unimplemented. Real title commands fail `E_NOTIMPL` rather than generating success. Readiness counts four connection/result imports as `experimental_xapu_partial_bound=4` and the separate FIR host path as `experimental_xapu_host_fir_bound=1`.
 
 ## Verification
 
     .\build\x64\Release\ScarlettVI.exe audio-xapu-fixture
     .\build\x64\Release\ScarlettVI.exe audio-xapu-dsp-fixture
+    .\build\x64\Release\ScarlettVI.exe audio-xapu-guest-fir-fixture
     .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 
-The synthetic fixture validates the four exact exported C signatures; verifies `XApuEnqueueCommand` stays unbound; checks null/missing arguments, foreign and stale handles, no-write empty queue errors, 64-entry capacity, FIFO across 64 records, 100 wraparound cycles, per-connection isolation, full state after disconnect and four worker threads with 8 real connect/queue/dequeue/disconnect cycles each. It verifies all pending synthetic test results and live connections return to initial counts. No original title code runs.
+The synthetic fixture validates the four exact exported C signatures; verifies `XApuEnqueueCommand` has the expected host FIR-only entry point; checks null/missing arguments, foreign and stale handles, no-write empty queue errors, 64-entry capacity, FIFO across 64 records, 100 wraparound cycles, per-connection isolation, full state after disconnect and four worker threads with 8 real connect/queue/dequeue/disconnect cycles each. It verifies all pending synthetic test results and live connections return to initial counts. No original title code runs.
 
-## Readiness delta
+## Current readiness after the host FIR command bridge
 
-| | Before | Now |
-| --- | ---: | ---: |
-| Pending `xapu.dll` references | 5 | **1** (`XApuEnqueueCommand`) |
-| Pending all Xbox references | 14 | **10** |
-| Partial XAPU connection/result addresses | 0 | **4** |
-| Actual audio command execution | absent | **absent** |
-| Real title execution | BLOCKED | **BLOCKED** |
+| Capability | Current state |
+| --- | --- |
+| Pending `xapu.dll` import addresses | **0** |
+| Functional real Xbox XAPU command formats | **0 implemented** |
+| Host XAPU connection/result imports | **4 partial bindings** |
+| `XApuEnqueueCommand` host FIR-only import | **1 restricted binding** |
+| Pending Xbox import addresses across title | **5 (all CHAD)** |
+| Actual Xbox audio and native title execution | **BLOCKED** |
 
-The other 9 unresolved references are CHAD DSP (5), XG graphics (2), Xbox DirectStorage (1), and XMem transfer (1). The remaining command processing and Xbox graphics/storage infrastructure cannot be replaced with no-op successes.
+Earlier XAPU connection-only milestones left one XAPU import
+unresolved. This new command bridge removes that *address* gap but does
+not implement the title's command packet formats, stream scheduling or
+hardware audio. Likewise the two now-bound XG imports are error-only
+handlers, not functional texture computer implementations.

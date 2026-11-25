@@ -171,18 +171,20 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                 }
             } else if (route == ImportRoute::XboxHle &&
                        lower(imported.name) == "xapu.dll") {
-                // Partial, original host-backed connection and result FIFO.
-                // The guest Connect, Disconnect, GetResultCount and Dequeue
-                // caller shapes were independently checked. Actual guest
-                // command execution is NOT implemented: EnqueueCommand
-                // MUST remain pending, not return fake success.
+                // Four partial host-backed connection/result exports and
+                // an explicit XMem-owned *host FIR* command bridge.
+                // Unknown Xbox commands remain E_NOTIMPL without writes;
+                // no unsupported command can report fake success.
                 for (const auto& symbol : imported.symbols) {
                     FARPROC address = symbol.by_ordinal ? nullptr
                         : audio::find_xapu_export(symbol.name);
                     if (address) {
                         image.patch_iat(symbol.iat_rva,
                                         reinterpret_cast<uint64_t>(address));
-                        ++result.experimental_xapu_partial_bound;
+                        if (symbol.name == "XApuEnqueueCommand")
+                            ++result.experimental_xapu_host_fir_bound;
+                        else
+                            ++result.experimental_xapu_partial_bound;
                     } else {
                         ++result.xbox_symbols_pending;
                         add_pending(imported, symbol, PendingKind::XboxHle);
