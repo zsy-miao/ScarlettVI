@@ -14,6 +14,7 @@ From the project folder:
 .\build\x64\Release\ScarlettVI.exe xg-vcalls-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcall-links-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcall-args-fixture
+.\build\x64\Release\ScarlettVI.exe xg-vcall-stack-fixture
 .\build\x64\Release\ScarlettVI.exe xg-vcalls '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 ```
 
@@ -51,10 +52,14 @@ The immediately preceding read-only disassembly at `0x140344283`, `0x140979C9F` 
 
 The [new read-only argument survey](XG_DISPATCH_ARGUMENTS.md) searches 24 bytes preceding each verified indirect-call candidate for narrow MOV RCX-from-memory and LEA RDX-from-RSP signatures. It reports **six** locally corroborated setup instructions across four call sites. Both `+0x10` calls have a nearby stack-address preparation in RDX; the two `+0x08` calls reload RCX from a stored pointer. The scanner excludes preceding indirect calls as a conservative register-clobber barrier. None of this proves argument liveness across arbitrary instructions, method purpose, or an Xbox object lifetime rule.
 
+## Outgoing stack writes for the complex +0x50 call
+
+The [bounded stack-write survey](XG_DISPATCH_STACK_SLOTS.md) now independently corroborates three MOV stores at `0x140344272`, `0x14034427A`, and `0x14034427E`, respectively writing R8 (8 bytes) to `[RSP+0x30]`, ESI (4 bytes) to `[RSP+0x28]`, and RAX (8 bytes) to `[RSP+0x20]` before the `+0x50` indirect call at `0x140344283`. The scanner is conservative and does not claim the values, argument types, function semantics or a COM/Xbox ABI.
+
 ## Next steps / gates
 
 - Establish actual object identity, dispatch-table extent, and method semantics from multiple call paths before writing any ABI adapter.
 - Identify which call(s), if any, release ownership or return metadata.
 - Keep the two `xg_xs.dll` imports unresolved and `TITLE EXECUTION: BLOCKED` until the ABI and broader console runtime are actually implemented and verified.
 
-See [XG_DISPATCH_ARGUMENTS.md](XG_DISPATCH_ARGUMENTS.md), [XG_DESCRIPTOR_EVIDENCE.md](XG_DESCRIPTOR_EVIDENCE.md), [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).
+See [XG_DISPATCH_STACK_SLOTS.md](XG_DISPATCH_STACK_SLOTS.md), [XG_DISPATCH_ARGUMENTS.md](XG_DISPATCH_ARGUMENTS.md), [XG_DESCRIPTOR_EVIDENCE.md](XG_DESCRIPTOR_EVIDENCE.md), [XG_FIELD_PROJECTION.md](XG_FIELD_PROJECTION.md), and [STARTUP_READINESS.md](STARTUP_READINESS.md).

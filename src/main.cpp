@@ -4,6 +4,7 @@
 #include "analysis/xg_vcall_candidates.h"
 #include "analysis/xg_vcall_loads.h"
 #include "analysis/xg_vcall_arguments.h"
+#include "analysis/xg_vcall_stack_writes.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -113,6 +114,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-vcalls-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-links-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-args-fixture\n"
+               << L"  ScarlettVI.exe xg-vcall-stack-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -144,6 +146,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-vcall-stack-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_postcall_stack_write_fixtures();
+            std::cout << "ScarlettVI | synthetic XG outgoing stack-write "
+                      << "fixture: " << (passed ? "PASS" : "FAIL")
+                      << "\nGenerated MOV-to-RSP patterns only; "
+                      << "no game code executed or Xbox ABI inferred.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-vcall-args-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -248,6 +260,26 @@ int wmain(int argc, wchar_t** argv) {
                           << " | +0x" << std::hex << arg.displacement
                           << std::dec << " | gap "
                           << static_cast<unsigned>(arg.bytes_between_setup_and_call)
+                          << "\n";
+            std::vector<scarlett::analysis::XgStackWriteCandidate> stack_writes;
+            if (!scarlett::analysis::scan_xg_postcall_stack_writes(
+                    create_contexts, found, stack_writes)) {
+                std::cerr << "Bounded XG stack-write survey failed.\n";
+                return 3;
+            }
+            std::cout << "Local outgoing stack-write signatures: "
+                      << stack_writes.size() << "\n";
+            for (const auto& store : stack_writes)
+                std::cout << "  indirect VA 0x" << std::hex
+                          << (report.image_base + store.indirect_call_rva)
+                          << " | store VA 0x"
+                          << (report.image_base + store.store_rva)
+                          << " | [RSP+0x" << store.stack_offset << "]"
+                          << std::dec << " <= GPR "
+                          << static_cast<unsigned>(store.source_register)
+                          << " | width " << static_cast<unsigned>(store.width_bytes)
+                          << " bytes | gap "
+                          << static_cast<unsigned>(store.gap_to_call_bytes)
                           << "\n";
             std::cout << "These byte patterns do not establish register "
                       << "liveness or a verified Xbox object-method ABI.\n";

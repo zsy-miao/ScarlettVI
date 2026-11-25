@@ -54,7 +54,9 @@ checked with Microsoft's Dumpbin disassembler, without executing the title:
 The earlier `+0x50` call at `0x140344283` uses a more elaborate argument
 setup with extra registers and stack parameters. Its setup is **not**
 covered by these two signatures within the 24-byte scan. Absence of
-a signature is not absence of arguments or of a method call.
+a signature is not absence of arguments or of a method call. Its three
+outgoing stack stores are now independently confirmed by the separate
+[bounded stack-write survey](XG_DISPATCH_STACK_SLOTS.md), with generated tests.
 
 Both `+0x10` call sites prepare an RDX address into local stack storage
 just before calling; this is consistent with an output-storage argument,
@@ -77,6 +79,6 @@ console SDK files are committed to this repository. No original title code
 is invoked. All Xbox graphics imports remain unresolved; title execution
 must stay **BLOCKED**.
 
-See [XG_VCALL_SURVEY.md](XG_VCALL_SURVEY.md),
+See [XG_DISPATCH_STACK_SLOTS.md](XG_DISPATCH_STACK_SLOTS.md), [XG_VCALL_SURVEY.md](XG_VCALL_SURVEY.md),
 [XG_DESCRIPTOR_EVIDENCE.md](XG_DESCRIPTOR_EVIDENCE.md) and
 [STARTUP_READINESS.md](STARTUP_READINESS.md).
