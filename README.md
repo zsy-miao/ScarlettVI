@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -76,6 +76,13 @@ alias and verifies both views, including GPU resource segment-boundary
 positions, invalid-input rejection and **zero leaked pages**. This **does not** provide unified CPU/GPU memory or the
 Xbox `XMemTransferMemory` ABI.
 
+The new [pinned guest GPU page registry](docs/GUEST_GPU_PAGE_REGISTRY.md)
+tracks four real XMem-backed 64 KiB frame IDs, eight pinned CPU aliases
+and eight real D3D12 tile mappings. It verifies **eight GPU transfers**,
+rejects invalid frame/slot associations and blocked unmaps while pinned,
+then releases all GPU mappings, CPU pins and physical frames without leaks.
+This is host resource lifetime management, **not Xbox GPU page tables**.
+
 These are verified host capabilities; the **Xbox-specific D3D12/XG device ABI,
 RDNA2 shader translation and actual title rendering are still missing**.
 
@@ -110,6 +117,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe gpu-device11
 .\build\x64\Release\ScarlettVI.exe gpu-device-factory
+.\build\x64\Release\ScarlettVI.exe gpu-page-registry
 .\build\x64\Release\ScarlettVI.exe gpu-xmem-tiles
 .\build\x64\Release\ScarlettVI.exe gpu-tile-map
 .\build\x64\Release\ScarlettVI.exe gpu-sparse-va

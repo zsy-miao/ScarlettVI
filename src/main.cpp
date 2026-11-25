@@ -117,6 +117,7 @@ void usage() {
                << L"  ScarlettVI.exe gpu-sparse-va\n"
                << L"  ScarlettVI.exe gpu-tile-map\n"
                << L"  ScarlettVI.exe gpu-xmem-tiles\n"
+               << L"  ScarlettVI.exe gpu-page-registry\n"
                << L"  ScarlettVI.exe gpu-texture-layout\n"
                << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
@@ -127,6 +128,30 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-page-registry") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            const HRESULT hr = gpu.guest_gpu_page_registry_test();
+            const size_t pages =
+                scarlett::memory::PhysicalMemory::instance().allocated_page_count();
+            const size_t pins =
+                scarlett::memory::PhysicalMemory::instance().pinned_alias_count();
+            const bool pass = SUCCEEDED(hr) &&
+                pages == 0 && pins == 0 && gpu.submitted_commands() == 8;
+            std::wcout << L"ScarlettVI | pinned guest page registry + real D3D12"
+                       << L" tile staging: " << (pass ? L"PASS" : L"FAIL")
+                       << L"\nGPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "4 guest physical frames / 8 CPU aliases / 8 GPU tile slots"
+                      << " | real GPU transfer fences: "
+                      << gpu.submitted_commands()
+                      << " | leaked CPU pages: " << pages
+                      << " | pinned aliases left: " << pins
+                      << " | HRESULT 0x" << std::hex
+                      << static_cast<uint32_t>(hr) << std::dec << "\n"
+                      << "Host GPU heap tiles are separately backed;"
+                      << " Xbox GPU page tables and unified coherency remain unsupported.\n";
+            return pass ? 0 : 3;
+        }
         if (verb == L"gpu-xmem-tiles") {
             if (argc != 2) { usage(); return 2; }
             scarlett::gpu::DeviceContext context;

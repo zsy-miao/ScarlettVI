@@ -114,6 +114,10 @@ component to verify three 64 KiB CPU XMem-to-D3D12 heap tile payloads
 across two independent GPU sessions, GPU aliases on different native
 segments, explicit CPU writeback, failure rejection and zero leaked pages
 ([XMEM_GPU_STAGING.md](XMEM_GPU_STAGING.md)).
+`gpu-page-registry` validates four pinned XMem frames, eight CPU alias
+lifetime pins, eight actual GPU tile mappings, eight real GPU transfers,
+atomic unmap rejection and zero leaks
+([GUEST_GPU_PAGE_REGISTRY.md](GUEST_GPU_PAGE_REGISTRY.md)).
 `gpu-tile-map` verifies native D3D12 64 KiB tile residency and GPU physical
 aliasing across segmented 16 GiB guest buffers (see [GPU_TILES.md](GPU_TILES.md)).
 The gpu-texture-layout command verifies block-compressed, mipmapped Windows

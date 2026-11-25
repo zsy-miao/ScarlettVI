@@ -22,6 +22,13 @@ The caller supplies the actual Windows ID3D12Device11 and two **different native
 - **close()** fences prior work, enqueues both NULL tile mappings, fences them, releases all owned D3D12 resources and COM references, and preserves the most recently completed fence number. It is idempotent.
 - The same instance can be **reopened after close()** at different logical offsets. Session fence values and submission counters restart with each new queue, and native GPU address translation is rechecked.
 
+The higher-level [GuestGpuPageRegistry](GUEST_GPU_PAGE_REGISTRY.md) now
+manages multiple validated frame-to-CPU-alias and GPU-tile bindings, using
+one GpuPageStager per bound frame. The independent `gpu-page-registry` mode
+verifies **four frames, eight CPU alias pins, eight GPU tile mappings and
+eight real GPU submissions** with zero leaks. This implementation still
+needs shared GPU queues and batched tile management for production scale.
+
 The component does not allocate or free guest XMem physical pages; those remain owned by PhysicalMemory. It does not update CPU aliases during a GPU transfer; callers explicitly stage the completed readback to a CPU alias after verifying it.
 
 ## Verification

@@ -1241,7 +1241,8 @@ HRESULT DeviceContext::staged_xmem_tile_roundtrip_test() {
     submitted_ += stager.submissions();
     staged_completed_fence_ = stager.completed_fence();
     if (stager.submissions() != 1 || !staged_completed_fence_)
-        return last_error_ = E_FAIL;    windows.clear();
+        return last_error_ = E_FAIL;
+    windows.clear();
     return last_error_ = S_OK;
 }
 

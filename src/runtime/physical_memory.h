@@ -24,6 +24,12 @@ public:
     BOOL map_scatter(void* const* destinations, size_t count, const uintptr_t* page_numbers);
     BOOL release_alias_region(void* base);
     bool owns_alias_region_base(void* base) const;
+    // Pin an exact 64KiB CPU alias mapped to this synthetic frame number.
+    // Pinned slots cannot be unmapped or released until unpinned. This
+    // safeguards host staging against a stale VA; it is not Xbox GPU residency.
+    bool pin_mapped_alias(void* address, uintptr_t physical_frame);
+    bool unpin_mapped_alias(void* address, uintptr_t physical_frame);
+    size_t pinned_alias_count() const;
     size_t allocated_page_count() const;
 
     PhysicalMemory(const PhysicalMemory&) = delete;
@@ -45,6 +51,7 @@ private:
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Page> pages_;
     std::unordered_map<void*, Region> regions_;
+    std::unordered_map<void*, size_t> pinned_aliases_;
     uintptr_t next_physical_frame_ = 0x100000;
 };
 } // namespace scarlett::memory

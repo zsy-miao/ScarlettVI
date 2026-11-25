@@ -192,6 +192,10 @@ bool PhysicalMemory::split_placeholder_slot_unlocked(void* address) {
 }
 
 bool PhysicalMemory::unmap_one_unlocked(void* address, Region& region, size_t index) {
+    if (pinned_aliases_.contains(address)) {
+        SetLastError(ERROR_BUSY);
+        return false;
+    }
     const uintptr_t page_number = region.mapped_pages[index];
     if (!page_number) return true;
     if (!host().unmap(GetCurrentProcess(), address, MEM_PRESERVE_PLACEHOLDER))
@@ -230,6 +234,14 @@ void* PhysicalMemory::map_pages(void* target, size_t count,
         return nullptr;
     }
     if (!numbers) {
+        // Check every pinned slot before unmapping anything: batch calls are
+        // all-or-nothing with respect to pin validation.
+        for (size_t i = 0; i < count; ++i) {
+            if (pinned_aliases_.contains(static_cast<uint8_t*>(target) + i * page_bytes)) {
+                SetLastError(ERROR_BUSY);
+                return nullptr;
+            }
+        }
         for (size_t i = 0; i < count; ++i) {
             void* at = static_cast<uint8_t*>(target) + i * page_bytes;
             if (!unmap_one_unlocked(at, *region, begin + i))
@@ -328,6 +340,12 @@ BOOL PhysicalMemory::map_scatter(void* const* destinations, size_t count,
     }
 
     if (!numbers) {
+        for (const auto& entry : entries) {
+            if (pinned_aliases_.contains(entry.destination)) {
+                SetLastError(ERROR_BUSY);
+                return FALSE;
+            }
+        }
         // Unmapping preserves each destination as a valid 64KiB placeholder.
         for (const auto& entry : entries) {
             if (!unmap_one_unlocked(entry.destination, *entry.region, entry.index))
@@ -371,6 +389,15 @@ BOOL PhysicalMemory::map_scatter(void* const* destinations, size_t count,
 }
 
 bool PhysicalMemory::release_region_unlocked(void* address, Region& region) {
+    const uintptr_t base = reinterpret_cast<uintptr_t>(address);
+    const uintptr_t size = region.page_count * page_bytes;
+    for (const auto& [alias, pin_count] : pinned_aliases_) {
+        const uintptr_t value = reinterpret_cast<uintptr_t>(alias);
+        if (value >= base && value - base < size && pin_count) {
+            SetLastError(ERROR_BUSY);
+            return false;
+        }
+    }
     // Only mapped pages need UnmapViewOfFile2; unsplit placeholders do not
     // create one allocation per page.
     for (size_t i = 0; i < region.page_count; ++i) {
@@ -421,6 +448,76 @@ BOOL PhysicalMemory::release_alias_region(void* address) {
 bool PhysicalMemory::owns_alias_region_base(void* base) const {
     std::lock_guard lock(mutex_);
     return regions_.contains(base);
+}
+
+bool PhysicalMemory::pin_mapped_alias(void* address, uintptr_t physical_frame) {
+    if (!address || !physical_frame ||
+        (reinterpret_cast<uintptr_t>(address) & (page_bytes - 1)) != 0) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+    }
+    std::lock_guard lock(mutex_);
+    for (const auto& [base, region] : regions_) {
+        const uintptr_t first = reinterpret_cast<uintptr_t>(base);
+        const uintptr_t value = reinterpret_cast<uintptr_t>(address);
+        if (value < first) continue;
+        const uintptr_t offset = value - first;
+        if (offset / page_bytes >= region.page_count) continue;
+        const size_t index = static_cast<size_t>(offset / page_bytes);
+        if (region.mapped_pages[index] != physical_frame ||
+            !pages_.contains(physical_frame)) {
+            SetLastError(ERROR_INVALID_ADDRESS);
+            return false;
+        }
+        try {
+            auto [it, inserted] = pinned_aliases_.try_emplace(address, 0);
+            if (it->second == SIZE_MAX) {
+                SetLastError(ERROR_ARITHMETIC_OVERFLOW);
+                return false;
+            }
+            ++it->second;
+            return true;
+        } catch (...) {
+            SetLastError(ERROR_OUTOFMEMORY);
+            return false;
+        }
+    }
+    SetLastError(ERROR_INVALID_ADDRESS);
+    return false;
+}
+
+bool PhysicalMemory::unpin_mapped_alias(void* address, uintptr_t physical_frame) {
+    if (!address || !physical_frame) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+    }
+    std::lock_guard lock(mutex_);
+    auto pin = pinned_aliases_.find(address);
+    if (pin == pinned_aliases_.end() || pin->second == 0) {
+        SetLastError(ERROR_INVALID_ADDRESS);
+        return false;
+    }
+    for (const auto& [base, region] : regions_) {
+        const uintptr_t first = reinterpret_cast<uintptr_t>(base);
+        const uintptr_t value = reinterpret_cast<uintptr_t>(address);
+        if (value < first) continue;
+        const uintptr_t offset = value - first;
+        if (offset / page_bytes >= region.page_count) continue;
+        const size_t index = static_cast<size_t>(offset / page_bytes);
+        if (region.mapped_pages[index] != physical_frame) {
+            SetLastError(ERROR_INVALID_ADDRESS);
+            return false;
+        }
+        if (--pin->second == 0) pinned_aliases_.erase(pin);
+        return true;
+    }
+    SetLastError(ERROR_INVALID_ADDRESS);
+    return false;
+}
+
+size_t PhysicalMemory::pinned_alias_count() const {
+    std::lock_guard lock(mutex_);
+    return pinned_aliases_.size();
 }
 
 size_t PhysicalMemory::allocated_page_count() const {

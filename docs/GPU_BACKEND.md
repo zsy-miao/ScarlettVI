@@ -133,6 +133,22 @@ XMemTransferMemory called with a memory size/selector, rather than
 a byte-buffer copy API. All three Xbox imports remain unresolved;
 their console-specific memory quota and output structures are unknown.
 
+### Pinned multi-page guest GPU frame registry
+
+The original [GuestGpuPageRegistry](GUEST_GPU_PAGE_REGISTRY.md) now binds
+live synthetic XMem physical-frame IDs to two validated **pinned CPU
+alias views** and two real D3D12 GPU tile slots. Four frames and eight
+GPU tile mappings are tested simultaneously. Each page has an independent
+native staging queue/heap and explicit GPU readback/writeback. Eight real
+GPU transfers verify different 64 KiB payloads; after unbinding, GPU
+tile mappings, CPU pins and physical frames all return to **zero**.
+
+Pinned aliases cannot be unmapped or their region released through the
+XMem bridge until their GPU mapping is closed. Cross-slot unmap requests
+prevalidate every pinned address before changing any mapping. This is a
+host lifetime and staging capability, not an Xbox page table or unified
+CPU/GPU physical memory implementation.
+
 ### Original host texture formats and XG call-site research
 
 The original [XG call-site and texture-layout research](XG_TEXTURE_LAYOUT.md)

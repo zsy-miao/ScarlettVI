@@ -34,6 +34,9 @@ public:
     // XMem alias staging, with completed D3D12 fences. This is NOT coherent
     // unified console memory and does not emulate XMemTransferMemory.
     HRESULT staged_xmem_tile_roundtrip_test();
+    // Validates four pinned guest XMem frames -> eight real GPU tile aliases
+    // and host transfer/writeback, including atomic pin-safe unmap failures.
+    HRESULT guest_gpu_page_registry_test();
     // Copies generated format-aware RGBA/block-compressed texture mips
     // through real D3D12 GPU footprints and verifies every returned block.
     HRESULT texture_layout_gpu_test();
