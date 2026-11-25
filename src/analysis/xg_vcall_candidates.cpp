@@ -5,6 +5,24 @@
 #include <limits>
 
 namespace scarlett::analysis {
+namespace {
+// Recognize a complete, immediately adjacent REX.W LEA r64,[RSP+disp8]
+// whose displacement byte is at 'at'. If that final byte resembles a
+// REX prefix, do not swallow it into a speculative FF call. This is a
+// narrow overlap filter, not a comprehensive x64 decoder.
+bool preceding_rsp_lea_disp8(std::span<const uint8_t> bytes,
+                              size_t at) noexcept {
+    if (at < 4 || at >= bytes.size())
+        return false;
+    const uint8_t rex = bytes[at - 4];
+    const uint8_t modrm = bytes[at - 2];
+    return (rex == 0x48 || rex == 0x4c) &&
+           bytes[at - 3] == 0x8d &&
+           (modrm & 0xc7u) == 0x44u &&
+           bytes[at - 1] == 0x24;
+}
+} // namespace
+
 bool scan_xg_indirect_postcalls(
     std::span<const XgCallContext> contexts,
     std::vector<XgIndirectCallCandidate>& found) noexcept {
@@ -21,8 +39,23 @@ bool scan_xg_indirect_postcalls(
                 size_t cursor = i;
                 uint8_t rex = 0;
                 if (bytes[cursor] >= 0x40 && bytes[cursor] <= 0x4f) {
-                    rex = bytes[cursor++];
-                    if (cursor >= bytes.size()) break;
+                    rex = bytes[cursor];
+                    // The FF /2 memory-call form already uses an r/m64
+                    // operand. With no SIB index, REX.W is redundant and
+                    // REX.X/REX.R add no meaningful base-register identity.
+                    // Keep ONLY the B=1 form needed for R8..R15 bases.
+                    // Otherwise prefer the later FF opcode as a candidate:
+                    // an 0x40/0x48 byte can be the previous instruction's
+                    // immediate/displacement, not a true REX prefix.
+                    //
+                    // REX.B forms are still *byte candidates*, not verified
+                    // instruction boundaries. Independently disassemble.
+                    if ((rex != 0x41 && rex != 0x49) ||
+                        preceding_rsp_lea_disp8(bytes, i))
+                        continue;
+                    ++cursor;
+                    if (cursor >= bytes.size())
+                        break;
                 }
                 if (bytes[cursor] != 0xff || cursor + 1 >= bytes.size())
                     continue;

@@ -140,7 +140,10 @@ coverage metadata and output preservation.
 It does not implement a console import, or enable title execution.
 A new [read-only XG indirect-call survey](XG_VCALL_SURVEY.md) extracts bounded
 128-byte post-create code windows and finds five FF /2 indirect-call byte
-patterns corroborated by Dumpbin at three caller sites. A bounded 32-byte
+patterns corroborated by Dumpbin at three caller sites. The FF /2 scanner
+now avoids interpreting redundant REX-looking displacement bytes as call
+prefixes and recognizes a local overlapping RSP-LEA shape; it is still not
+a full x64 decoder. A bounded 32-byte
 backward signature check now also finds a matching RCX-sourced table-register
 load for each of the five indirect calls, and rejects inconsistent call
 metadata. These are not decoded control flow and no COM method or lifetime

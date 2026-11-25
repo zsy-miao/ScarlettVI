@@ -39,8 +39,10 @@ source-to-output transfers and three corroborated category paths over
 **512 deterministic generated cases** and 256 lookup-index coverage cases,
 including invalid-range and preservation tests. This research helper does
 not bind any Xbox graphics API. The new read-only [post-creation indirect-call survey](docs/XG_VCALL_SURVEY.md)
-corroborates five indirect-call instructions in three XG creation callers,
-and the new table-register signature check finds five nearby RCX-sourced
+corroborates five indirect-call instructions in three XG creation callers.
+Its FF /2 scanner now guards against several REX-prefix/preceding-LEA
+byte overlaps, while still requiring independent disassembly to confirm
+instruction boundaries. The table-register signature check finds five nearby RCX-sourced
 loads that match the indirect call registers. Neither check assumes what
 the methods do or proves an Xbox object lifetime contract. A new
 [dispatch argument survey](docs/XG_DISPATCH_ARGUMENTS.md) also finds six
