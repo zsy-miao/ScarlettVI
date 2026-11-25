@@ -144,12 +144,12 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                 }
             } else if (route == ImportRoute::XboxHle &&
                        lower(imported.name) == "acphal.dll") {
-                // Bind only the three independently supported host memory APIs.
-                // ApuAlloc uses real, owned CPU memory only when its optional
-                // device-address output is null and flags are zero. Budget
-                // setup is real host accounting, not hardware APU memory;
-                // address mappings, SHAPE and audio processing
-                // are not available and MUST remain pending.
+                // Bind only independently checked host memory/SHAPE APIs.
+                // ApuAlloc and APU address translation are backed by actual
+                // owned CPU allocations. Family-4 SHAPE context storage is
+                // budgeted and has a verified 64-byte record stride.
+                // AcpHalCreate, DSP operation and audio rendering are NOT
+                // implemented and must remain pending.
                 for (const auto& symbol : imported.symbols) {
                     FARPROC address = symbol.by_ordinal
                         ? nullptr : audio::find_acphal_export(symbol.name);

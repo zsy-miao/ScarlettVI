@@ -23,6 +23,7 @@
 #include "runtime/physical_memory.h"
 #include "runtime/xmem_bridge.h"
 #include "audio/apu_memory.h"
+#include "audio/apu_shape.h"
 #include "runtime/xmem_query.h"
 #include <Windows.h>
 #include <algorithm>
@@ -126,6 +127,7 @@ void usage() {
                << L"  ScarlettVI.exe xmem-stats-fixture\n"
                << L"  ScarlettVI.exe audio-memory-fixture\n"
                << L"  ScarlettVI.exe audio-address-fixture\n"
+               << L"  ScarlettVI.exe audio-shape-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -157,6 +159,16 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"audio-shape-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::audio::verify_apu_shape_fixtures();
+            std::cout << "ScarlettVI | owned SHAPE context storage: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nBounded verified family-4 host buffers; "
+                      << "no Xbox DSP or game code executed.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"audio-address-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

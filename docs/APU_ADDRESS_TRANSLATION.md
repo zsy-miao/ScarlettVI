@@ -37,6 +37,6 @@ The host-generated address fixture validates the three exact function-pointer si
 | Bound host APU memory references | 3 | 6 |
 | Title execution | BLOCKED | BLOCKED |
 
-Remaining AcpHal APIs: AcpHalCreate, AcpHalAllocateShapeContexts and AcpHalReleaseShapeContexts. Other pending imports: xapu five, chad five, xg_xs two, DirectStorage one, XMemTransferMemory one. No real GTA VI boot is claimed.
+This table records the earlier address-translation milestone. A later [bounded SHAPE context manager](APU_SHAPE_CONTEXTS.md) now links AcpHalAllocateShapeContexts and AcpHalReleaseShapeContexts, reducing current unresolved Xbox references to **15**. Remaining AcpHal API: AcpHalCreate. Other pending imports: xapu five, chad five, xg_xs two, DirectStorage one, XMemTransferMemory one. No real GTA VI boot is claimed.
 
 Public independent research context (no external implementation source copied): https://github.com/xcl-dev/xcl/blob/main/HANDOFF.md and https://github.com/Freminet/ScarlettX.
