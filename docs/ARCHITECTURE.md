@@ -122,6 +122,12 @@ submissions), safe heap-slot reuse, atomic pinned-unmap rejection and
 retryable fence-safe cleanup with zero leaks
 ([GPU_FENCE_RECOVERY.md](GPU_FENCE_RECOVERY.md))
 ([GUEST_GPU_PAGE_REGISTRY.md](GUEST_GPU_PAGE_REGISTRY.md)).
+`gpu-page-scattered` uses a host-only planner to sort eight unordered
+XMem-backed GPU-page descriptors into four native-resource-safe runs
+across 4 GiB and 8 GiB D3D12 segment boundaries. It verifies **24
+64 KiB real GPU transfers in three submissions**, outer CPU pinning,
+third-run mapping-fence rollback, interrupted NULL-unmap retry and zero
+leaks ([GPU_PAGE_SCATTERED.md](GPU_PAGE_SCATTERED.md)).
 `gpu-page-batch` integrates the native tile batch helper with the
 pinned XMem frame registry: four CPU-backed physical frames, eight
 CPU aliases and eight GPU aliases are prevalidated and pinned before

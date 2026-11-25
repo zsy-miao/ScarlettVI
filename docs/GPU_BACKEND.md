@@ -183,6 +183,22 @@ prevalidate every pinned address before changing any mapping. This is a
 host lifetime and staging capability, not an Xbox page table or unified
 CPU/GPU physical memory implementation.
 
+### Scattered GPU page planner across native segments
+
+The original [scattered page planner](GPU_PAGE_SCATTERED.md) validates
+unordered GPU page descriptors and divides them into maximal adjacent
+source/alias runs within their respective native 4 GiB D3D12 reserved
+resources. Outer XMem pins protect the **entire** request while the
+planner invokes the established fenced `bind_batch` for each run.
+Failed later runs roll back preceding registered runs with confirmed GPU
+retirement; unconfirmed cleanup leaves internal pins/heap slots owned.
+The RTX 5060 Ti fixture verifies eight real 64 KiB physical XMem frames,
+16 CPU aliases/GPU aliases and four two-page native-resource runs,
+**24 completed 64 KiB GPU readbacks in three queue submissions**, and
+22 native mapping plus 22 NULL unmapping calls including simulated
+third-run failure rollback. Zero CPU pages, pins or GPU mappings leak.
+The host pager is **not** an Xbox page-table or unified GPU memory ABI.
+
 ### Original host texture formats and XG call-site research
 
 The original [XG call-site and texture-layout research](XG_TEXTURE_LAYOUT.md)

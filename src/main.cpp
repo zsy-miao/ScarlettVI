@@ -120,6 +120,7 @@ void usage() {
                << L"  ScarlettVI.exe gpu-xmem-tiles\n"
                << L"  ScarlettVI.exe gpu-page-registry\n"
                << L"  ScarlettVI.exe gpu-page-batch\n"
+               << L"  ScarlettVI.exe gpu-page-scattered\n"
                << L"  ScarlettVI.exe gpu-texture-layout\n"
                << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
@@ -130,6 +131,41 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"gpu-page-scattered") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            const HRESULT hr = gpu.guest_gpu_page_scattered_test();
+            const size_t pages =
+                scarlett::memory::PhysicalMemory::instance().allocated_page_count();
+            const size_t pins =
+                scarlett::memory::PhysicalMemory::instance().pinned_alias_count();
+            const bool pass = SUCCEEDED(hr) &&
+                gpu.scattered_run_count() == 4 &&
+                gpu.submitted_commands() == 24 &&
+                gpu.registry_queue_submissions() == 3 &&
+                gpu.registry_batch_mapping_updates() == 22 &&
+                gpu.registry_grouped_unmapping_updates() == 22 &&
+                pages == 0 && pins == 0;
+            std::wcout << L"ScarlettVI | scattered host GPU page planner: "
+                       << (pass ? L"PASS" : L"FAIL")
+                       << L"\nGPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "8 XMem frames / 4 planned native-resource runs"
+                      << " | completed GPU page transfers: "
+                      << gpu.submitted_commands()
+                      << " | GPU command submissions: "
+                      << gpu.registry_queue_submissions()
+                      << " | native map updates: "
+                      << gpu.registry_batch_mapping_updates()
+                      << " | native NULL unmap updates: "
+                      << gpu.registry_grouped_unmapping_updates()
+                      << " | leaked physical pages: " << pages
+                      << " | retained CPU pins: " << pins
+                      << " | HRESULT 0x" << std::hex
+                      << static_cast<uint32_t>(hr) << std::dec << "\n"
+                      << "Generated Windows D3D12 fixture only;"
+                      << " Xbox GPU page tables remain unsupported.\n";
+            return pass ? 0 : 3;
+        }
         if (verb == L"gpu-page-batch") {
             if (argc != 2) { usage(); return 2; }
             scarlett::gpu::DeviceContext gpu;

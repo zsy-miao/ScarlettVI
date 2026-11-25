@@ -53,6 +53,20 @@ public:
     // and after mapping updates. Failed waits retain CPU pins/heap slots;
     // retries complete only the pending alias group(s).
     HRESULT unbind_batch(std::span<const uintptr_t> frames) noexcept;
+    // Host-only scattered planner: groups unordered pages by contiguous
+    // source AND alias tiles in matching native D3D12 reserved resources.
+    // The planner has no GPU/CPU mapping side effects; binding pins ALL
+    // requested CPU aliases before submitting the first native GPU update.
+    struct ScatteredPlan {
+        std::vector<std::vector<PageBinding>> runs;
+        size_t mapping_calls() const noexcept { return runs.size() * 2; }
+    };
+    HRESULT plan_scattered(std::span<const PageBinding> pages,
+                           ScatteredPlan& output) const noexcept;
+    HRESULT bind_scattered(std::span<const PageBinding> pages) noexcept;
+    // Retires the supplied still-live scattered frame IDs by planned runs.
+    // A failed cohort stays pinned; previously completed cohorts stay retired.
+    HRESULT unbind_scattered(std::span<const uintptr_t> frames) noexcept;
 
     // Uses a real D3D12 queue and fence. Source may be the first CPU alias
     // or independent generated host bytes. Output must be a disjoint 64KiB
@@ -95,6 +109,7 @@ private:
     void inject_next_mapping_wait_failure_for_test() noexcept;
     void inject_next_unmap_failure_after_source_for_test() noexcept;
     void inject_next_unmap_failure_after_both_for_test() noexcept;
+    void inject_scattered_run_failure_for_test(size_t run_index) noexcept;
     struct Binding {
         uint8_t* first_cpu = nullptr;
         uint8_t* second_cpu = nullptr;
@@ -119,6 +134,7 @@ private:
     bool test_fail_next_mapping_wait_ = false;
     bool test_fail_next_unmap_after_source_ = false;
     bool test_fail_next_unmap_after_both_ = false;
+    std::optional<size_t> test_fail_scattered_run_;
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Binding> bindings_;
     std::map<GpuSlot, uintptr_t> gpu_slots_;

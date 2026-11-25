@@ -41,6 +41,8 @@ public:
     // and host transfer/writeback, including atomic pin-safe unmap failures.
     HRESULT guest_gpu_page_registry_test();
     HRESULT guest_gpu_page_batch_test();
+    HRESULT guest_gpu_page_scattered_test();
+    size_t scattered_run_count() const noexcept { return scattered_run_count_; }
     uint64_t registry_batch_mapping_updates() const noexcept {
         return registry_batch_mapping_updates_;
     }
@@ -101,6 +103,7 @@ private:
     uint64_t registry_queue_submissions_ = 0;
     uint64_t registry_batch_mapping_updates_ = 0;
     uint64_t registry_grouped_unmapping_updates_ = 0;
+    size_t scattered_run_count_ = 0;
     uint64_t staged_completed_fence_ = 0;
     uint64_t tile_mapping_updates_ = 0;
     uint64_t tile_unmapping_updates_ = 0;

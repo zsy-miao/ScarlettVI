@@ -75,6 +75,22 @@ The fixture uses **four genuine 64 KiB XMem physical frames**, **eight independe
 
 **Observed RTX 5060 Ti Release result:** PASS, **20 verified 65,536-byte GPU page transfers** across **five actual GPU command submissions**. The fixture reports ten native GPU mapping calls across multiple successful and injected-error registrations, and **four grouped NULL mapping calls** across two four-page unbind attempts. Each four-page cohort uses two calls instead of eight independent native NULL calls. At exit: **zero allocated XMem pages, zero CPU pins, zero GPU tile mappings and zero shared GPU heap allocations**.
 
+## Scattered guest GPU page runs
+
+The optional [scattered page planner](GPU_PAGE_SCATTERED.md) now groups
+unordered physical-frame/GPU-slot pairs across the native 4 GiB resource
+boundaries. It sorts and validates each source/alias pair, holds **outer
+CPU XMem pins across all runs**, invokes `bind_batch` separately per
+native-resource run, and rolls back previous successful runs with real
+fences if a later GPU mapping fails. `unbind_scattered` reuses the
+existing grouped NULL-unmap contract for the currently registered runs.
+The dedicated RTX 5060 Ti `gpu-page-scattered` fixture verified **eight
+real XMem frames, 16 CPU pins, 24 completed 64 KiB GPU page transfers
+in three submissions**, third-run fault rollback and no leaks.
+Scattered native GPU updates are **not globally atomic**; interrupted
+unmapping may retire earlier runs, so callers must retry only the still
+registered frames.
+
 ## Limits
 
 - Each batch source/alias group must consist of adjacent 64 KiB guest tiles **within one native reserved buffer resource**. Grouping nonadjacent locations or mappings across native segments requires multiple calls and additional transaction management.

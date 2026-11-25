@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -79,7 +79,14 @@ Four-page NULL unmapping takes **two native calls instead of eight**, and
 synthetic failures after the first or second NULL update keep CPU aliases
 pinned until a real GPU fence confirms cleanup. Mixed single/batch
 registration, safe heap-tile reuse, and **zero leaked CPU pages or GPU
-tile mappings** are also verified. The new original [host texture-layout bridge](docs/XG_TEXTURE_LAYOUT.md)
+tile mappings** are also verified. The new
+[scattered GPU page planner](docs/GPU_PAGE_SCATTERED.md) groups unordered
+physical frames crossing native 4 GiB D3D12 resource boundaries into
+validated adjacent runs. Eight real XMem frames and 16 CPU aliases
+produced **24 verified GPU page transfers across three submissions**;
+third-run mapping-fence fault injection and partial-unmap recovery both
+released all CPU pins and GPU tile mappings. The new original
+[host texture-layout bridge](docs/XG_TEXTURE_LAYOUT.md)
 verifies RGBA8, R8, BC1, BC3 and BC5 block/pitch translation: **130 generated CPU
 subresources (211,460 bytes)** and **40 real GPU texture subresources** passed
 across mip levels and arrays. Xbox GPU page tables and XG swizzles are not translated.
@@ -138,6 +145,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe gpu-device11
 .\build\x64\Release\ScarlettVI.exe gpu-device-factory
+.\build\x64\Release\ScarlettVI.exe gpu-page-scattered
 .\build\x64\Release\ScarlettVI.exe gpu-page-batch
 .\build\x64\Release\ScarlettVI.exe gpu-page-registry
 .\build\x64\Release\ScarlettVI.exe gpu-xmem-tiles
