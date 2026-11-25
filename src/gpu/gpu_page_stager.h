@@ -21,7 +21,9 @@ public:
     HRESULT open(ID3D12Device11* device, SparseGpuWindows& windows,
                  size_t source_window, uint64_t source_offset,
                  size_t alias_window, uint64_t alias_offset,
-                 ID3D12CommandQueue* shared_queue = nullptr) noexcept;
+                 ID3D12CommandQueue* shared_queue = nullptr,
+                 ID3D12Heap* shared_tile_heap = nullptr,
+                 uint32_t shared_heap_tile = 0) noexcept;
     // Both spans must be exactly one page and nonoverlapping. Copies GPU data
     // into output only AFTER a completed fence; does not update CPU XMem.
     HRESULT roundtrip(std::span<const uint8_t> cpu_input,
@@ -62,6 +64,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commands_;
     Microsoft::WRL::ComPtr<ID3D12Fence> fence_;
     Microsoft::WRL::ComPtr<ID3D12Heap> physical_tile_;
+    uint32_t physical_heap_tile_ = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> upload_, readback_;
     HANDLE event_ = nullptr;
 };

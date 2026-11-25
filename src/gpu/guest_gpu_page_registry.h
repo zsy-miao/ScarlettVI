@@ -1,12 +1,14 @@
 #pragma once
 #include "gpu_page_stager.h"
 #include "../runtime/physical_memory.h"
+#include <array>
 #include <cstddef>
 #include <compare>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <vector>
 #include <unordered_map>
@@ -54,6 +56,11 @@ public:
     HRESULT transfer_batch(std::span<const PageTransfer> requests) noexcept;
     uint64_t queue_submission_count() const noexcept;
     size_t native_queue_count() const noexcept;
+    // One 4MiB default heap with 64 separately assignable 64KiB host tiles.
+    static constexpr uint32_t heap_capacity_tiles = 64;
+    size_t physical_heap_count() const noexcept;
+    size_t used_heap_tile_count() const noexcept;
+    std::optional<uint32_t> heap_tile_for(uintptr_t frame) const noexcept;
     HRESULT unbind(uintptr_t frame) noexcept;
     HRESULT clear() noexcept;
     size_t binding_count() const noexcept;
@@ -66,6 +73,7 @@ private:
         uint8_t* second_cpu = nullptr;
         GpuSlot source{};
         GpuSlot alias{};
+        uint32_t heap_tile = 0;
         std::unique_ptr<GpuPageStager> stager;
     };
     bool overlaps_cpu(const Binding& entry, std::span<uint8_t> output) const noexcept;
@@ -74,6 +82,8 @@ private:
     SparseGpuWindows& windows_;
     Microsoft::WRL::ComPtr<ID3D12Device11> device_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
+    Microsoft::WRL::ComPtr<ID3D12Heap> shared_tile_heap_;
+    std::array<bool, heap_capacity_tiles> occupied_heap_tiles_{};
     Microsoft::WRL::ComPtr<ID3D12Fence> batch_fence_;
     HANDLE batch_event_ = nullptr;
     uint64_t next_batch_fence_ = 1;

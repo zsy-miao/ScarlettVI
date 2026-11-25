@@ -1,5 +1,6 @@
 #include "guest_gpu_page_registry.h"
 #include <cstring>
+#include <algorithm>
 #include <array>
 #include <new>
 #include <unordered_set>
@@ -43,6 +44,12 @@ HRESULT GuestGpuPageRegistry::bind(
         return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
     if (gpu_slots_.contains(source_gpu) || gpu_slots_.contains(alias_gpu))
         return HRESULT_FROM_WIN32(ERROR_BUSY);
+    const auto candidate = std::find(
+        occupied_heap_tiles_.begin(), occupied_heap_tiles_.end(), false);
+    if (candidate == occupied_heap_tiles_.end())
+        return HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY);
+    const uint32_t heap_tile = static_cast<uint32_t>(
+        candidate - occupied_heap_tiles_.begin());
 
     if (!physical_.pin_mapped_alias(first_cpu_alias, frame))
         return HRESULT_FROM_WIN32(
@@ -68,20 +75,38 @@ HRESULT GuestGpuPageRegistry::bind(
                 return result;
             }
         }
+        if (!shared_tile_heap_) {
+            D3D12_HEAP_DESC heap{};
+            heap.SizeInBytes =
+                uint64_t{heap_capacity_tiles} * GpuPageStager::page_bytes;
+            heap.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            heap.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+            heap.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+            result = device_->CreateHeap(
+                &heap, IID_PPV_ARGS(shared_tile_heap_.GetAddressOf()));
+            if (FAILED(result)) {
+                physical_.unpin_mapped_alias(second_cpu_alias, frame);
+                physical_.unpin_mapped_alias(first_cpu_alias, frame);
+                return result;
+            }
+        }
         gpu_slots_.emplace(source_gpu, frame);
         gpu_slots_.emplace(alias_gpu, frame);
         auto stager = std::make_unique<GpuPageStager>();
         result = stager->open(
             device_.Get(), windows_,
             source_gpu.window, source_gpu.offset,
-            alias_gpu.window, alias_gpu.offset, queue_.Get());
+            alias_gpu.window, alias_gpu.offset, queue_.Get(),
+            shared_tile_heap_.Get(), heap_tile);
         if (SUCCEEDED(result)) {
             Binding entry{};
             entry.first_cpu = static_cast<uint8_t*>(first_cpu_alias);
             entry.second_cpu = static_cast<uint8_t*>(second_cpu_alias);
             entry.source = source_gpu;
             entry.alias = alias_gpu;
+            entry.heap_tile = heap_tile;
             entry.stager = std::move(stager);
+            occupied_heap_tiles_[heap_tile] = true;
             const auto [it, inserted] = bindings_.emplace(
                 frame, std::move(entry));
             if (inserted) return S_OK;
@@ -92,6 +117,7 @@ HRESULT GuestGpuPageRegistry::bind(
     }
     gpu_slots_.erase(source_gpu);
     gpu_slots_.erase(alias_gpu);
+    occupied_heap_tiles_[heap_tile] = false;
     physical_.unpin_mapped_alias(second_cpu_alias, frame);
     physical_.unpin_mapped_alias(first_cpu_alias, frame);
     return result;
@@ -248,6 +274,25 @@ size_t GuestGpuPageRegistry::native_queue_count() const noexcept {
     return queue_ ? 1u : 0u;
 }
 
+size_t GuestGpuPageRegistry::physical_heap_count() const noexcept {
+    std::lock_guard lock(mutex_);
+    return shared_tile_heap_ ? 1u : 0u;
+}
+
+size_t GuestGpuPageRegistry::used_heap_tile_count() const noexcept {
+    std::lock_guard lock(mutex_);
+    return static_cast<size_t>(
+        std::count(occupied_heap_tiles_.begin(), occupied_heap_tiles_.end(), true));
+}
+
+std::optional<uint32_t> GuestGpuPageRegistry::heap_tile_for(
+    uintptr_t frame) const noexcept {
+    std::lock_guard lock(mutex_);
+    const auto it = bindings_.find(frame);
+    if (it == bindings_.end()) return std::nullopt;
+    return it->second.heap_tile;
+}
+
 HRESULT GuestGpuPageRegistry::unbind(uintptr_t frame) noexcept {
     std::lock_guard lock(mutex_);
     const auto it = bindings_.find(frame);
@@ -262,6 +307,7 @@ HRESULT GuestGpuPageRegistry::unbind(uintptr_t frame) noexcept {
     if (!mirror || !primary) return E_FAIL;
     gpu_slots_.erase(it->second.source);
     gpu_slots_.erase(it->second.alias);
+    occupied_heap_tiles_[it->second.heap_tile] = false;
     bindings_.erase(it);
     return S_OK;
 }
@@ -279,6 +325,8 @@ HRESULT GuestGpuPageRegistry::clear() noexcept {
     }
     bindings_.clear();
     gpu_slots_.clear();
+    occupied_heap_tiles_.fill(false);
+    shared_tile_heap_.Reset();
     batch_fence_.Reset();
     if (batch_event_) { CloseHandle(batch_event_); batch_event_ = nullptr; }
     queue_.Reset();

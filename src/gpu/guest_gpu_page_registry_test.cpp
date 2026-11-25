@@ -101,7 +101,10 @@ HRESULT DeviceContext::guest_gpu_page_registry_test() {
         registry.bind(cpu.frames[1], first + bytes, second + bytes,
                       source(0), alias(1)) != HRESULT_FROM_WIN32(ERROR_BUSY) ||
         registry.pinned_alias_count() != 2 ||
-        windows.mapped_tile_count() != 2)
+        windows.mapped_tile_count() != 2 ||
+        registry.physical_heap_count() != 1 ||
+        registry.used_heap_tile_count() != 1 ||
+        registry.heap_tile_for(cpu.frames[0]) != 0u)
         return last_error_ = E_FAIL;
 
     for (size_t i = 1; i < count; ++i) {
@@ -112,8 +115,14 @@ HRESULT DeviceContext::guest_gpu_page_registry_test() {
     }
     if (registry.binding_count() != count ||
         registry.pinned_alias_count() != 2 * count ||
-        windows.mapped_tile_count() != 2 * count)
+        windows.mapped_tile_count() != 2 * count ||
+        registry.physical_heap_count() != 1 ||
+        registry.used_heap_tile_count() != count)
         return last_error_ = E_FAIL;
+    // Each frame owns a different 64KiB tile INSIDE one real 4MiB heap.
+    for (size_t i = 0; i < count; ++i)
+        if (registry.heap_tile_for(cpu.frames[i]) != i)
+            return last_error_ = E_FAIL;
 
     // A registered CPU VA is pinned: unmap and entire-region release must
     // fail without damaging any alias. Scatter unmap must reject the entire
@@ -240,7 +249,10 @@ HRESULT DeviceContext::guest_gpu_page_registry_test() {
     if (registry.unbind(cpu.frames[0]) !=
             HRESULT_FROM_WIN32(ERROR_NOT_FOUND) ||
         registry.pinned_alias_count() != 2 * (count - 1) ||
-        windows.mapped_tile_count() != 2 * (count - 1))
+        windows.mapped_tile_count() != 2 * (count - 1) ||
+        registry.used_heap_tile_count() != count - 1 ||
+        registry.physical_heap_count() != 1 ||
+        registry.heap_tile_for(cpu.frames[0]).has_value())
         return last_error_ = E_FAIL;
 
     // Slot 0 is now unpinned but slot 1 remains pinned. The atomic
@@ -259,14 +271,48 @@ HRESULT DeviceContext::guest_gpu_page_registry_test() {
         cpu.frames[0], first, second, source(0), alias(0));
     if (FAILED(last_error_)) return last_error_;
     if (registry.pinned_alias_count() != count * 2 ||
-        windows.mapped_tile_count() != count * 2)
+        windows.mapped_tile_count() != count * 2 ||
+        registry.physical_heap_count() != 1 ||
+        registry.used_heap_tile_count() != count ||
+        registry.heap_tile_for(cpu.frames[0]) != 0u)
         return last_error_ = E_FAIL;
+    for (size_t i = 1; i < count; ++i)
+        if (registry.heap_tile_for(cpu.frames[i]) != i)
+            return last_error_ = E_FAIL;
+
+    // Reuse the freed native GPU heap tile 0 without disturbing tiles 1-3.
+    // Four more generated page readbacks share one fence/submission, and
+    // CPU aliases must continue to hold the previous explicitly written data.
+    std::array<std::array<uint8_t, bytes>, count> reused_output{};
+    auto reused_batch = batch;
+    for (size_t i = 0; i < count; ++i) {
+        reused_batch[i].input =
+            std::span<const uint8_t>(initial.data() + i * bytes, bytes);
+        reused_batch[i].output = reused_output[i];
+        reused_batch[i].writeback_cpu = false;
+    }
+    last_error_ = registry.transfer_batch(reused_batch);
+    if (FAILED(last_error_) ||
+        registry.submitted_transfers() != count * 4 ||
+        registry.queue_submission_count() != count + 3 ||
+        registry.used_heap_tile_count() != count)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+    for (size_t i = 0; i < count; ++i)
+        if (std::memcmp(reused_output[i].data(),
+                        initial.data() + i * bytes, bytes) != 0 ||
+            std::memcmp(first + i * bytes,
+                        modified.data() + i * bytes, bytes) != 0 ||
+            std::memcmp(second + i * bytes,
+                        modified.data() + i * bytes, bytes) != 0)
+            return last_error_ = HRESULT_FROM_WIN32(ERROR_CRC);
 
     last_error_ = registry.clear();
     if (FAILED(last_error_) ||
         registry.binding_count() != 0 ||
         registry.pinned_alias_count() != 0 ||
         windows.mapped_tile_count() != 0 ||
+        registry.physical_heap_count() != 0 ||
+        registry.used_heap_tile_count() != 0 ||
         std::memcmp(first, modified.data(), modified.size()) != 0 ||
         std::memcmp(second, modified.data(), modified.size()) != 0)
         return last_error_ = E_FAIL;

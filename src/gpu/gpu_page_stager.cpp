@@ -46,10 +46,13 @@ HRESULT GpuPageStager::open(
     ID3D12Device11* device, SparseGpuWindows& windows,
     size_t source_window, uint64_t source_offset,
     size_t alias_window, uint64_t alias_offset,
-    ID3D12CommandQueue* shared_queue) noexcept {
+    ID3D12CommandQueue* shared_queue,
+    ID3D12Heap* shared_tile_heap, uint32_t shared_heap_tile) noexcept {
     if (opened_ || windows_ || device_)
         return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
     if (!device) return E_POINTER;
+    if ((!shared_tile_heap && shared_heap_tile) ||
+        (shared_tile_heap && !shared_queue)) return E_INVALIDARG;
     if (source_window == alias_window && source_offset == alias_offset)
         return E_INVALIDARG;
     if (source_offset % page_bytes || alias_offset % page_bytes)
@@ -123,14 +126,30 @@ HRESULT GpuPageStager::open(
     event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!event_) return fail(HRESULT_FROM_WIN32(GetLastError()));
 
-    D3D12_HEAP_DESC tile_heap{};
-    tile_heap.SizeInBytes = page_bytes;
-    tile_heap.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    tile_heap.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    tile_heap.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
-    hr = device_->CreateHeap(
-        &tile_heap, IID_PPV_ARGS(physical_tile_.GetAddressOf()));
-    if (FAILED(hr)) return fail(hr);
+    if (shared_tile_heap) {
+        const D3D12_HEAP_DESC desc = shared_tile_heap->GetDesc();
+        if (desc.Properties.Type != D3D12_HEAP_TYPE_DEFAULT ||
+            desc.Flags != D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS ||
+            uint64_t{shared_heap_tile} >= desc.SizeInBytes / page_bytes)
+            return fail(E_INVALIDARG);
+        Microsoft::WRL::ComPtr<ID3D12Device11> heap_device;
+        hr = shared_tile_heap->GetDevice(
+            IID_PPV_ARGS(heap_device.GetAddressOf()));
+        if (FAILED(hr) || heap_device.Get() != device)
+            return fail(E_INVALIDARG);
+        physical_tile_ = shared_tile_heap; // retain ownership of selected tile
+        physical_heap_tile_ = shared_heap_tile;
+    } else {
+        D3D12_HEAP_DESC tile_heap{};
+        tile_heap.SizeInBytes = page_bytes;
+        tile_heap.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        tile_heap.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        tile_heap.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        hr = device_->CreateHeap(
+            &tile_heap, IID_PPV_ARGS(physical_tile_.GetAddressOf()));
+        if (FAILED(hr)) return fail(hr);
+        physical_heap_tile_ = 0;
+    }
     hr = create_buffer(D3D12_HEAP_TYPE_UPLOAD,
                        D3D12_RESOURCE_STATE_GENERIC_READ, upload_);
     if (FAILED(hr)) return fail(hr);
@@ -139,11 +158,13 @@ HRESULT GpuPageStager::open(
     if (FAILED(hr)) return fail(hr);
 
     hr = windows_->map_tiles(
-        queue_.Get(), source_window_, source_offset_, physical_tile_.Get(), 0, 1);
+        queue_.Get(), source_window_, source_offset_, physical_tile_.Get(),
+        physical_heap_tile_, 1);
     if (FAILED(hr)) return fail(hr);
     first_mapped_ = true;
     hr = windows_->map_tiles(
-        queue_.Get(), alias_window_, alias_offset_, physical_tile_.Get(), 0, 1);
+        queue_.Get(), alias_window_, alias_offset_, physical_tile_.Get(),
+        physical_heap_tile_, 1);
     if (FAILED(hr)) return fail(hr);
     second_mapped_ = true;
     hr = sync(); // both tile mappings complete before any copy starts
@@ -286,6 +307,7 @@ HRESULT GpuPageStager::close() noexcept {
     upload_.Reset();
     readback_.Reset();
     physical_tile_.Reset();
+    physical_heap_tile_ = 0;
     commands_.Reset();
     allocator_.Reset();
     queue_.Reset();

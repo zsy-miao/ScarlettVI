@@ -1153,7 +1153,9 @@ HRESULT DeviceContext::staged_xmem_tile_roundtrip_test() {
         stager.open(nullptr, windows, 0, first_offset, 1, second_offset) != E_POINTER ||
         stager.open(device11.Get(), windows, 0, first_offset, 0, first_offset) != E_INVALIDARG ||
         stager.open(device11.Get(), windows, 0, first_offset + 1, 1, second_offset) != E_INVALIDARG ||
-        stager.open(device11.Get(), windows, 100, first_offset, 1, second_offset) != E_INVALIDARG)
+        stager.open(device11.Get(), windows, 100, first_offset, 1, second_offset) != E_INVALIDARG ||
+        stager.open(device11.Get(), windows, 0, first_offset, 1, second_offset,
+                    nullptr, nullptr, 1) != E_INVALIDARG)
         return last_error_ = E_FAIL;
 
     last_error_ = stager.open(

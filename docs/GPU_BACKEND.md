@@ -138,12 +138,14 @@ their console-specific memory quota and output structures are unknown.
 The original [GuestGpuPageRegistry](GUEST_GPU_PAGE_REGISTRY.md) now binds
 live synthetic XMem physical-frame IDs to two validated **pinned CPU
 alias views** and two real D3D12 GPU tile slots. Four frames and eight
-GPU tile mappings are tested simultaneously. All pages now share **one
-D3D12 DIRECT queue**, but retain separate physical heap tiles and command
-allocators. Two separate four-page batches each use one native
-`ExecuteCommandLists` call and one fence. **Twelve 64 KiB GPU transfers**
-require just **six queue submissions** in this fixture; after unbinding, GPU
-tile mappings, CPU pins and physical frames all return to **zero**.
+GPU tile mappings are tested simultaneously. All pages share **one
+D3D12 DIRECT queue and one real 4 MiB DEFAULT heap** with 64 assignable
+physical 64 KiB tiles; each frame owns a unique slot and separate GPU
+command allocator/upload/readback resources. Four individually submitted
+transfers and **three four-page batches** verify **16 GPU page transfers
+in seven native `ExecuteCommandLists` calls**. Unbind/rebind reuses the
+freed heap slot without disturbing active tiles. After clear, the shared
+heap, GPU tile mappings, CPU pins and physical frames all return to zero.
 
 Pinned aliases cannot be unmapped or their region released through the
 XMem bridge until their GPU mapping is closed. Cross-slot unmap requests
