@@ -27,6 +27,14 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
   closes independently, even after the COM object has been explicitly closed.
 - Separate file-object staging leases forbid `SetStagingBufferSize` until the
   last COM reference is released, including if Close was called earlier.
+- A new **host-only** `reopen_owned_dstorage_file_for_read` service checks
+  a synchronized registry of live ScarlettVI-owned file objects *before*
+  dereferencing any candidate pointer, then pins its reference count.
+  It calls Win32 `ReOpenFile` to obtain a separately positioned read handle,
+  unlike the documented `GetHandle` duplication, and transfers ownership
+  to the fixture-only queue. Unknown and closed file objects fail safely.
+  This allows already-submitted host reads to survive closing the source
+  file COM object without retaining arbitrary game memory.
 - The API is not yet wired to an Xbox virtual filesystem, guest queue
   `DSTORAGE_REQUEST`, decompression engine, destination buffers or asset streaming.
 
@@ -39,6 +47,9 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
 .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 ```
 
+The file and [queue COM fixture](XBOX_DSTORAGE_QUEUE_COM.md) verify
+real generated-file reads, source-object lifetime and independent handle
+positions without interpreting Xbox `DSTORAGE_REQUEST` structures.
 The new fixture verifies actual generated-file reads, raw factory OpenFile
 vtable dispatch, exact COM IID, independent duplicated handles, error propagation,
 missing and malformed paths, reference lifecycle, staging interlocks and

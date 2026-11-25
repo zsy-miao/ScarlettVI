@@ -41,9 +41,16 @@ enable this for real guest asset loads on that evidence alone.
   in FIFO order by the existing host worker. `Submit` releases the held
   batch. The queue supports both manual submission and the 32-request
   automatic threshold, consistent with the existing host-only scheduler.
-- An internal-only test hook can queue genuine Win32 reads of **generated
-  host files**. The status array reports S_OK, the first actual I/O error,
-  and an independent reset at each barrier.
+- Internal-only test hooks can queue genuine Win32 reads of **generated
+  host files**, either by validated leaf name or by a ScarlettVI-owned
+  `IDStorageFileX` object. The file-object route now calls `ReOpenFile`
+  for an independent read position and transfers that handle into the
+  bounded worker. Already-admitted reads continue after source `Close`
+  and final `Release`. No Xbox guest request buffer is interpreted.
+- The status array reports S_OK, the first actual I/O error, and an
+  independent reset at each barrier. The worker now auto-retires completed
+  **unsupported guest request error tokens** (which have no payload
+  consumer), preventing long-lived queues from exhausting 64 slots.
 - `EnqueueRequest` is **not** a working guest read: the unverified Xbox
   `DSTORAGE_REQUEST` is never dereferenced. Instead, the guest call
   inserts an ordered **E_NOTIMPL failure** so later status barriers
@@ -75,6 +82,12 @@ exact IID and IUnknown identity, invalid descriptors, unconfigured-root
 rejection, bounded real generated-file readback, no I/O before manual
 `Submit`, ordered failure markers, first-error aggregation and reset,
 staging lease ownership, event signaling and unverified output safety.
+Additional regression coverage checks two real `IDStorageFileX`-backed reads
+with different offsets, unchanged file positions on the original handle,
+close/release-before-submit ownership, rejection of foreign/closed COM
+file pointers, and 160 unsupported requests across 20 successive batches.
+Microsoft describes independent handles through
+[`ReOpenFile`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-reopenfile).
 
 **Remaining native startup blockers:** guest request packing/ownership,
 guest filesystem and storage semantics, Xbox GPU resource/command ABI,

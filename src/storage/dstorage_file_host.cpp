@@ -12,6 +12,9 @@ namespace {
 std::mutex root_mutex;
 std::filesystem::path configured_root;
 std::atomic<uint32_t> live_files{0};
+class HostFile;
+std::mutex file_registry_mutex;
+HostFile* file_registry_head = nullptr;
 
 HRESULT from_last_error() noexcept {
     const DWORD error = GetLastError();
@@ -48,12 +51,36 @@ bool valid_leaf(const std::wstring& leaf) {
 class HostFile final : public HostDStorageFileX {
 public:
     explicit HostFile(HANDLE handle) noexcept : handle_(handle) {
+        const std::lock_guard lock(file_registry_mutex);
+        next_registered_ = file_registry_head;
+        file_registry_head = this;
         live_files.fetch_add(1, std::memory_order_relaxed);
     }
     ~HostFile() {
+        {
+            const std::lock_guard lock(file_registry_mutex);
+            auto** link = &file_registry_head;
+            while (*link && *link != this)
+                link = &(*link)->next_registered_;
+            if (*link == this) *link = next_registered_;
+        }
         Close();
         release_host_dstorage_file_lease();
         live_files.fetch_sub(1, std::memory_order_relaxed);
+    }
+    HostFile* next_registered() const noexcept { return next_registered_; }
+    HRESULT reopen_for_read(HANDLE* output) noexcept {
+        if (!output) return E_POINTER;
+        *output = INVALID_HANDLE_VALUE;
+        const std::lock_guard lock(mutex_);
+        if (handle_ == INVALID_HANDLE_VALUE)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
+        // Unlike DuplicateHandle, ReOpenFile creates its own file pointer;
+        // concurrent source reads cannot move one another's offsets.
+        HANDLE handle = ReOpenFile(handle_, GENERIC_READ, FILE_SHARE_READ, 0);
+        if (handle == INVALID_HANDLE_VALUE) return from_last_error();
+        *output = handle;
+        return S_OK;
     }
     HRESULT STDMETHODCALLTYPE QueryInterface(
         REFIID iid, void** output) noexcept override {
@@ -110,6 +137,9 @@ private:
     std::atomic<ULONG> refs_{1};
     std::mutex mutex_;
     HANDLE handle_ = INVALID_HANDLE_VALUE;
+    HostFile* next_registered_ = nullptr;
+    friend HRESULT reopen_owned_dstorage_file_for_read(
+        HostDStorageFileX*, HANDLE*) noexcept;
 };
 } // namespace
 
@@ -203,6 +233,29 @@ HRESULT open_host_dstorage_file(
     }
 }
 
+HRESULT reopen_owned_dstorage_file_for_read(
+    HostDStorageFileX* candidate, HANDLE* output) noexcept {
+    if (!output) return E_POINTER;
+    *output = INVALID_HANDLE_VALUE;
+    if (!candidate) return E_POINTER;
+    // Compare address first; no dereference of arbitrary guest pointers.
+    // AddRef under the registry lock pins the object across reopening.
+    HostFile* found = nullptr;
+    {
+        const std::lock_guard lock(file_registry_mutex);
+        for (HostFile* current = file_registry_head; current;
+             current = current->next_registered()) {
+            if (static_cast<HostDStorageFileX*>(current) == candidate) {
+                if (current->AddRef() != 0) found = current;
+                break;
+            }
+        }
+    }
+    if (!found) return E_INVALIDARG;
+    const HRESULT hr = found->reopen_for_read(output);
+    found->Release();
+    return hr;
+}
 uint32_t live_host_dstorage_files() noexcept {
     return live_files.load(std::memory_order_relaxed);
 }

@@ -168,6 +168,25 @@ public:
         if (FAILED(hr)) set_error(hr);
         return hr;
     }
+    HRESULT fixture_file_read(
+        HostDStorageFileX* source, uint64_t token,
+        uint64_t offset, uint32_t bytes) noexcept {
+        HANDLE opened = INVALID_HANDLE_VALUE;
+        const HRESULT hr = reopen_owned_dstorage_file_for_read(
+            source, &opened);
+        if (FAILED(hr)) return hr;
+        const std::lock_guard lock(mutex_);
+        if (closed_) {
+            CloseHandle(opened);
+            return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
+        }
+        // The worker takes unconditional ownership of the independent
+        // read handle, even if queue admission is rejected.
+        const HRESULT added = worker_->enqueue_file(
+            opened, token, offset, bytes);
+        if (FAILED(added)) set_error(added);
+        return added;
+    }
     HRESULT fixture_wait(uint64_t token, DWORD timeout_ms,
                          HostFileReadCompletion& output) noexcept {
         // Do not hold mutex_ while waiting for the worker to finish.
@@ -258,6 +277,14 @@ HRESULT enqueue_host_dstorage_queue_fixture_read(
     if (request.token & (uint64_t{1} << 63))
         return E_INVALIDARG;
     return static_cast<HostQueue*>(queue)->fixture_read(request);
+}
+HRESULT enqueue_host_dstorage_queue_fixture_file_read(
+    HostDStorageQueueX2* queue, HostDStorageFileX* source,
+    uint64_t token, uint64_t offset, uint32_t bytes) noexcept {
+    if (!queue) return E_POINTER;
+    if (!token || (token & (uint64_t{1} << 63))) return E_INVALIDARG;
+    return static_cast<HostQueue*>(queue)->fixture_file_read(
+        source, token, offset, bytes);
 }
 HRESULT wait_host_dstorage_queue_fixture_read(
     HostDStorageQueueX2* queue, uint64_t token, DWORD timeout_ms,

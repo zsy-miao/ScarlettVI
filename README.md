@@ -76,8 +76,11 @@ unsubmitted work, and automatically submits at half the 64-entry host
 capacity with real output tests. A [fixture-rooted guest-IID queue COM
 prototype](docs/XBOX_DSTORAGE_QUEUE_COM.md) now wires `CreateQueue1`,
 `EnqueueStatus`, `Submit` and actual host-worker barriers, including ordered
-failure tokens for unsupported guest requests. Its Xbox queue vtable remains
-provisional and full title request/asset streaming is still unsupported.
+failure tokens for unsupported guest requests. Its worker now also accepts
+independent `ReOpenFile` handles from factory-created guest-IID file COM
+objects, allowing already-admitted host reads after source Close/Release;
+completed unsupported tokens no longer clog the bounded queue. The Xbox
+queue vtable remains provisional and title request/asset streaming is still unsupported.
 The [actual Xbox status-array COM interface](docs/XBOX_DSTORAGE_STATUS_ARRAY.md)
 now works through the corrected factory vtable slot `+0x28`, and its
 status entries receive verified S_OK/error results from host file-I/O

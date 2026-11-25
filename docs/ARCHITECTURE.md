@@ -78,8 +78,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   duplicates read handles and holds staging leases until final Release;
   normal guest paths remain disabled. A [fixture-only queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md)
   now links the observed `CreateQueue1` IID to the real host worker and
-  status-array barriers. Unsupported guest requests complete as errors,
-  not fake reads; full console queues, game asset streaming, decompression
+  status-array barriers. It now also reads test-only factory-created file
+  COM objects through independent Win32 `ReOpenFile` handles, surviving
+  source-object release and auto-retiring unsupported error-only tokens.
+  Unsupported guest requests complete as errors, not fake reads; full
+  console queues, game asset streaming, decompression
   and real Xbox destination buffers remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.

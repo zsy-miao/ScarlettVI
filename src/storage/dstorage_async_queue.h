@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace scarlett::storage {
@@ -55,6 +56,10 @@ public:
 
     // Hold work without touching a file until submit_pending() commits it.
     HRESULT enqueue(const HostFileReadRequest& request) noexcept;
+    // Takes ownership of an independently opened read-only Win32 file
+    // handle on ALL outcomes, including failed admission/cancellation.
+    HRESULT enqueue_file(HANDLE owned_handle, uint64_t token,
+                         uint64_t offset, uint32_t bytes) noexcept;
     // Internal-only failed-operation token: guest requests with unknown ABI
     // become visible asynchronous failures, never fake successful reads.
     HRESULT enqueue_unsupported(uint64_t token,
@@ -86,8 +91,33 @@ public:
 private:
     explicit HostAsyncFileQueue(std::filesystem::path trusted_root,
                                 SubmitPolicy policy);
+    struct OwnedFileHandle {
+        HANDLE handle = INVALID_HANDLE_VALUE;
+        OwnedFileHandle() noexcept = default;
+        explicit OwnedFileHandle(HANDLE h) noexcept : handle(h) {}
+        ~OwnedFileHandle() { reset(); }
+        OwnedFileHandle(const OwnedFileHandle&) = delete;
+        OwnedFileHandle& operator=(const OwnedFileHandle&) = delete;
+        OwnedFileHandle(OwnedFileHandle&& other) noexcept
+            : handle(std::exchange(other.handle, INVALID_HANDLE_VALUE)) {}
+        OwnedFileHandle& operator=(OwnedFileHandle&& other) noexcept {
+            if (this != &other) {
+                reset();
+                handle = std::exchange(other.handle, INVALID_HANDLE_VALUE);
+            }
+            return *this;
+        }
+        void reset() noexcept {
+            if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+            handle = INVALID_HANDLE_VALUE;
+        }
+        HANDLE release() noexcept {
+            return std::exchange(handle, INVALID_HANDLE_VALUE);
+        }
+    };
     struct Job {
         HostFileReadRequest request;
+        OwnedFileHandle file_handle;
         HostDStorageStatusArrayX* status = nullptr;
         uint32_t status_index = 0;
         HRESULT injected_failure = S_OK;
@@ -97,10 +127,12 @@ private:
     HRESULT admit(const HostFileReadRequest& request,
                   bool staged, HostDStorageStatusArrayX* status = nullptr,
                   uint32_t status_index = 0,
-                  HRESULT injected_failure = S_OK) noexcept;
+                  HRESULT injected_failure = S_OK,
+                  HANDLE owned_handle = INVALID_HANDLE_VALUE) noexcept;
     void run() noexcept;
     HostFileReadCompletion execute(
-        const HostFileReadRequest& request, uint64_t sequence) noexcept;
+        const HostFileReadRequest& request, uint64_t sequence,
+        HANDLE owned_handle = INVALID_HANDLE_VALUE) noexcept;
     HRESULT take_locked(
         std::map<uint64_t, Job>::iterator it,
         HostFileReadCompletion& output) noexcept;

@@ -24,6 +24,11 @@ HRESULT snapshot_dstorage_file_fixture_root(
     std::filesystem::path& output) noexcept;
 HRESULT open_host_dstorage_file(
     const wchar_t* leaf, REFIID iid, void** output) noexcept;
+// HOST-ONLY: reopen a ScarlettVI-owned live file object for an independent
+// synchronous read position. The caller owns and must CloseHandle the result.
+// Unknown/closed COM objects fail without dereferencing untrusted pointers.
+HRESULT reopen_owned_dstorage_file_for_read(
+    HostDStorageFileX* candidate, HANDLE* output) noexcept;
 uint32_t live_host_dstorage_files() noexcept;
 bool verify_dstorage_file_fixture() noexcept;
 

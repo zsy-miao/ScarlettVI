@@ -111,15 +111,21 @@ bool HostAsyncFileQueue::allowed_leaf(
 HRESULT HostAsyncFileQueue::admit(
     const HostFileReadRequest& request, bool staged,
     HostDStorageStatusArrayX* status, uint32_t status_index,
-    HRESULT injected_failure) noexcept {
+    HRESULT injected_failure, HANDLE owned_handle) noexcept {
+    OwnedFileHandle incoming(owned_handle); // consumed even on validation failure
     if (!request.token) return E_INVALIDARG;
     if (FAILED(injected_failure)) {
-        if (!staged || status || !request.filename.empty() ||
-            request.offset || request.bytes) return E_INVALIDARG;
+        if (!staged || status || owned_handle != INVALID_HANDLE_VALUE ||
+            !request.filename.empty() || request.offset || request.bytes)
+            return E_INVALIDARG;
     } else if (status) {
-        if (!staged || !request.filename.empty() ||
-            request.offset || request.bytes) return E_INVALIDARG;
-    } else if (!allowed_leaf(request.filename) ||
+        if (!staged || owned_handle != INVALID_HANDLE_VALUE ||
+            !request.filename.empty() || request.offset || request.bytes)
+            return E_INVALIDARG;
+    } else if ((owned_handle == INVALID_HANDLE_VALUE &&
+                !allowed_leaf(request.filename)) ||
+               (owned_handle != INVALID_HANDLE_VALUE &&
+                !request.filename.empty()) ||
                request.offset > static_cast<uint64_t>(
                    std::numeric_limits<int64_t>::max()) ||
                !request.bytes || request.bytes > kMaxReadBytes)
@@ -135,6 +141,7 @@ HRESULT HostAsyncFileQueue::admit(
 
         Job job;
         job.request = request; // copy guest-independent host leaf
+        job.file_handle = std::move(incoming);
         job.status = status;
         job.status_index = status_index;
         job.injected_failure = injected_failure;
@@ -192,6 +199,17 @@ HRESULT HostAsyncFileQueue::enqueue(
     const HostFileReadRequest& request) noexcept {
     return admit(request, true);
 }
+HRESULT HostAsyncFileQueue::enqueue_file(
+    HANDLE owned_handle, uint64_t token,
+    uint64_t offset, uint32_t bytes) noexcept {
+    if (owned_handle == nullptr || owned_handle == INVALID_HANDLE_VALUE) {
+        if (owned_handle && owned_handle != INVALID_HANDLE_VALUE)
+            CloseHandle(owned_handle);
+        return E_INVALIDARG;
+    }
+    return admit({token, L"", offset, bytes}, true, nullptr, 0,
+                 S_OK, owned_handle);
+}
 HRESULT HostAsyncFileQueue::enqueue_unsupported(
     uint64_t token, HRESULT error) noexcept {
     if (!FAILED(error)) return E_INVALIDARG;
@@ -228,6 +246,7 @@ HRESULT HostAsyncFileQueue::cancel_unsubmitted(
     if (pending == pending_.end())
         return HRESULT_FROM_WIN32(ERROR_BUSY);
     pending_.erase(pending);
+    job->second.file_handle.reset();
     job->second.result.status = kIoCancelled;
     job->second.result.data.clear();
     if (job->second.status) {
@@ -246,17 +265,20 @@ size_t HostAsyncFileQueue::pending_submission_count() const noexcept {
 
 HostFileReadCompletion HostAsyncFileQueue::execute(
     const HostFileReadRequest& request,
-    uint64_t sequence) noexcept {
+    uint64_t sequence, HANDLE owned_handle) noexcept {
     HostFileReadCompletion completion;
     completion.token = request.token;
     completion.sequence = sequence;
+    OwnedHandle file{owned_handle};
     try {
-        const std::filesystem::path path = root_ / request.filename;
-        OwnedHandle file{
-            CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                        nullptr, OPEN_EXISTING,
-                        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
-                        nullptr)};
+        if (file.handle == INVALID_HANDLE_VALUE) {
+            const std::filesystem::path path = root_ / request.filename;
+            file.handle = CreateFileW(
+                path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                nullptr, OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                nullptr);
+        }
         if (file.handle == INVALID_HANDLE_VALUE) {
             completion.status = error_from_last();
             return completion;
@@ -328,6 +350,7 @@ void HostAsyncFileQueue::run() noexcept {
         HostDStorageStatusArrayX* status = nullptr;
         uint32_t status_index = 0;
         HRESULT injected_failure = S_OK;
+        HANDLE read_handle = INVALID_HANDLE_VALUE;
         {
             std::unique_lock lock(mutex_);
             ready_.wait(lock, [&]{ return stopped_ || !fifo_.empty(); });
@@ -347,6 +370,7 @@ void HostAsyncFileQueue::run() noexcept {
             status = found->second.status;
             status_index = found->second.status_index;
             injected_failure = found->second.injected_failure;
+            read_handle = found->second.file_handle.release();
         }
         HostFileReadCompletion completion;
         if (status) {
@@ -364,7 +388,7 @@ void HostAsyncFileQueue::run() noexcept {
                 completion.sequence = sequence;
                 completion.status = injected_failure;
             } else {
-                completion = execute(request, sequence);
+                completion = execute(request, sequence, read_handle);
             }
             if (FAILED(completion.status) &&
                 SUCCEEDED(first_unreported_failure_))
@@ -374,8 +398,15 @@ void HostAsyncFileQueue::run() noexcept {
             const std::lock_guard lock(mutex_);
             if (const auto found = jobs_.find(token);
                 found != jobs_.end() && !found->second.ready) {
-                found->second.result = std::move(completion);
-                found->second.ready = true;
+                if (FAILED(injected_failure)) {
+                    // This token was injected only to preserve an ordered
+                    // error barrier. No guest-facing consumer exists; do
+                    // not let it exhaust the bounded queue after Submit.
+                    jobs_.erase(found);
+                } else {
+                    found->second.result = std::move(completion);
+                    found->second.ready = true;
+                }
             }
         }
         ready_.notify_all();
@@ -419,6 +450,7 @@ void HostAsyncFileQueue::shutdown() noexcept {
             const auto cancel_held = [&](const auto& list) {
                 for (const uint64_t id : list) {
                     if (auto it = jobs_.find(id); it != jobs_.end()) {
+                        it->second.file_handle.reset();
                         it->second.result.status = kIoCancelled;
                         it->second.result.data.clear();
                         it->second.ready = true;

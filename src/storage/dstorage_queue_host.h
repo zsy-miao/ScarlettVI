@@ -6,6 +6,7 @@
 #include <cstdint>
 
 namespace scarlett::storage {
+struct HostDStorageFileX;
 
 // Original host declaration of the published DirectStorage queue descriptor.
 // The verified Microsoft public field order is source/capacity/priority/name/
@@ -50,6 +51,11 @@ HRESULT create_host_dstorage_queue1(
 // and do not interpret DSTORAGE_REQUEST or title-owned buffers.
 HRESULT enqueue_host_dstorage_queue_fixture_read(
     HostDStorageQueueX2* queue, const HostFileReadRequest& request) noexcept;
+// HOST-ONLY: read through a validated ScarlettVI-owned IDStorageFileX
+// using an independently reopened handle that survives source Close/Release.
+HRESULT enqueue_host_dstorage_queue_fixture_file_read(
+    HostDStorageQueueX2* queue, HostDStorageFileX* source,
+    uint64_t token, uint64_t offset, uint32_t bytes) noexcept;
 HRESULT wait_host_dstorage_queue_fixture_read(
     HostDStorageQueueX2* queue, uint64_t token, DWORD timeout_ms,
     HostFileReadCompletion& output) noexcept;

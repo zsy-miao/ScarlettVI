@@ -92,8 +92,9 @@ Measured working address bindings:
   [read-only fixture-rooted file implementation](XBOX_DSTORAGE_FILE_HOST.md),
   disabled by default. `CreateQueue1` now also returns a
   [fixture-only queue COM object](XBOX_DSTORAGE_QUEUE_COM.md) for verified
-  generated reads and status barriers. Normal title paths, guest
-  `DSTORAGE_REQUEST` I/O and Xbox queue device features remain blocked
+  generated reads and status barriers, including safe independently
+  reopened handles from fixture-rooted file COM objects. Normal title
+  paths, guest `DSTORAGE_REQUEST` I/O and Xbox queue features remain blocked
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.

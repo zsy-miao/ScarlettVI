@@ -176,6 +176,82 @@ bool verify_dstorage_queue_com_fixture() noexcept {
                         data.begin()+3))
             return false;
 
+        // Real queue reads can now originate from a ScarlettVI-owned
+        // DirectStorage FILE COM object rather than a filename lookup.
+        // ReOpenFile provides independent file positions across producers.
+        HostDStorageFileX* source = nullptr;
+        if (factory.ptr->OpenFile(L"generated.bin",
+                kObservedXboxDStorageFileIid,
+                reinterpret_cast<void**>(&source)) != S_OK ||
+            !source) return false;
+        HANDLE invalid = reinterpret_cast<HANDLE>(uintptr_t{0x1234});
+        if (reopen_owned_dstorage_file_for_read(
+                reinterpret_cast<HostDStorageFileX*>(uintptr_t{0x1234}),
+                &invalid) != E_INVALIDARG ||
+            invalid != INVALID_HANDLE_VALUE) {
+            source->Release();
+            return false;
+        }
+        HANDLE original = source->GetHandle();
+        if (original == INVALID_HANDLE_VALUE) {
+            source->Release();
+            return false;
+        }
+        LARGE_INTEGER position{};
+        position.QuadPart = 1337;
+        if (!SetFilePointerEx(original, position, nullptr, FILE_BEGIN)) {
+            CloseHandle(original);
+            source->Release();
+            return false;
+        }
+        if (enqueue_host_dstorage_queue_fixture_file_read(
+                queue.ptr, source, 10, 17, 256) != S_OK ||
+            enqueue_host_dstorage_queue_fixture_file_read(
+                queue.ptr, source, 11, 2048, 384) != S_OK) {
+            CloseHandle(original);
+            source->Release();
+            return false;
+        }
+        // The independent queue read handles survive Close/Release of
+        // their originating COM file; this does not expose title paths.
+        source->Close();
+        HANDLE closed = INVALID_HANDLE_VALUE;
+        if (reopen_owned_dstorage_file_for_read(source, &closed) !=
+                HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE) ||
+            closed != INVALID_HANDLE_VALUE) {
+            CloseHandle(original);
+            source->Release();
+            return false;
+        }
+        source->Release();
+        source = nullptr;
+        enqueue_status(queue.ptr, status.ptr, 0);
+        if (status.ptr->IsComplete(0)) {
+            CloseHandle(original);
+            return false;
+        }
+        submit(queue.ptr);
+        HostFileReadCompletion file_first, file_second;
+        LARGE_INTEGER after{};
+        const bool file_pass =
+            status_equals(status.ptr, 0, S_OK) &&
+            wait_host_dstorage_queue_fixture_read(
+                queue.ptr, 10, 3000, file_first) == S_OK &&
+            file_first.status == S_OK &&
+            file_first.data.size() == 256 &&
+            std::equal(file_first.data.begin(), file_first.data.end(),
+                       data.begin() + 17) &&
+            wait_host_dstorage_queue_fixture_read(
+                queue.ptr, 11, 3000, file_second) == S_OK &&
+            file_second.status == S_OK &&
+            file_second.data.size() == 384 &&
+            std::equal(file_second.data.begin(), file_second.data.end(),
+                       data.begin() + 2048) &&
+            SetFilePointerEx(original, LARGE_INTEGER{}, &after, FILE_CURRENT) &&
+            after.QuadPart == 1337;
+        CloseHandle(original);
+        if (!file_pass) return false;
+
         // Unsupported guest request is never reported as successful.
         enqueue_request(queue.ptr, nullptr); // deliberately no structure dereference
         enqueue_status(queue.ptr, status.ptr, 1);
@@ -223,6 +299,18 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             !std::equal(final_read.data.begin(), final_read.data.end(),
                         data.begin()+2048))
             return false;
+
+        // A long-lived guest-facing queue must NOT retain unconsumable
+        // unsupported-operation tokens forever. Repeated submitted batches
+        // of guest failures still admit status barriers and report errors.
+        for (unsigned batch = 0; batch < 20; ++batch) {
+            for (unsigned i = 0; i < 8; ++i)
+                enqueue_request(queue.ptr, nullptr);
+            enqueue_status(queue.ptr, status.ptr, 3);
+            submit(queue.ptr);
+            if (!status_equals(status.ptr, 3, E_NOTIMPL))
+                return false;
+        }
 
         // Avoid writing an unknown-sized Xbox struct; errors remain
         // observable via a real Win32 event and the host-only diagnostic.
