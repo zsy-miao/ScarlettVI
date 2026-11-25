@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -69,10 +69,11 @@ verifies RGBA8, R8, BC1, BC3 and BC5 block/pitch translation: **130 generated CP
 subresources (211,460 bytes)** and **40 real GPU texture subresources** passed
 across mip levels and arrays. Xbox GPU page tables and XG swizzles are not translated.
 The original [XMem-to-sparse-GPU staging test](docs/XMEM_GPU_STAGING.md)
-now copies one real 64 KiB CPU physical page through GPU heap tiles mapped
-at distant logical addresses, performs two GPU readbacks, and explicitly
-writes back to the second CPU alias; all 65,536 bytes and both CPU aliases
-are verified. This **does not** provide unified CPU/GPU memory or the
+now uses a reusable [GpuPageStager host API](docs/GPU_PAGE_STAGER.md) to
+transfer **three different 64 KiB payloads** through real sparse GPU tiles
+across **two separate GPU sessions**. It explicitly writes back to a CPU
+alias and verifies both views, including GPU resource segment-boundary
+positions, invalid-input rejection and **zero leaked pages**. This **does not** provide unified CPU/GPU memory or the
 Xbox `XMemTransferMemory` ABI.
 
 These are verified host capabilities; the **Xbox-specific D3D12/XG device ABI,

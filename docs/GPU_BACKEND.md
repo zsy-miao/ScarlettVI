@@ -117,10 +117,13 @@ residency**, not console memory mapping or a running game shader.
 The original [XMem and sparse GPU tile integration](XMEM_GPU_STAGING.md)
 bridges the existing pagefile-section-backed CPU physical aliases and
 the native D3D12 64 KiB heap tile backend by **explicit staging**.
-The new gpu-xmem-tiles mode uploads 65,536 bytes from a CPU XMem alias,
-copies through two GPU resource aliases at guest offsets 4 GiB and 12 GiB,
-fences GPU completion, then writes a different GPU-returned payload back
-into the CPU alias to verify both CPU views. Two real GPU submissions,
+The refactored [GpuPageStager host API](GPU_PAGE_STAGER.md) owns its own
+D3D12 queue, real heap tile, upload/readback resources, alias barriers and
+fences. gpu-xmem-tiles now verifies **three independently generated 65,536
+byte payloads over two GPU sessions**, using two distinct native segment-local
+offsets on either side of a 4 GiB boundary. It validates rejected open,
+occupied mapping and short/overlapping buffer requests, then explicitly
+copies GPU readback into CPU XMem aliases. Three real GPU submissions,
 all bytes verified, zero leaked physical pages. CPU and GPU physical
 backing remain separate; this does not emulate XMemTransferMemory.
 
