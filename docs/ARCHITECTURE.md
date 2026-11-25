@@ -22,12 +22,15 @@ console code, keys or proprietary binary libraries belong in this repository.
   import slots bound, all **489/489** nested Windows import slots bound, all
   **315/315** title-local DLL import slots linked across **7** mapped DLLs.
   **41** total console-specific import *references* were discovered.
-  The original experimental XMem bridge links **12** references (including
+  The original experimental XMem bridge now links **13** references (including
   independently analysed `XMemVirtualQuery` and `XMemMapPhysicalPagesScatter`
   caller ABIs); a desktop D3D12 root-signature serialization bridge links **2**
   more; an original partial Xbox Device11 host COM factory links **1**
   additional reference; the original partial GPU VM configuration bridge
-  links **1** more, leaving **25** Xbox import references unresolved.
+  links **1** more, leaving **24** Xbox import references unresolved.
+  The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
+  returns FALSE when no Xbox developer/tools partition exists; this
+  reduces missing import addresses but does not supply console memory services.
   Xbox GPU page tables, tile mappings, coherency and creation flags remain
   unsupported. Import linking is not proof of runtime correctness. The mapper applies final memory protection
   to **60** sections, registered **304274** x64 unwind function entries,

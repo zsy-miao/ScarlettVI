@@ -36,17 +36,19 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `AcpHal.dll` | 9 | Audio processing, heap and shape contexts |
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
-| `xmem.dll` | 3 | Working sets, tools memory, memory-budget transfer (caller patterns analysed; Xbox ABI still unresolved) |
+| `xmem.dll` | 2 | Working-set statistics and memory-budget transfer (Xbox ABI remains unresolved) |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **25** | |
+| **Total** | **24** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
 - **315/315** title-local DLL import references across 7 local DLL images
-- **12** experimental Xbox XMem reference bindings, including independently
+- **13** experimental Xbox XMem reference bindings, including independently
   analysed `XMemVirtualQuery` in `XboxBvhBuilder.dll` and the main title's
-  `XMemMapPhysicalPagesScatter` caller pattern
+  `XMemMapPhysicalPagesScatter` caller pattern, plus the host-only
+  [`XMemIsToolsMemAvailable` FALSE capability policy](XMEM_TOOLS_CAPABILITY.md)
+  (it does **not** provide an Xbox tools-memory partition)
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
 - **1** experimental `D3D12XboxCreateDevice` import linked to a verified
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
@@ -61,7 +63,7 @@ component lifetime, graphics semantics or startup success.
 
 ## Mandatory runtime milestones beyond imports
 
-Even if all 25 outstanding references gain function addresses, startup
+Even if all 24 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

@@ -158,6 +158,12 @@ extern "C" void* WINAPI XMemAlloc(size_t size, uint64_t attrs) {
 extern "C" void* WINAPI XMemAllocDefault(size_t size, uint64_t attrs) {
     return Registry::get().alloc(size, attrs);
 }
+// No Xbox tools-memory partition or console device exists in ScarlettVI's
+// desktop host. FALSE is an actual capability answer (not an assumed
+// success result), and this query leaves Win32 thread error state intact.
+extern "C" BOOL WINAPI XMemIsToolsMemAvailable(void) {
+    return FALSE;
+}
 extern "C" void WINAPI XMemFree(void* ptr, uint64_t attrs) {
     Registry::get().free(ptr, attrs);
 }
@@ -199,6 +205,8 @@ extern "C" BOOL WINAPI XMemMapPhysicalPagesScatter(void* const* addresses,
 FARPROC find_export(std::string_view symbol) noexcept {
     if (symbol == "XMemAlloc") return reinterpret_cast<FARPROC>(&XMemAlloc);
     if (symbol == "XMemAllocDefault") return reinterpret_cast<FARPROC>(&XMemAllocDefault);
+    if (symbol == "XMemIsToolsMemAvailable")
+        return reinterpret_cast<FARPROC>(&XMemIsToolsMemAvailable);
     if (symbol == "XMemFree") return reinterpret_cast<FARPROC>(&XMemFree);
     if (symbol == "XMemFreeDefault") return reinterpret_cast<FARPROC>(&XMemFreeDefault);
     if (symbol == "XMemVirtualAlloc") return reinterpret_cast<FARPROC>(&XMemVirtualAlloc);

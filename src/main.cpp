@@ -121,6 +121,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-vcall-regs-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-followups-fixture\n"
                << L"  ScarlettVI.exe xg-vcall-reads-fixture\n"
+               << L"  ScarlettVI.exe xmem-tools-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -152,6 +153,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xmem-tools-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::xmem::verify_xmem_tools_capability_fixture();
+            std::cout << "ScarlettVI | host-only XMem tools-partition "
+                      << "capability fixture: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nDesktop policy returns FALSE; no Xbox tools "
+                      << "partition is provided or title code executed.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-vcall-reads-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

@@ -11,6 +11,10 @@ namespace scarlett::xmem {
 extern "C" {
 void* WINAPI XMemAlloc(size_t size, uint64_t attributes);
 void* WINAPI XMemAllocDefault(size_t size, uint64_t attributes);
+// Desktop-only capability policy: ScarlettVI does not expose an Xbox tools
+// memory partition. Report FALSE; do not allocate/move memory as a side
+// effect. This is not a verified Xbox developer-kit memory-service model.
+BOOL WINAPI XMemIsToolsMemAvailable(void);
 void WINAPI XMemFree(void* ptr, uint64_t attributes);
 void WINAPI XMemFreeDefault(void* ptr, uint64_t attributes);
 void* WINAPI XMemVirtualAlloc(void* address, size_t bytes,
@@ -30,4 +34,6 @@ BOOL WINAPI XMemMapPhysicalPagesScatter(void* const* addresses,
 BOOL WINAPI VirtualFreeBridge(void* base, size_t size, DWORD flags);
 }
 FARPROC find_export(std::string_view name) noexcept;
+// Generated host-only fixture, never calls or loads any title executable.
+bool verify_xmem_tools_capability_fixture() noexcept;
 } // namespace scarlett::xmem
