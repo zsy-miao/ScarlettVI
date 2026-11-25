@@ -29,7 +29,7 @@ console code, keys or proprietary binary libraries belong in this repository.
   additional reference; the original partial GPU VM configuration bridge
   links **1** more, and the original [host APU allocation bridge](APU_HOST_MEMORY.md)
   links the host `ApuCreateHeap`/`ApuAlloc`/`ApuFree` subset, leaving
-  **20** Xbox import references unresolved.
+  **17** Xbox import references unresolved.
   The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
   returns FALSE when no Xbox developer/tools partition exists; this
   reduces missing import addresses but does not supply console memory services.
@@ -37,7 +37,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   refuses unsupported Xbox budget queries without writing an assumed
   output structure. The APU bridge implements a bounded CPU allocation
   budget and real host allocations, but no console device-address mapping,
-  APU hardware memory or DSP processing; import linkage is not
+  APU hardware memory or DSP processing. The [owned 32-bit APU
+  address mapping](APU_ADDRESS_TRANSLATION.md) now reversibly maps
+  ScarlettVI-owned CPU allocations only; other title memory stays unsupported.
+  Import linkage is not
   a gameplay-ready audio service. Public emulator comparisons and remaining real runtime
   gates are documented in [research](PUBLIC_COMPATIBILITY_RESEARCH.md).
   Xbox GPU page tables, tile mappings, coherency and creation flags remain

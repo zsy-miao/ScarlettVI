@@ -10,7 +10,7 @@
 
 namespace scarlett::audio {
 namespace {
-using AllocFn = HRESULT (WINAPI*)(void**, void*, uint32_t, uint32_t, uint32_t) noexcept;
+using AllocFn = HRESULT (WINAPI*)(void**, uint32_t*, uint32_t, uint32_t, uint32_t) noexcept;
 using HeapFn = HRESULT (WINAPI*)(uint32_t, uint32_t) noexcept;
 static_assert(std::is_same_v<decltype(&ApuCreateHeap), HeapFn>);
 using FreeFn = void (WINAPI*)(void*) noexcept;
@@ -54,7 +54,8 @@ bool verify_host_apu_allocation_fixtures() noexcept {
             free_export != reinterpret_cast<FARPROC>(&ApuFree) ||
             heap_export != reinterpret_cast<FARPROC>(&ApuCreateHeap) ||
             find_acphal_export("AcpHalCreate") ||
-            find_acphal_export("ApuMapVirtualAddress") ||
+            find_acphal_export("ApuMapVirtualAddress") !=
+                reinterpret_cast<FARPROC>(&ApuMapVirtualAddress) ||
             find_acphal_export("apualloc") ||
             find_acphal_export(""))
             return false;
@@ -82,9 +83,18 @@ bool verify_host_apu_allocation_fixtures() noexcept {
                 out)
                 return false;
         }
-        void* unsupported = reinterpret_cast<void*>(uintptr_t{0x1234});
-        if (alloc(&unsupported, reinterpret_cast<void*>(uintptr_t{1}),
-                  64u, 2048u, 0) != E_NOTIMPL || unsupported)
+        // ApuAlloc's optional APU-address output gets a real mapped
+        // 32-bit address, not a truncated Windows pointer.
+        void* cpu = nullptr;
+        uint32_t apu = 0xffffffffu;
+        if (alloc(&cpu, &apu, 64u, 2048u, 0) != S_OK ||
+            !cpu || !apu ||
+            ApuMapVirtualAddress(cpu) != apu ||
+            ApuMapApuAddress(apu) != cpu ||
+            ApuIsVirtualAddressValid(cpu, 64u) != TRUE)
+            return false;
+        release(cpu);
+        if (ApuMapApuAddress(apu))
             return false;
 
         for (auto [bytes, alignment] : std::array<std::pair<uint32_t,uint32_t>, 8>{{

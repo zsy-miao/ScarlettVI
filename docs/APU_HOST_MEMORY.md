@@ -54,4 +54,4 @@ The host fixture tests signature and exact-name binding, eight sizes/alignments,
 
 The 20 unresolved references consist of `AcpHal.dll` 6, `chad.dll` 5, `xapu.dll` 5, `xg_xs.dll` 2, `XCRDAPI.dll` 1, `xmem.dll` 1.
 
-**Next genuine engineering priority:** implement/test 32-bit guest APU device-address translation and actual APU/DSP command/result queues, with independently checked calling contracts. Binding the import is not proof that the game's audio startup will work.
+**Subsequent milestone:** The [owned 32-bit APU address translator](APU_ADDRESS_TRANSLATION.md) now resolves three more named AcpHal functions for allocations ScarlettVI actually owns, reducing current missing Xbox references to **17**. The above before/after table records the earlier heap milestone. Arbitrary guest/XMem APU addresses and audio/DSP command queues remain unimplemented. Binding the imports is not proof that the game's audio startup will work.

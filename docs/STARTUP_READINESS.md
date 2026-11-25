@@ -33,13 +33,13 @@ real game binaries, shader assets, extracted archive contents or title data.
 
 | Dependency | Unresolved import references | Workstream |
 | --- | ---: | --- |
-| `AcpHal.dll` | 6 | APU device-address translation, HAL/SHAPE contexts; `ApuCreateHeap`/`ApuAlloc`/`ApuFree` host subset linked |
+| `AcpHal.dll` | 3 | AcpHalCreate and two SHAPE-context functions; six host APU memory/owned-address functions now linked |
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
 | `xmem.dll` | 1 | `XMemTransferMemory` memory-budget transfer semantics remain unknown |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **20** | |
+| **Total** | **17** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -55,10 +55,11 @@ Measured working address bindings:
   reports `XMem=14 (error-only=1)` and the JSON summary includes
   `experimental_xmem_error_only_bound` so failure-only bindings are not
   confused with functioning console services.
-- **3** [host APU heap-budget / allocation / free bindings](APU_HOST_MEMORY.md)
-  with real aligned Windows CPU storage, per-process enforced budget accounting
-  and strict pointer ownership. No console APU addressing, physical DSP RAM,
-  SHAPE processing or command/result queues are implemented
+- **6** experimental [host APU heap/memory bindings](APU_HOST_MEMORY.md),
+  including the [reversible owned 32-bit APU address translator](APU_ADDRESS_TRANSLATION.md).
+  Real aligned CPU allocations and quotas are tested; arbitrary game memory,
+  console physical APU RAM, SHAPE processing and audio command/result queues
+  remain unsupported
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
 - **1** experimental `D3D12XboxCreateDevice` import linked to a verified
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
@@ -76,7 +77,7 @@ component lifetime, graphics semantics or startup success.
 
 ## Mandatory runtime milestones beyond imports
 
-Even if all 20 outstanding references gain function addresses, startup
+Even if all 17 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

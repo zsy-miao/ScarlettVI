@@ -6,7 +6,7 @@
 
 **A custom, C++20 native Xbox Series X|S compatibility layer for Windows.**
 
-[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
+[Architecture](docs/ARCHITECTURE.md) · [Startup Readiness](docs/STARTUP_READINESS.md) · [GPU](docs/GPU_BACKEND.md) · [Device11 Bridge](docs/XBOX_DEVICE11.md) · [Sparse GPU VM](docs/GPU_VIRTUAL_MEMORY.md) · [Real GPU Tiles](docs/GPU_TILES.md) · [Batched GPU Tiles](docs/GPU_TILE_BATCH.md) · [Pinned GPU Batch Registration](docs/GPU_PAGE_BATCH_REGISTRATION.md) · [Scattered GPU Page Planner](docs/GPU_PAGE_SCATTERED.md) · [XG Texture Research](docs/XG_TEXTURE_LAYOUT.md) · [XG Descriptor Evidence](docs/XG_DESCRIPTOR_EVIDENCE.md) · [XG Field Fixture](docs/XG_FIELD_PROJECTION.md) · [XG Indirect-Call Survey](docs/XG_VCALL_SURVEY.md) · [XG Dispatch Arguments](docs/XG_DISPATCH_ARGUMENTS.md) · [XG Stack Writes](docs/XG_DISPATCH_STACK_SLOTS.md) · [XG Register Timeline](docs/XG_REGISTER_TIMELINE.md) · [XG Dispatch Successors](docs/XG_DISPATCH_SUCCESSORS.md) · [XG Indexed Stack Reads](docs/XG_POSTCALL_INDEXED_READS.md) · [XMem Tools Capability](docs/XMEM_TOOLS_CAPABILITY.md) · [XMem Stats Safety](docs/XMEM_WORKING_SET_FAILURE.md) · [Compatibility Research](docs/PUBLIC_COMPATIBILITY_RESEARCH.md) · [APU Host Memory](docs/APU_HOST_MEMORY.md) · [APU Address Translation](docs/APU_ADDRESS_TRANSLATION.md) · [CPU/GPU XMem Staging](docs/XMEM_GPU_STAGING.md) · [GPU Page Stager API](docs/GPU_PAGE_STAGER.md) · [Pinned GPU Frame Registry](docs/GUEST_GPU_PAGE_REGISTRY.md) · [Fence-Safe Cleanup](docs/GPU_FENCE_RECOVERY.md) · [GPU Memory](docs/GPU_ADDRESS_BRIDGE.md) · [Memory](docs/MEMORY_BACKEND.md) · [Scatter Mapping](docs/XMEM_SCATTER.md) · [Assets](docs/ASSET_FORMATS.md) · [Source](src)
 
 </div>
 
@@ -65,7 +65,7 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **20 Xbox-specific import references remain unresolved.**
+title-local exports. **17 Xbox-specific import references remain unresolved.**
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 
@@ -86,7 +86,10 @@ An [original APU host memory bridge](docs/APU_HOST_MEMORY.md) now binds
 aligned host allocations, configurable and enforced host budgets, and
 pointer ownership checks. The title's five-argument ApuAlloc form is
 supported only for a null optional APU-address output and flags zero.
-This does not implement Xbox device addresses or DSP sound processing.
+The [owned 32-bit APU address bridge](docs/APU_ADDRESS_TRANSLATION.md)
+now translates host CPU pointers and APU addresses for allocations ScarlettVI
+actually owns, including optional 32-bit ApuAlloc output and full-span checks.
+It does not map unrelated game memory or implement Xbox DSP sound processing.
 The original `XMemMapPhysicalPagesScatter` bridge now supports validated
 **non-contiguous 64 KiB page mappings across multiple reserved regions**, with
 real aliases and safe unmapping (see [call-site research](docs/XMEM_SCATTER.md)).
