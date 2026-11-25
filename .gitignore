@@ -12,6 +12,9 @@ Release/
 *.user
 *.VC.db
 *.VC.VC.opendb
+# Independent GPL runtime checkouts, their builds, shader caches, and saves
+# must never be committed as part of native ScarlettVI.
+.external-compat/
 # Diagnostic output stays local by default
 reports/
 crashes/
