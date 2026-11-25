@@ -106,7 +106,7 @@ void print_startup_readiness(const StartupReadiness& report, std::ostream& outpu
            << report.title_imports_total << " across " << report.local_dlls << " DLLs\n"
            << "Experimental Xbox links: XMem=" << report.xbox_experimental_memory_bindings
            << " (error-only=" << report.xbox_xmem_error_only_bindings << ")"
-           << ", APU host alloc/free=" << report.xbox_apu_host_alloc_bindings
+           << ", APU host memory=" << report.xbox_apu_host_alloc_bindings
            << ", D3D12 serializer=" << report.xbox_experimental_d3d12_bindings
            << ", host Device11 factory=" << report.xbox_experimental_device11_bindings
            << ", sparse GPU VA policy=" << report.xbox_experimental_gpu_va_config_bindings

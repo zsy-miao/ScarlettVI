@@ -33,13 +33,13 @@ real game binaries, shader assets, extracted archive contents or title data.
 
 | Dependency | Unresolved import references | Workstream |
 | --- | ---: | --- |
-| `AcpHal.dll` | 7 | Audio processing, heap and SHAPE contexts; `ApuAlloc`/`ApuFree` host-only subset linked |
+| `AcpHal.dll` | 6 | APU device-address translation, HAL/SHAPE contexts; `ApuCreateHeap`/`ApuAlloc`/`ApuFree` host subset linked |
 | `chad.dll` | 5 | DSP connection, activation and command dispatch |
 | `xapu.dll` | 5 | APU command/results and connection lifecycle |
 | `xmem.dll` | 1 | `XMemTransferMemory` memory-budget transfer semantics remain unknown |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI (host layouts tested separately) |
 | `XCRDAPI.dll` | 1 | Xbox DirectStorage factory |
-| **Total** | **21** | |
+| **Total** | **20** | |
 
 Measured working address bindings:
 - **830/830** Windows import references across the game EXE and local DLLs
@@ -55,10 +55,10 @@ Measured working address bindings:
   reports `XMem=14 (error-only=1)` and the JSON summary includes
   `experimental_xmem_error_only_bound` so failure-only bindings are not
   confused with functioning console services.
-- **2** [host APU allocation/free bindings](APU_HOST_MEMORY.md) for real
-  aligned Windows CPU storage with strict ownership and conservative limits.
-  Console APU addressing, physical DSP memory, `ApuCreateHeap`, SHAPE and
-  command/result queues are still **unimplemented**
+- **3** [host APU heap-budget / allocation / free bindings](APU_HOST_MEMORY.md)
+  with real aligned Windows CPU storage, per-process enforced budget accounting
+  and strict pointer ownership. No console APU addressing, physical DSP RAM,
+  SHAPE processing or command/result queues are implemented
 - **2** Xbox D3D12 root-signature serialization references bridged to desktop
 - **1** experimental `D3D12XboxCreateDevice` import linked to a verified
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
@@ -76,7 +76,7 @@ component lifetime, graphics semantics or startup success.
 
 ## Mandatory runtime milestones beyond imports
 
-Even if all 21 outstanding references gain function addresses, startup
+Even if all 20 outstanding references gain function addresses, startup
 remains blocked until:
 
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation

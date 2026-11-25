@@ -15,15 +15,41 @@ public:
         return state;
     }
 
-    HRESULT allocate(void** output, void* heap, uint32_t bytes,
-                     uint32_t alignment) noexcept {
+    HRESULT configure_heap(uint32_t cached, uint32_t noncached) noexcept {
+        if (cached == 0 && noncached == 0)
+            return E_INVALIDARG;
+        try {
+            const std::lock_guard lock(mutex_);
+            if (heap_configured_ && cached == cached_budget_ &&
+                noncached == noncached_budget_)
+                return S_OK;
+            // Never change a live allocation's accounting domain.
+            if (live_bytes_ != 0)
+                return HRESULT_FROM_WIN32(ERROR_BUSY);
+            cached_budget_ = cached;
+            noncached_budget_ = noncached;
+            heap_configured_ = true;
+            // Reservations are *accounting* only: no Xbox hardware memory
+            // is committed. Preserve an independent hard host cap.
+            const uint64_t sum = uint64_t{cached} + noncached;
+            allocation_ceiling_ =
+                std::min<uint64_t>(sum, kHostApuMaxResidentBytes);
+            return S_OK;
+        } catch (...) {
+            return E_OUTOFMEMORY;
+        }
+    }
+
+    HRESULT allocate(void** output, void* device_address_output,
+                     uint32_t bytes, uint32_t alignment,
+                     uint32_t flags) noexcept {
         if (!output)
             return E_POINTER;
         *output = nullptr;
 
-        // No xbox APU heap has been implemented. A non-null heap must not
-        // be mistaken for the default host allocation domain.
-        if (heap)
+        // A requested 32-bit APU device-address output and unknown flags
+        // have no verified host equivalent. Never hand out a fake address.
+        if (device_address_output || flags != 0)
             return E_NOTIMPL;
         if (bytes == 0 || bytes > kHostApuMaxSingleAllocation ||
             alignment < 4u || alignment > 65536u ||
@@ -36,7 +62,8 @@ public:
 
         try {
             const std::lock_guard lock(mutex_);
-            if (live_bytes_ > kHostApuMaxResidentBytes - bytes)
+            if (bytes > allocation_ceiling_ ||
+                live_bytes_ > allocation_ceiling_ - bytes)
                 return E_OUTOFMEMORY;
 
             void* memory = _aligned_malloc(bytes, host_alignment);
@@ -86,7 +113,8 @@ public:
 
     HostApuAllocationStats stats() noexcept {
         const std::lock_guard lock(mutex_);
-        return {live_bytes_, allocations_.size()};
+        return {live_bytes_, allocations_.size(), allocation_ceiling_,
+                cached_budget_, noncached_budget_, heap_configured_};
     }
 
     ~HostApuAllocator() {
@@ -99,14 +127,25 @@ private:
     std::mutex mutex_;
     std::unordered_map<void*, uint32_t> allocations_;
     uint64_t live_bytes_ = 0;
+    uint64_t allocation_ceiling_ = kHostApuMaxResidentBytes;
+    uint32_t cached_budget_ = 0;
+    uint32_t noncached_budget_ = 0;
+    bool heap_configured_ = false;
 };
 } // namespace
 
-extern "C" HRESULT WINAPI ApuAlloc(void** output, void* heap,
-                                    uint32_t bytes,
-                                    uint32_t alignment) noexcept {
+extern "C" HRESULT WINAPI ApuCreateHeap(
+    uint32_t cached_bytes, uint32_t noncached_bytes) noexcept {
+    return HostApuAllocator::instance().configure_heap(
+        cached_bytes, noncached_bytes);
+}
+
+extern "C" HRESULT WINAPI ApuAlloc(void** output,
+                                    void* device_address_output,
+                                    uint32_t bytes, uint32_t alignment,
+                                    uint32_t flags) noexcept {
     return HostApuAllocator::instance().allocate(
-        output, heap, bytes, alignment);
+        output, device_address_output, bytes, alignment, flags);
 }
 
 extern "C" void WINAPI ApuFree(void* memory) noexcept {
@@ -114,6 +153,8 @@ extern "C" void WINAPI ApuFree(void* memory) noexcept {
 }
 
 FARPROC find_acphal_export(std::string_view name) noexcept {
+    if (name == "ApuCreateHeap")
+        return reinterpret_cast<FARPROC>(&ApuCreateHeap);
     if (name == "ApuAlloc")
         return reinterpret_cast<FARPROC>(&ApuAlloc);
     if (name == "ApuFree")

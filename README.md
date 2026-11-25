@@ -65,7 +65,7 @@ The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial
 TLS and x64 unwind registration. On the current target, it binds 341/341
 executable Windows imports, 489/489 nested Windows imports and 315/315
-title-local exports. **21 Xbox-specific import references remain unresolved.**
+title-local exports. **20 Xbox-specific import references remain unresolved.**
 The new `readiness` mode reports every missing symbol, owning module, IAT
 address and remaining process-initialization milestone. Execution is blocked.
 
@@ -81,10 +81,12 @@ A [safe working-set query failure path](docs/XMEM_WORKING_SET_FAILURE.md)
 resolves another named import but refuses to write a guessed Xbox memory
 statistics structure. The remaining [research plan](docs/PUBLIC_COMPATIBILITY_RESEARCH.md)
 compares public projects without copying code or claiming verified GTA VI startup.
-An [original APU memory bridge](docs/APU_HOST_MEMORY.md) now binds the
-independently supported `AcpHal.dll` `ApuAlloc`/`ApuFree` pair with real
-aligned host storage, bounded quota and ownership tracking. It does not
-implement Xbox hardware APU addresses or DSP sound processing.
+An [original APU host memory bridge](docs/APU_HOST_MEMORY.md) now binds
+`AcpHal.dll` `ApuCreateHeap`, `ApuAlloc` and `ApuFree` with real
+aligned host allocations, configurable and enforced host budgets, and
+pointer ownership checks. The title's five-argument ApuAlloc form is
+supported only for a null optional APU-address output and flags zero.
+This does not implement Xbox device addresses or DSP sound processing.
 The original `XMemMapPhysicalPagesScatter` bridge now supports validated
 **non-contiguous 64 KiB page mappings across multiple reserved regions**, with
 real aliases and safe unmapping (see [call-site research](docs/XMEM_SCATTER.md)).

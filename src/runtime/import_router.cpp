@@ -144,9 +144,11 @@ BindingResult ImportRouter::bind_windows(const PeFile& pe, MappedImage& image,
                 }
             } else if (route == ImportRoute::XboxHle &&
                        lower(imported.name) == "acphal.dll") {
-                // Bind only two independently supported allocation APIs.
-                // These use real, owned CPU memory for a null APU heap;
-                // Xbox hardware heaps, mappings, SHAPE and audio processing
+                // Bind only the three independently supported host memory APIs.
+                // ApuAlloc uses real, owned CPU memory only when its optional
+                // device-address output is null and flags are zero. Budget
+                // setup is real host accounting, not hardware APU memory;
+                // address mappings, SHAPE and audio processing
                 // are not available and MUST remain pending.
                 for (const auto& symbol : imported.symbols) {
                     FARPROC address = symbol.by_ordinal
