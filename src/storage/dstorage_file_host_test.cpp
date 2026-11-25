@@ -1,4 +1,5 @@
 #include "dstorage_file_host.h"
+#include "../runtime/physical_memory.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -47,6 +48,44 @@ struct FixtureRoot {
 };
 using OpenFileFn = HRESULT (STDMETHODCALLTYPE*)(
     HostDStorageFactoryX2*, const wchar_t*, REFIID, void**) noexcept;
+
+// Native literals are admitted to the COM bridge only by an explicit
+// host-test permit. This wrapper is NOT a title API and passes a trusted
+// snapshot, not permission to dereference the raw pointer.
+HRESULT fixture_open(HostDStorageFactoryX2* factory,
+                     const wchar_t* source, REFIID iid, void** out) {
+    if (source) {
+        const HRESULT approved = register_host_dstorage_fixture_path(
+            source, std::wstring(source));
+        if (FAILED(approved)) return approved;
+    }
+    const HRESULT result = factory->OpenFile(source, iid, out);
+    clear_host_dstorage_fixture_path();
+    return result;
+}
+struct TwoMappedPathPages {
+    uintptr_t frames[2]{};
+    uint8_t* alias = nullptr;
+    bool allocated = false;
+    bool create() noexcept {
+        auto& memory = memory::PhysicalMemory::instance();
+        uintptr_t count = 2;
+        if (!memory.allocate_pages(MEM_64K_PAGES, &count, frames) ||
+            count != 2) return false;
+        allocated = true;
+        alias = static_cast<uint8_t*>(memory.reserve_alias_region(
+            nullptr, 2 * memory.page_bytes));
+        return alias && memory.map_pages(alias, 2, frames) == alias;
+    }
+    ~TwoMappedPathPages() {
+        auto& memory = memory::PhysicalMemory::instance();
+        if (alias) {
+            (void)memory.map_pages(alias, 2, nullptr);
+            (void)memory.release_alias_region(alias);
+        }
+        if (allocated) (void)memory.free_pages(2, frames);
+    }
+};
 } // namespace
 
 bool verify_dstorage_file_fixture() noexcept {
@@ -62,7 +101,7 @@ bool verify_dstorage_file_fixture() noexcept {
         // The file service must remain disabled until a trusted test root
         // is explicitly configured, and must clear its out pointer.
         void* out = reinterpret_cast<void*>(uintptr_t{0x1234});
-        if (factory.p->OpenFile(L"generated.bin",
+        if (fixture_open(factory.p, L"generated.bin",
                 kObservedXboxDStorageFileIid, &out) != E_NOTIMPL ||
             out != nullptr) return false;
 
@@ -99,13 +138,13 @@ bool verify_dstorage_file_fixture() noexcept {
         if (configure_dstorage_file_fixture_root(cleanup.dir) != S_OK ||
             configure_dstorage_file_fixture_root(cleanup.dir) !=
                 HRESULT_FROM_WIN32(ERROR_BUSY)) return false;
-        if (factory.p->OpenFile(L"generated.bin",
+        if (fixture_open(factory.p, L"generated.bin",
                 kObservedXboxDStorageFileIid, nullptr) != E_POINTER)
             return false;
 
         const GUID invalid{0x4e934ab6,0x67ac,0x1234,{1,2,3,4,5,6,7,8}};
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
-        if (factory.p->OpenFile(L"generated.bin", invalid, &out) !=
+        if (fixture_open(factory.p, L"generated.bin", invalid, &out) !=
                 E_NOINTERFACE || out) return false;
         constexpr std::array<const wchar_t*, 25> bad{
             L"", L".", L"..", L"..\\generated.bin", L"../generated.bin",
@@ -119,11 +158,11 @@ bool verify_dstorage_file_fixture() noexcept {
             L"packs\\level1\\name:stream", L"packs\\level1\\foo bar"};
         for (const wchar_t* path : bad) {
             out = reinterpret_cast<void*>(uintptr_t{0x1234});
-            if (factory.p->OpenFile(path, kObservedXboxDStorageFileIid,
+            if (fixture_open(factory.p, path, kObservedXboxDStorageFileIid,
                     &out) != E_INVALIDARG || out) return false;
         }
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
-        if (factory.p->OpenFile(L"absent.bin",
+        if (fixture_open(factory.p, L"absent.bin",
                 kObservedXboxDStorageFileIid, &out) !=
                 HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) || out) return false;
 
@@ -133,7 +172,7 @@ bool verify_dstorage_file_fixture() noexcept {
              {L"packs\\level1\\sample.bin", L"packs/level1/sample.bin",
               L"packs\\level1/sample.bin"}) {
             FileOwner nested{};
-            if (factory.p->OpenFile(
+            if (fixture_open(factory.p,
                     guest_path, kObservedXboxDStorageFileIid,
                     reinterpret_cast<void**>(&nested.p)) != S_OK ||
                 !nested.p) return false;
@@ -150,15 +189,133 @@ bool verify_dstorage_file_fixture() noexcept {
         }
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
         const std::wstring too_deep = L"a\\b\\c\\d\\e\\f\\g\\h\\i.bin";
-        if (factory.p->OpenFile(too_deep.c_str(),
+        if (fixture_open(factory.p, too_deep.c_str(),
                 kObservedXboxDStorageFileIid, &out) != E_INVALIDARG ||
             out) return false;
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
         const std::wstring too_long(241, L'a');
-        if (factory.p->OpenFile(too_long.c_str(),
+        if (fixture_open(factory.p, too_long.c_str(),
                 kObservedXboxDStorageFileIid, &out) != E_INVALIDARG ||
             out) return false;
 
+        // A normal COM OpenFile call may now accept a path stored entirely
+        // inside XMem CPU aliases, with no special host registration.
+        // Position it 12 bytes before a 64KiB boundary: both pages are
+        // required even though the final text is only a few dozen chars.
+        const size_t old_guest_pages =
+            memory::PhysicalMemory::instance().allocated_page_count();
+        const size_t old_guest_pins =
+            memory::PhysicalMemory::instance().pinned_alias_count();
+        {
+            auto& mem = memory::PhysicalMemory::instance();
+            TwoMappedPathPages owned_pages;
+            if (!owned_pages.create()) return false;
+            auto* const guest_path = reinterpret_cast<wchar_t*>(
+                owned_pages.alias + mem.page_bytes - 12);
+            const std::wstring nested_name = L"packs\\level1\\sample.bin";
+            std::memcpy(guest_path, nested_name.c_str(),
+                        (nested_name.size() + 1) * sizeof(wchar_t));
+            std::wstring copied = L"original";
+            if (!mem.snapshot_mapped_alias_utf16(
+                    guest_path, 240, copied) || copied != nested_name)
+                return false;
+            FileOwner guest_file{};
+            if (factory.p->OpenFile(
+                    guest_path, kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&guest_file.p)) != S_OK ||
+                !guest_file.p) return false;
+
+            // The file object owns its independent handle; the request
+            // path itself may be immediately reused or unmapped.
+            std::memset(guest_path, 0, (nested_name.size()+1)*sizeof(wchar_t));
+            HANDLE borrowed = guest_file.p->GetHandle();
+            if (borrowed == INVALID_HANDLE_VALUE) return false;
+            std::vector<uint8_t> readback(expected.size());
+            DWORD read_bytes = 0;
+            const bool accurate = ReadFile(
+                borrowed, readback.data(),
+                static_cast<DWORD>(readback.size()),
+                &read_bytes, nullptr) &&
+                read_bytes == readback.size() && readback == expected;
+            CloseHandle(borrowed);
+            guest_file.p->Release();
+            guest_file.p = nullptr;
+            if (!accurate) return false;
+
+            // Unregistered native/invalid pointers are never inspected.
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (factory.p->OpenFile(
+                    reinterpret_cast<const wchar_t*>(uintptr_t{0x1234}),
+                    kObservedXboxDStorageFileIid, &out) != E_INVALIDARG ||
+                out) return false;
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (factory.p->OpenFile(
+                    L"generated.bin", kObservedXboxDStorageFileIid,
+                    &out) != E_INVALIDARG || out) return false;
+
+            // One-shot host fixture permits are bound to exact pointer
+            // identity and are consumed after one COM OpenFile call.
+            constexpr const wchar_t* kNativeLiteral = L"generated.bin";
+            if (register_host_dstorage_fixture_path(
+                    kNativeLiteral, L"generated.bin") != S_OK ||
+                register_host_dstorage_fixture_path(
+                    kNativeLiteral, L"generated.bin") !=
+                    HRESULT_FROM_WIN32(ERROR_BUSY)) return false;
+            FileOwner only_once{};
+            if (factory.p->OpenFile(
+                    kNativeLiteral, kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&only_once.p)) != S_OK ||
+                !only_once.p) return false;
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (factory.p->OpenFile(
+                    kNativeLiteral, kObservedXboxDStorageFileIid,
+                    &out) != E_INVALIDARG || out) return false;
+            only_once.p->Release();
+            only_once.p = nullptr;
+            // A guest string that crosses into a now-unmapped page must
+            // be rejected before copying. An unsuccessful snapshot must
+            // leave its previous host output untouched.
+            std::memcpy(guest_path, nested_name.c_str(),
+                        (nested_name.size() + 1) * sizeof(wchar_t));
+            uint8_t* const second = owned_pages.alias + mem.page_bytes;
+            if (mem.map_pages(second, 1, nullptr) != second)
+                return false;
+            copied = L"unchanged";
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (mem.snapshot_mapped_alias_utf16(
+                    guest_path, 240, copied) || copied != L"unchanged" ||
+                factory.p->OpenFile(
+                    guest_path, kObservedXboxDStorageFileIid,
+                    &out) != E_INVALIDARG || out ||
+                mem.map_pages(second, 1, &owned_pages.frames[1]) != second)
+                return false;
+
+            // The terminator must occur within 240 UTF-16 units. These
+            // 241 nonzero units are all mapped but must not be accepted.
+            std::fill_n(guest_path, 241, L'x');
+            out = reinterpret_cast<void*>(uintptr_t{0x1234});
+            if (factory.p->OpenFile(
+                    guest_path, kObservedXboxDStorageFileIid,
+                    &out) != E_INVALIDARG || out)
+                return false;
+            // A short NUL-terminated string does not require any page
+            // after its terminator, even if that page is now unmapped.
+            guest_path[0] = L'a';
+            guest_path[1] = 0;
+            if (mem.map_pages(second, 1, nullptr) != second)
+                return false;
+            copied = L"before";
+            if (!mem.snapshot_mapped_alias_utf16(
+                    guest_path, 240, copied) || copied != L"a" ||
+                mem.map_pages(second, 1, &owned_pages.frames[1]) != second)
+                return false;
+        }
+        // All generated guest path regions and their pages were freed.
+        // The fixture does not retain a source pointer after OpenFile.
+        if (memory::PhysicalMemory::instance().allocated_page_count() !=
+                old_guest_pages ||
+            memory::PhysicalMemory::instance().pinned_alias_count() !=
+                old_guest_pins) return false;
         // If Windows allows an unprivileged directory symlink, try
         // traversing it to a generated test file OUTSIDE the mount.
         // The opened file's canonical HANDLE path must reject escape.
@@ -178,7 +335,7 @@ bool verify_dstorage_file_fixture() noexcept {
                 SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
             out = reinterpret_cast<void*>(uintptr_t{0x1234});
             const std::wstring escape = L"link\\" + outside_name;
-            if (factory.p->OpenFile(
+            if (fixture_open(factory.p,
                     escape.c_str(), kObservedXboxDStorageFileIid,
                     &out) != HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED) ||
                 out) return false;
@@ -188,10 +345,16 @@ bool verify_dstorage_file_fixture() noexcept {
         auto** vtable = *reinterpret_cast<void***>(factory.p);
         const auto open_slot = reinterpret_cast<OpenFileFn>(vtable[4]);
         FileOwner owned{};
+        constexpr const wchar_t* kRawHostPath = L"generated.bin";
         if (!open_slot ||
-            open_slot(factory.p, L"generated.bin",
-                      kObservedXboxDStorageFileIid,
-                      reinterpret_cast<void**>(&owned.p)) != S_OK ||
+            register_host_dstorage_fixture_path(
+                kRawHostPath, L"generated.bin") != S_OK)
+            return false;
+        const HRESULT raw_open = open_slot(
+            factory.p, kRawHostPath, kObservedXboxDStorageFileIid,
+            reinterpret_cast<void**>(&owned.p));
+        clear_host_dstorage_fixture_path();
+        if (raw_open != S_OK ||
             !owned.p || live_host_dstorage_files() != 1 ||
             active_host_dstorage_file_leases() != 1)
             return false;
@@ -265,7 +428,7 @@ bool verify_dstorage_file_fixture() noexcept {
             workers.emplace_back([&]{
                 for (unsigned i=0; i<24; ++i) {
                     FileOwner local{};
-                    if (factory.p->OpenFile(L"generated.bin",
+                    if (fixture_open(factory.p, L"generated.bin",
                             kObservedXboxDStorageFileIid,
                             reinterpret_cast<void**>(&local.p)) != S_OK ||
                         !local.p) {
@@ -292,7 +455,7 @@ bool verify_dstorage_file_fixture() noexcept {
             return false;
         clear_dstorage_file_fixture_root();
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
-        if (factory.p->OpenFile(L"generated.bin",
+        if (fixture_open(factory.p, L"generated.bin",
                 kObservedXboxDStorageFileIid, &out) != E_NOTIMPL ||
             out || factory.p->SetStagingBufferSize(32*kMiB) != S_OK)
             return false;

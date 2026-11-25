@@ -519,6 +519,54 @@ bool PhysicalMemory::snapshot_mapped_alias(
     return true;
 }
 
+bool PhysicalMemory::snapshot_mapped_alias_utf16(
+    const wchar_t* guest_source, size_t max_chars,
+    std::wstring& output) const noexcept {
+    static_assert(sizeof(wchar_t) == 2);
+    if (!guest_source || !max_chars || max_chars > 240 ||
+        (reinterpret_cast<uintptr_t>(guest_source) &
+         (alignof(wchar_t) - 1))) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+    }
+    try {
+        std::wstring candidate;
+        candidate.reserve(max_chars);
+        const uintptr_t start = reinterpret_cast<uintptr_t>(guest_source);
+        std::lock_guard lock(mutex_);
+        for (size_t i = 0; i <= max_chars; ++i) {
+            if (i > (std::numeric_limits<uintptr_t>::max() - start) /
+                        sizeof(wchar_t)) {
+                SetLastError(ERROR_ARITHMETIC_OVERFLOW);
+                return false;
+            }
+            const uintptr_t at = start + i * sizeof(wchar_t);
+            MappedAliasSpan verified{};
+            if (!resolve_mapped_alias_span_unlocked(
+                    reinterpret_cast<const void*>(at),
+                    sizeof(wchar_t), verified))
+                return false;
+            wchar_t unit = 0;
+            std::memcpy(&unit, reinterpret_cast<const void*>(at),
+                        sizeof(unit));
+            if (unit == L'\0') {
+                output.swap(candidate);
+                return true;
+            }
+            if (i == max_chars) {
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return false;
+            }
+            candidate.push_back(unit);
+        }
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+    } catch (...) {
+        SetLastError(ERROR_OUTOFMEMORY);
+        return false;
+    }
+}
+
 bool PhysicalMemory::pin_mapped_alias(void* address, uintptr_t physical_frame) {
     if (!address || !physical_frame ||
         (reinterpret_cast<uintptr_t>(address) & (page_bytes - 1)) != 0) {

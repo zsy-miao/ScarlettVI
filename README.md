@@ -103,10 +103,14 @@ barriers. The [read-only DirectStorage file COM adapter](docs/XBOX_DSTORAGE_FILE
 now accepts bounded **nested generated-file paths** through the verified
 `OpenFile +0x20` slot. It checks every component, blocks traversal and
 Windows devices, and validates the opened handle's final resolved path
-against the opt-in fixture root. The queue now verifies real nested-file
-readback through `IDStorageFileX` and `ReOpenFile`, without weakening the
-separate single-leaf direct host queue. Actual title VFS mounts and game
-asset streaming remain unsupported.
+against the opt-in fixture root. **COM path bytes now come from a
+registry-verified, NUL-terminated XMem CPU alias snapshot**, with
+cross-page UTF-16 handling and no arbitrary guest-pointer dereference.
+Generated native C++ tests require an explicit one-shot host-only
+path permit. The queue verifies real nested-file readback through
+`IDStorageFileX` and `ReOpenFile`, without weakening the separate
+single-leaf direct host queue. Actual title VFS mounts and game asset
+streaming remain unsupported.
 
 The native x64 PE mapper now supports recursive DLL dependencies, forwarded
 exports, host import routing, original XMem HLE, section protections, initial

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -43,6 +44,14 @@ public:
                                    MappedAliasSpan& result) const noexcept;
     bool snapshot_mapped_alias(const void* source, size_t bytes,
                                void* host_output) const noexcept;
+    // Copy a NUL-terminated UTF-16 path from owned CPU aliases while
+    // holding the registry mutex. Never reads beyond the terminator,
+    // verifies both pages for straddling code units, and refuses raw
+    // unregistered host/guest pointers. Windows wchar_t is 16 bits.
+    // The output is unchanged on failure, including an absent terminator.
+    bool snapshot_mapped_alias_utf16(
+        const wchar_t* guest_source, size_t max_chars,
+        std::wstring& output) const noexcept;
     size_t pinned_alias_count() const;
     size_t allocated_page_count() const;
 

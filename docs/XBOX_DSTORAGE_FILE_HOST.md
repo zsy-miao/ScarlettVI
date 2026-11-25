@@ -17,9 +17,22 @@ Microsoft's public Xbox GDK documentation describes [OpenFile](https://learn.mic
 
 - **Disabled by default**. In normal readiness/title inspection the factory
   still returns `E_NOTIMPL` for file opens; no console/game filesystem is mounted.
+- **New input boundary:** guest `OpenFile` path pointers must be fully
+  backed by ScarlettVI-owned, mapped XMem CPU alias pages.
+  `PhysicalMemory::snapshot_mapped_alias_utf16` checks each UTF-16 code
+  unit with the mapping mutex held, including strings crossing 64KiB page
+  boundaries, and copies at most 240 code units before the NUL. Missing
+  pages, missing terminators and arbitrary native/guest pointers fail
+  **without dereferencing the source pointer**. The host copy is immutable
+  across later path-memory unmaps or reuse.
+- For original C++ tests using ordinary string literals, a **host-only
+  per-thread, one-shot permit** supplies a trusted immutable path
+  snapshot. `register_host_dstorage_fixture_path` and
+  `clear_host_dstorage_fixture_path` are internal C++ functions, not
+  exported to guest code. No permanent raw-pointer whitelist exists.
 - The `storage-file-fixture` explicitly configures a directory containing only
   generated test data. The trusted root must be an existing, non-reparse directory.
-- A generated relative fixture path can now contain **1–8 ASCII components**
+- A generated relative fixture path can now contain **1 to 8 ASCII components**
   (96 characters per component, 240 total). Both forward and backward
   separators are accepted. Empty/doubled/trailing separators, dot segments,
   absolute/drive/UNC paths, alternate streams, reserved DOS device names
@@ -64,12 +77,20 @@ positions without interpreting Xbox `DSTORAGE_REQUEST` structures.
 The expanded fixture verifies exact reads from generated single-leaf and
 nested `packs/level1/sample.bin` files, including mixed separators,
 traversal, DOS device names, overlong paths, and nine-component paths.
+It now also opens the nested file via the **actual guest-named COM
+`OpenFile` slot using a two-page mapped XMem UTF-16 source path**,
+then safely wipes/reuses the path memory while preserving the independent
+open file. It checks invalid/unregistered host pointers, absent second
+source page, unterminated 241-unit strings, short paths that end before
+an unmapped page, failure output immutability and zero leaked XMem
+frames/pins.
 Where Windows allows test-created directory symbolic links, it also checks
 that a nested link leading outside the root is refused. The original raw
 COM dispatch, IID, independent handles, staging leases, file lifecycle,
 and parallel-open tests continue to pass. The queue fixture opens
-`packs/batch/generated.bin` through file COM and performs real readback
-through queue submit and status markers.
+`packs/batch/generated.bin` using a **cross-page mapped XMem UTF-16 path**
+through the real file COM vtable, releases that input mapping immediately,
+and still performs exact readback through queue Submit and status markers.
 
 **Remaining blockers:** native Xbox VFS mount semantics and asset paths,
 real GPU texture/command behavior, audio streams, full memory translation,

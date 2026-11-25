@@ -250,10 +250,25 @@ bool verify_dstorage_queue_com_fixture() noexcept {
         // DirectStorage FILE COM object rather than a filename lookup.
         // ReOpenFile provides independent file positions across producers.
         HostDStorageFileX* source = nullptr;
-        if (factory.ptr->OpenFile(L"packs/batch/generated.bin",
-                kObservedXboxDStorageFileIid,
-                reinterpret_cast<void**>(&source)) != S_OK ||
-            !source) return false;
+        {
+            // Real guest-owned UTF-16 XMem path, crossing a 64KiB page
+            // boundary, goes through the actual COM OpenFile vtable.
+            // After this scope the guest path mapping no longer exists,
+            // yet the returned owned file COM object remains readable.
+            TripleAliasFixture path_alias;
+            if (!path_alias.create()) return false;
+            const std::wstring nested_path = L"packs/batch/generated.bin";
+            auto* mapped_path = reinterpret_cast<wchar_t*>(
+                path_alias.alias + memory::PhysicalMemory::page_bytes - 10);
+            std::memcpy(mapped_path, nested_path.c_str(),
+                        (nested_path.size() + 1) * sizeof(wchar_t));
+            if (factory.ptr->OpenFile(
+                    mapped_path, kObservedXboxDStorageFileIid,
+                    reinterpret_cast<void**>(&source)) != S_OK ||
+                !source) return false;
+            std::memset(mapped_path, 0,
+                        (nested_path.size() + 1) * sizeof(wchar_t));
+        }
         // Raw guest EnqueueRequest (+0x18) now interprets the public Xbox
         // 64-byte struct ONLY through a host-approved immutable snapshot.
         // This proves true asynchronous destination writeback on generated

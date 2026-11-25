@@ -28,8 +28,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   more; an original partial Xbox Device11 host COM factory links **1**
   additional reference; the original partial GPU VM configuration bridge
   links **1** more, and the original [host APU allocation bridge](APU_HOST_MEMORY.md)
-  links the host `ApuCreateHeap`/`ApuAlloc`/`ApuFree` subset, leaving
-  **8** Xbox import references unresolved.
+  links the host `ApuCreateHeap`/`ApuAlloc`/`ApuFree` subset. Later
+  XAPU, CHAD, XG and storage bridges linked the remaining import
+  **addresses**; the current readiness report has **zero unresolved
+  imports**, but error-only and partial handlers still block execution.
   The [host-only XMem tools-memory capability bridge](XMEM_TOOLS_CAPABILITY.md)
   returns FALSE when no Xbox developer/tools partition exists; this
   reduces missing import addresses but does not supply console memory services.
@@ -82,8 +84,12 @@ console code, keys or proprietary binary libraries belong in this repository.
   host-only FIFO barriers. An explicitly [fixture-rooted read-only file COM
   adapter](XBOX_DSTORAGE_FILE_HOST.md) now opens generated **nested relative**
   fixture paths, checking each component and the final opened file handle
-  for trusted-root containment (including symlink/junction escapes). It
-  duplicates read handles and holds staging leases until final Release;
+  for trusted-root containment (including symlink/junction escapes).
+  Its `OpenFile` input is now snapshotted only from registered XMem
+  CPU aliases, using a bounded per-code-unit UTF-16 copy under the
+  memory mapping mutex; native fixture literals require a separate
+  one-shot host permit. It duplicates read handles and holds staging
+  leases until final Release;
   actual Xbox volumes and title asset paths remain disabled. A [fixture-only queue COM prototype](XBOX_DSTORAGE_QUEUE_COM.md)
   now links the observed `CreateQueue1` IID to the real host worker and
   status-array barriers. It now also reads test-only factory-created file

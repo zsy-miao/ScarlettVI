@@ -1,6 +1,7 @@
 #pragma once
 #include "dstorage_factory_host.h"
 #include <filesystem>
+#include <string>
 
 namespace scarlett::storage {
 
@@ -24,6 +25,13 @@ void clear_dstorage_file_fixture_root() noexcept;
 // Internal snapshot for fixture-only queue construction; not an Xbox API.
 HRESULT snapshot_dstorage_file_fixture_root(
     std::filesystem::path& output) noexcept;
+// Host-only one-shot provenance record for the generated C++ fixtures.
+// Captures a trusted native path by value without exposing the raw pointer
+// to guest code. Ordinary guest COM callers must put UTF-16 bytes in
+// ScarlettVI-owned XMem CPU alias pages; no arbitrary pointer is read.
+HRESULT register_host_dstorage_fixture_path(
+    const wchar_t* pointer_identity, std::wstring trusted_snapshot) noexcept;
+void clear_host_dstorage_fixture_path() noexcept;
 HRESULT open_host_dstorage_file(
     const wchar_t* relative_path, REFIID iid, void** output) noexcept;
 // HOST-ONLY: reopen a ScarlettVI-owned live file object for an independent

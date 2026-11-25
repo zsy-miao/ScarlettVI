@@ -1,4 +1,5 @@
 #include "dstorage_file_host.h"
+#include "../runtime/physical_memory.h"
 #include <atomic>
 #include <cwctype>
 #include <vector>
@@ -12,6 +13,11 @@ namespace scarlett::storage {
 namespace {
 std::mutex root_mutex;
 std::filesystem::path configured_root;
+struct HostFixturePathPermit {
+    const wchar_t* pointer_identity = nullptr;
+    std::wstring snapshot;
+};
+thread_local HostFixturePathPermit pending_host_path;
 std::atomic<uint32_t> live_files{0};
 class HostFile;
 std::mutex file_registry_mutex;
@@ -187,6 +193,26 @@ private:
 };
 } // namespace
 
+HRESULT register_host_dstorage_fixture_path(
+    const wchar_t* pointer_identity,
+    std::wstring trusted_snapshot) noexcept {
+    if (!pointer_identity) return E_INVALIDARG;
+    if (pending_host_path.pointer_identity)
+        return HRESULT_FROM_WIN32(ERROR_BUSY);
+    try {
+        pending_host_path.snapshot = std::move(trusted_snapshot);
+        pending_host_path.pointer_identity = pointer_identity;
+        return S_OK;
+    } catch (...) {
+        return E_OUTOFMEMORY;
+    }
+}
+
+void clear_host_dstorage_fixture_path() noexcept {
+    pending_host_path.pointer_identity = nullptr;
+    pending_host_path.snapshot.clear();
+}
+
 HRESULT configure_dstorage_file_fixture_root(
     const std::filesystem::path& trusted_root) noexcept {
     try {
@@ -250,12 +276,23 @@ HRESULT open_host_dstorage_file(
         if (!IsEqualGUID(iid, kObservedXboxDStorageFileIid))
             return E_NOINTERFACE;
         if (!relative_path) return E_INVALIDARG;
-        const size_t length = wcsnlen_s(relative_path, 241);
-        if (!length || length > 240)
+        std::wstring snapshot;
+        if (pending_host_path.pointer_identity == relative_path) {
+            // Host-generated tests may supply native literals only after
+            // explicitly registering an immutable, thread-local one-shot
+            // snapshot. Never dereference the original pointer.
+            snapshot = std::move(pending_host_path.snapshot);
+            clear_host_dstorage_fixture_path();
+        } else if (!memory::PhysicalMemory::instance()
+                       .snapshot_mapped_alias_utf16(
+                           relative_path, 240, snapshot)) {
+            // Unknown guest and host pointers are never dereferenced.
+            return E_INVALIDARG;
+        }
+        if (snapshot.empty() || snapshot.size() > 240)
             return E_INVALIDARG;
         std::filesystem::path relative;
-        if (!parse_fixture_relative_path(
-                std::wstring(relative_path, length), relative))
+        if (!parse_fixture_relative_path(snapshot, relative))
             return E_INVALIDARG;
         const auto absolute = root / relative;
         HANDLE handle = CreateFileW(
