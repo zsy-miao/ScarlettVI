@@ -1,6 +1,7 @@
 #include "image_mapper.h"
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 
@@ -81,9 +82,11 @@ void MappedImage::prepare_initial_thread_tls() {
     if (tls.EndAddressOfRawData < tls.StartAddressOfRawData)
         throw std::runtime_error("Invalid PE TLS raw data bounds");
     const uint64_t template_size = tls.EndAddressOfRawData - tls.StartAddressOfRawData;
-    const uint64_t total = template_size + tls.SizeOfZeroFill;
-    if (total > 32u * 1024u * 1024u)
+    constexpr uint64_t kMaxTlsBytes = 32u * 1024u * 1024u;
+    if (template_size > kMaxTlsBytes ||
+        tls.SizeOfZeroFill > kMaxTlsBytes - template_size)
         throw std::runtime_error("PE TLS template exceeds supported size");
+    const uint64_t total = template_size + tls.SizeOfZeroFill;
     if (template_size) va_in_image(tls.StartAddressOfRawData, static_cast<size_t>(template_size));
 
     size_t callbacks = 0;
@@ -105,12 +108,55 @@ void MappedImage::prepare_initial_thread_tls() {
         memcpy(tls_template_.data(),
                va_in_image(tls.StartAddressOfRawData, static_cast<size_t>(template_size)),
                static_cast<size_t>(template_size));
-    if (!TlsSetValue(tls_index_, tls_template_.data()))
-        throw std::runtime_error("Cannot install initial mapped PE TLS data");
+    install_current_thread_tls();
     memcpy(index_location, &tls_index_, sizeof(DWORD));
     finalized_result_.tls_slots_prepared = 1;
     finalized_result_.tls_template_bytes = static_cast<size_t>(total);
     finalized_result_.deferred_tls_callbacks = callbacks;
+}
+
+void MappedImage::install_current_thread_tls() {
+    if (tls_index_ == TLS_OUT_OF_INDEXES)
+        throw std::logic_error("Mapped PE TLS has no allocated host slot");
+    const std::lock_guard lock(tls_mutex_);
+    const DWORD tid = GetCurrentThreadId();
+    // Nodes and vector-owned byte storage remain stable until detach,
+    // unlike a shared single TLS-template pointer across all threads.
+    const auto [it, inserted] =
+        tls_threads_.try_emplace(tid, tls_template_);
+    if (!TlsSetValue(tls_index_, it->second.data())) {
+        if (inserted)
+            tls_threads_.erase(it);
+        throw std::runtime_error("Cannot install mapped PE host TLS data");
+    }
+}
+
+bool MappedImage::attach_current_thread_tls() {
+    if (!finalized_)
+        throw std::logic_error("Attach host thread only after PE finalization");
+    if (tls_index_ == TLS_OUT_OF_INDEXES)
+        return true; // image has no static TLS
+    install_current_thread_tls();
+    return true;
+}
+
+bool MappedImage::detach_current_thread_tls() noexcept {
+    if (tls_index_ == TLS_OUT_OF_INDEXES)
+        return true;
+    const std::lock_guard lock(tls_mutex_);
+    const auto it = tls_threads_.find(GetCurrentThreadId());
+    if (it == tls_threads_.end())
+        return TlsSetValue(tls_index_, nullptr) != 0;
+    // Never free a buffer while its host TLS pointer still references it.
+    if (!TlsSetValue(tls_index_, nullptr))
+        return false;
+    tls_threads_.erase(it);
+    return true;
+}
+
+size_t MappedImage::attached_tls_threads() const noexcept {
+    const std::lock_guard lock(tls_mutex_);
+    return tls_threads_.size();
 }
 
 ImageFinalizeReport MappedImage::finalize_image() {

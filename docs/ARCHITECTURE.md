@@ -54,13 +54,19 @@ console code, keys or proprietary binary libraries belong in this repository.
   unsupported. Import linking is not proof of runtime correctness. The mapper applies final memory protection
   to **60** sections, registered **304274** x64 unwind function entries,
   installed **3** current-thread TLS templates (5776 bytes) and identified
-  **2** callbacks (deferred, not executed). Proper other-thread TLS initialization,
-  loader callbacks, Xbox services and GPU translation remain to be implemented.
+  **2** callbacks (deferred, not executed). Managed host-created workers
+  now have independent host TLS template copies; automatic guest thread
+  attach and native compiler TLS in the Windows TEB remain unsupported.
+  Loader callbacks, Xbox services and GPU translation remain to be implemented.
   A [generated PE64 entrypoint fixture](SYNTHETIC_PE_ENTRY.md) now successfully
   runs a tiny original x64 test executable with one real Windows import,
-  six forced DIR64 relocations, static TLS, deferred callback verification
+  six forced DIR64 relocations, host-managed TLS, deferred callback verification
   and protected sections. This validates only a synthetic native entrypoint;
   it does **not** execute the original Xbox title or solve DLL init.
+  The second [generated DLL lifecycle fixture](SYNTHETIC_PE_ENTRY.md)
+  explicitly runs only generated TLS callback and DllMain attach/detach
+  code and verifies private TLS copies across four managed workers. This
+  is not general-purpose game DLL callback dispatch.
   This does not imply that runtime behavior is correct.
 
 ## Native layer roadmap, in dependency order
@@ -71,9 +77,10 @@ console code, keys or proprietary binary libraries belong in this repository.
 2. **ABI import bridge (partly implemented):** precise import-blocker attribution
    and read-only startup-readiness report implemented. Host API-set import patching,
    recursive title-local DLL mapping, export forwarding (independent MSVC fixture
-   verified), x64 unwind registration and partial current-thread TLS, without
-   DLL initialization. Remaining: complete Xbox runtime HLE, TLS callbacks,
-   other-thread TLS, process environment and platform handle semantics.
+   verified), x64 unwind registration and host-managed per-thread TLS buffers,
+   without actual game DLL initialization. Remaining: complete Xbox runtime
+   HLE, automatic game DLL TLS callbacks, guest compiler TLS/TEB semantics,
+   process environment and platform handle semantics.
 3. **Console filesystem and runtime:** the original experimental 64 KiB
    pagefile-backed physical-page manager uses Windows VirtualAlloc2
    placeholders, MapViewOfFile3 and VirtualFree interception for true CPU

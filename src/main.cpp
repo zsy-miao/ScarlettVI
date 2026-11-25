@@ -132,6 +132,7 @@ void usage() {
                << L"  ScarlettVI.exe audio-shape-fixture\n"
                << L"  ScarlettVI.exe audio-hal-fixture\n"
                << L"  ScarlettVI.exe synthetic-entry-fixture\n"
+               << L"  ScarlettVI.exe synthetic-dll-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -163,6 +164,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"synthetic-dll-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::verify_synthetic_dll_lifecycle_fixture();
+            std::cout << "ScarlettVI | generated PE64 DLL lifecycle: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nGenerated TLS callback and DllMain ordering, "
+                      << "private host TLS for managed worker threads. "
+                      << "No original game code executed.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"synthetic-entry-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed = scarlett::verify_synthetic_entry_fixture();

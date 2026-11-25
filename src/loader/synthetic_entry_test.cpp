@@ -4,12 +4,15 @@
 #include "../runtime/import_router.h"
 #include <Windows.h>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 namespace scarlett {
 namespace {
@@ -47,7 +50,7 @@ template<class T> void write_rva(Bytes& bytes, uint32_t rva,
     write(bytes, file_offset(rva), value);
 }
 
-Bytes generate_pe() {
+Bytes generate_pe(bool as_dll = false) {
     Bytes bytes{};
     IMAGE_DOS_HEADER dos{};
     dos.e_magic = IMAGE_DOS_SIGNATURE;
@@ -60,11 +63,12 @@ Bytes generate_pe() {
     nt.FileHeader.NumberOfSections = 3;
     nt.FileHeader.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER64);
     nt.FileHeader.Characteristics =
-        IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE;
+        IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE |
+        (as_dll ? IMAGE_FILE_DLL : 0);
     auto& opt = nt.OptionalHeader;
     opt.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
     opt.ImageBase = kPreferredBase;
-    opt.AddressOfEntryPoint = kTextRva;
+    opt.AddressOfEntryPoint = as_dll ? 0x1080 : kTextRva;
     opt.BaseOfCode = kTextRva;
     opt.SizeOfCode = 0x200;
     opt.SizeOfInitializedData = 0x400;
@@ -128,6 +132,25 @@ Bytes generate_pe() {
     put_bytes(bytes, file_offset(0x1040), callback, sizeof(callback));
     const int32_t callback_disp = static_cast<int32_t>(0x2030 - 0x1046);
     write_rva(bytes, 0x1042, callback_disp);
+
+    // Generated DLL entrypoint with Windows DllMain shape: (HINSTANCE,
+    // DWORD reason, void*), returns TRUE. It copies the TLS callback
+    // counter at +0x2030 into +0x2034 and records EDX reason at +0x2038.
+    // No arbitrary code; every byte is fixed and test-generated.
+    const uint8_t dll_entry[] = {
+        0x8B,0x05,0,0,0,0,  // mov eax,[rip+counter]
+        0x89,0x05,0,0,0,0,  // mov [rip+observed],eax
+        0x89,0x15,0,0,0,0,  // mov [rip+reason],edx
+        0xB8,0x01,0x00,0x00,0x00, // mov eax,1
+        0xC3
+    };
+    put_bytes(bytes, file_offset(0x1080), dll_entry, sizeof(dll_entry));
+    const int32_t observe_counter = static_cast<int32_t>(0x2030 - 0x1086);
+    const int32_t write_observed = static_cast<int32_t>(0x2034 - 0x108C);
+    const int32_t write_reason = static_cast<int32_t>(0x2038 - 0x1092);
+    write_rva(bytes, 0x1082, observe_counter);
+    write_rva(bytes, 0x1088, write_observed);
+    write_rva(bytes, 0x108E, write_reason);
 
     // One relocated absolute pointer for proving actual DIR64 fixups.
     write_rva(bytes, 0x2000, kPreferredBase + 0x2080);
@@ -299,6 +322,173 @@ bool verify_synthetic_entry_fixture() noexcept {
             finalized_patch_rejected = true;
         }
         return finalized_patch_rejected;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool verify_synthetic_dll_lifecycle_fixture() noexcept {
+    try {
+        const std::filesystem::path reports = L"reports";
+        std::filesystem::create_directories(reports);
+        LocalFile file{reports /
+            (L"synthetic_dll_" + std::to_wstring(GetCurrentProcessId()) +
+             L".dll")};
+        if (std::filesystem::exists(file.path))
+            return false;
+        const Bytes bytes = generate_pe(true);
+        {
+            std::ofstream output(file.path, std::ios::binary);
+            if (!output.write(reinterpret_cast<const char*>(bytes.data()),
+                              bytes.size()))
+                return false;
+        }
+
+        PeFile pe(file.path);
+        if (!(pe.nt_headers().FileHeader.Characteristics & IMAGE_FILE_DLL) ||
+            pe.details().entry_rva != 0x1080 ||
+            pe.details().tls_rva != 0x2040 ||
+            pe.details().imports.size() != 1 ||
+            pe.details().imports[0].symbols.size() != 1)
+            return false;
+
+        MappedImage image(pe);
+        bool pre_finalize_refused = false;
+        try {
+            (void)image.attach_current_thread_tls();
+        } catch (const std::logic_error&) {
+            pre_finalize_refused = true;
+        }
+        if (!pre_finalize_refused || image.attached_tls_threads() != 0)
+            return false;
+
+        ImportRouter router;
+        const auto bound = router.bind_windows(
+            pe, image, file.path.parent_path());
+        if (bound.host_symbols_seen != 1 ||
+            bound.host_symbols_bound != 1 || !bound.pending.empty())
+            return false;
+        const auto done = image.finalize_image();
+        if (done.sections_protected != 3 ||
+            done.tls_slots_prepared != 1 ||
+            done.tls_template_bytes != 16 ||
+            done.deferred_tls_callbacks != 1 ||
+            image.attached_tls_threads() != 1)
+            return false;
+
+        const uint64_t base = image.base_address();
+        const auto at = [&](uint32_t rva) {
+            return reinterpret_cast<uint8_t*>(base + rva);
+        };
+        DWORD slot = TLS_OUT_OF_INDEXES;
+        std::memcpy(&slot, at(0x20A0), sizeof(slot));
+        if (slot == TLS_OUT_OF_INDEXES)
+            return false;
+        auto* const initial = static_cast<uint8_t*>(TlsGetValue(slot));
+        constexpr uint64_t pattern = 0x1122334455667788ull;
+        if (!initial || std::memcmp(initial, &pattern, 8) != 0 ||
+            !image.attach_current_thread_tls() ||
+            TlsGetValue(slot) != initial ||
+            image.attached_tls_threads() != 1)
+            return false;
+
+        using CallbackFn = void (NTAPI*)(void*, DWORD, void*);
+        using DllMainFn = BOOL (WINAPI*)(HINSTANCE, DWORD, void*);
+        // Only source-generated, fixed function bytes, NOT any game DLL.
+        const auto callback =
+            reinterpret_cast<CallbackFn>(base + 0x1040);
+        const auto entry =
+            reinterpret_cast<DllMainFn>(base + image.entry_rva());
+        const auto read_marker = [&](uint32_t rva) {
+            uint32_t value = 0;
+            std::memcpy(&value, at(rva), sizeof(value));
+            return value;
+        };
+        const auto module = reinterpret_cast<HINSTANCE>(base);
+        if (read_marker(0x2030) != 0 ||
+            read_marker(0x2034) != 0 ||
+            read_marker(0x2038) != 0)
+            return false;
+
+        // Windows loader process attach: TLS callbacks before DllMain.
+        callback(module, DLL_PROCESS_ATTACH, nullptr);
+        if (read_marker(0x2030) != 1 ||
+            !entry(module, DLL_PROCESS_ATTACH, nullptr) ||
+            read_marker(0x2034) != 1 ||
+            read_marker(0x2038) != DLL_PROCESS_ATTACH)
+            return false;
+
+        // The mapped image owns a distinct copy of its immutable template
+        // per managed host-created thread. Mutating one thread's bytes must
+        // not affect another, or the original initialization thread.
+        std::atomic<bool> valid{true};
+        std::vector<std::jthread> threads;
+        threads.reserve(4);
+        for (int t = 0; t < 4; ++t) {
+            threads.emplace_back([&, t] {
+                for (int iter = 0; iter < 32; ++iter) {
+                    try {
+                        if (!image.attach_current_thread_tls()) {
+                            valid.store(false);
+                            return;
+                        }
+                        auto* value =
+                            static_cast<uint8_t*>(TlsGetValue(slot));
+                        if (!value || value == initial ||
+                            std::memcmp(value, &pattern, 8) != 0) {
+                            valid.store(false);
+                            (void)image.detach_current_thread_tls();
+                            return;
+                        }
+                        for (size_t j = 8; j < 16; ++j)
+                            if (value[j] != 0)
+                                valid.store(false);
+                        value[0] = static_cast<uint8_t>(t + iter + 1);
+                        if (!image.attach_current_thread_tls() ||
+                            TlsGetValue(slot) != value ||
+                            value[0] != static_cast<uint8_t>(t + iter + 1))
+                            valid.store(false);
+                        if (!image.detach_current_thread_tls() ||
+                            TlsGetValue(slot) != nullptr)
+                            valid.store(false);
+                    } catch (...) {
+                        valid.store(false);
+                        (void)image.detach_current_thread_tls();
+                        return;
+                    }
+                }
+            });
+        }
+        for (auto& thread : threads)
+            thread.join();
+        if (!valid.load() || image.attached_tls_threads() != 1 ||
+            TlsGetValue(slot) != initial ||
+            std::memcmp(initial, &pattern, 8) != 0)
+            return false;
+
+        // DLL process detach: DllMain first, then TLS callbacks.
+        if (!entry(module, DLL_PROCESS_DETACH, nullptr) ||
+            read_marker(0x2034) != 1 ||
+            read_marker(0x2038) != DLL_PROCESS_DETACH)
+            return false;
+        callback(module, DLL_PROCESS_DETACH, nullptr);
+        if (read_marker(0x2030) != 2 ||
+            read_marker(0x2034) != 1)
+            return false;
+
+        if (!image.detach_current_thread_tls() ||
+            image.attached_tls_threads() != 0 ||
+            TlsGetValue(slot) != nullptr)
+            return false;
+        if (!image.attach_current_thread_tls() ||
+            image.attached_tls_threads() != 1)
+            return false;
+        const auto* restored =
+            static_cast<const uint8_t*>(TlsGetValue(slot));
+        return restored &&
+               std::memcmp(restored, &pattern, 8) == 0 &&
+               image.detach_current_thread_tls() &&
+               image.attached_tls_threads() == 0;
     } catch (...) {
         return false;
     }

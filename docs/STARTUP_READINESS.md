@@ -85,8 +85,11 @@ component lifetime, graphics semantics or startup success.
 The [generated PE64 entrypoint fixture](SYNTHETIC_PE_ENTRY.md) now passes
 an actual known-code entrypoint invocation through ScarlettVI's mapper,
 with one real Windows API import, forced relocations and current-thread TLS.
-It never executes the original title, TLS callbacks or game DLLs. That
-fixture is **not** proof of guest startup lifecycle correctness.
+The [generated DLL fixture](SYNTHETIC_PE_ENTRY.md) also tests explicit
+TLS callback / DllMain attach/detach order and private host TLS data for
+managed worker threads. Only generated test callbacks are executed. Neither
+fixture invokes the original title, any game DLL or their callbacks;
+this is **not** proof of full guest loader lifecycle correctness.
 
 Even if all 14 outstanding references gain function addresses, startup
 remains blocked until:
@@ -94,7 +97,8 @@ remains blocked until:
 1. Xbox D3D12_XS and XG COM/resource/command ABI and native shader translation
 2. Xbox memory heap and graphics virtual-address semantics
 3. Xbox audio/DSP and storage service behavior
-4. DLL process attach, TLS callback ordering and static TLS for new threads
+4. Actual guest DLL dependency attach/detach and TLS callbacks, guest
+   compiler static TLS in the TEB and all game-created threads
 5. Console virtual filesystem and process environment
 6. Controlled title exception handling and fault diagnostics
 
