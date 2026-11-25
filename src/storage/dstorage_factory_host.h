@@ -40,6 +40,11 @@ extern "C" HRESULT WINAPI DStorageGetFactory(
 FARPROC find_dstorage_export(std::string_view name) noexcept;
 // HOST-ONLY diagnostic helpers, not Xbox DLL guest exports.
 uint32_t host_dstorage_staging_bytes() noexcept;
+// Internal-only lease for a host-owned asynchronous file queue. It prevents
+// staging resize while the queue exists; never exported to Xbox guest code.
+bool acquire_host_dstorage_queue_lease() noexcept;
+void release_host_dstorage_queue_lease() noexcept;
+uint32_t active_host_dstorage_queue_leases() noexcept;
 bool verify_dstorage_staging_pages_for_fixture() noexcept;
 bool verify_dstorage_factory_fixture() noexcept;
 

@@ -78,9 +78,10 @@ public:
             bytes != 24*mib && bytes != 28*mib && bytes != 32*mib)
             return E_INVALIDARG;
         std::lock_guard lock(mutex_);
-        // This class cannot create queues/files yet, so there is no
-        // active-user set. Once those services exist, reject resizing
-        // while *either* kind of object is live, as the public API says.
+        // Public contract forbids staging resize while any queue or file
+        // exists, including attempts to set the same buffer size.
+        if (active_host_queues_ != 0)
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
         if (bytes == staging_.size())
             return S_OK;
         try {
@@ -116,6 +117,22 @@ public:
             return E_OUTOFMEMORY;
         }
     }
+    bool acquire_host_queue_lease() noexcept {
+        const std::lock_guard lock(mutex_);
+        if (!initialized_ || staging_.empty() ||
+            active_host_queues_ == std::numeric_limits<uint32_t>::max())
+            return false;
+        ++active_host_queues_;
+        return true;
+    }
+    void release_host_queue_lease() noexcept {
+        const std::lock_guard lock(mutex_);
+        if (active_host_queues_) --active_host_queues_;
+    }
+    uint32_t active_host_queue_leases() noexcept {
+        const std::lock_guard lock(mutex_);
+        return active_host_queues_;
+    }
     uint32_t staging_size() noexcept {
         std::lock_guard lock(mutex_);
         return static_cast<uint32_t>(staging_.size());
@@ -144,6 +161,7 @@ private:
     std::vector<uint8_t> staging_;
     ULONG references_ = 0;
     bool initialized_ = false;
+    uint32_t active_host_queues_ = 0;
 };
 }
 
@@ -162,6 +180,15 @@ extern "C" HRESULT WINAPI DStorageGetFactory(
 FARPROC find_dstorage_export(std::string_view name) noexcept {
     return name == "DStorageGetFactory"
         ? reinterpret_cast<FARPROC>(&DStorageGetFactory) : nullptr;
+}
+bool acquire_host_dstorage_queue_lease() noexcept {
+    return HostFactory::instance().acquire_host_queue_lease();
+}
+void release_host_dstorage_queue_lease() noexcept {
+    HostFactory::instance().release_host_queue_lease();
+}
+uint32_t active_host_dstorage_queue_leases() noexcept {
+    return HostFactory::instance().active_host_queue_leases();
 }
 uint32_t host_dstorage_staging_bytes() noexcept {
     return HostFactory::instance().staging_size();

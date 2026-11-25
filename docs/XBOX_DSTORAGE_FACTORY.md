@@ -19,13 +19,14 @@ Sources: src/storage/dstorage_factory_host.h, src/storage/dstorage_factory_host.
 - SetStagingBufferSize supports only the six documented sizes, preparing a new owned host allocation before atomically installing it. Invalid sizes fail E_INVALIDARG, allocation errors fail E_OUTOFMEMORY, preserving the previously installed buffer.
 - CreateQueue, CreateQueue1, CreateStatusArray and OpenFile all fail **E_NOTIMPL** with null output pointers: no fake-success Xbox operations, no PC DirectStorage pass-through and no proprietary asset access.
 - SetCpuAffinity returns E_NOTIMPL, and console SetDebugFlags has no claimed guest effect. GetStats is void and leaves unknown-sized guest output untouched, rather than inventing a console statistics structure.
-- Staging storage and COM reference changes are synchronized; queues and files do not yet exist, so a future implementation must add the publicly required no-resize-while-live rule.
+- Staging storage and COM reference changes are synchronized. The later [host-only async queue](XBOX_DSTORAGE_HOST_ASYNC.md) now holds an explicit factory staging lease: any live host queue blocks stage reconfiguration (including a same-size request). This does not provide guest Xbox queue objects.
 
-**Limitations:** This is not an NVMe driver, Xbox DirectStorage request queue, file-system mount, asynchronous completion service, decryption/decompression engine, or Xbox memory partition. It handles only the observed factory startup subset; the other methods explicitly remain unimplemented.
+**Limitations:** The separate [host-only async worker](XBOX_DSTORAGE_HOST_ASYNC.md) now performs real bounded Win32 reads and produces independently verified host completions. This COM factory is still not an NVMe driver, Xbox DirectStorage guest queue, file-system mount, guest asynchronous completion service, decryption/decompression engine or Xbox memory partition. It handles only the observed factory startup subset; the other methods explicitly remain unimplemented.
 
 ## Executable regression
 
     .\build\x64\Release\ScarlettVI.exe storage-factory-fixture
+    .\build\x64\Release\ScarlettVI.exe storage-async-fixture
     .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 
 The generated host-only fixture exercises the exact exported function pointer, raw COM **vtable slot +0x40**, singleton and IUnknown identity, unknown-IID rejection, supported staging sizes, invalid-size rollback, real 64-KiB page writes/readback, E_NOTIMPL for queue/files, no output buffer writes for unknown-sized stats, and **4 workers ×48 GetFactory/reconfigure/Release calls**. No title code executes.
@@ -40,4 +41,4 @@ The generated host-only fixture exercises the exact exported function pointer, r
 | Functional Xbox asset streaming | No | **No** |
 | Original game boot | BLOCKED | **BLOCKED** |
 
-The current eight unresolved Xbox symbols comprise CHAD DSP five, XApuEnqueueCommand one, and XG graphics two. More importantly, functional Xbox file/queue/request and GPU/console process systems remain missing. The readiness report names the binding **DirectStorage factory partial=1**; it is not a bootability claim.
+The current eight unresolved Xbox symbols comprise CHAD DSP five, XApuEnqueueCommand one, and XG graphics two. More importantly, functional Xbox guest file/queue/request and GPU/console process systems remain missing. A separately tested internal host worker exists, but it is not a guest COM service. The readiness report names the binding **DirectStorage factory partial=1**; it is not a bootability claim.

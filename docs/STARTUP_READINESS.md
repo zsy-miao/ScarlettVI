@@ -38,7 +38,7 @@ real game binaries, shader assets, extracted archive contents or title data.
 | `xapu.dll` | 1 | `XApuEnqueueCommand` remains unimplemented; four partial host connection/result-queue bindings now linked |
 | `xmem.dll` | 0 | One **partial** `XMemTransferMemory` host quota binding; only title-observed direction and host XMemAlloc budget admission are implemented |
 | `xg_xs.dll` | 2 | Xbox texture computer/swizzle ABI unresolved; original [D3D12 GPU detiling backend](GPU_TEXTURE_DETILE.md) now executes host Morton layouts but is NOT Xbox swizzle |
-| `XCRDAPI.dll` | 0 | [Partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md) binds one symbol: real 32-MiB staging COM lifecycle only; queue/file/completion methods E_NOTIMPL |
+| `XCRDAPI.dll` | 0 | [Partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md) binds one symbol and real staging. The [host-only asynchronous Win32 queue](XBOX_DSTORAGE_HOST_ASYNC.md) works on synthetic files but guest COM queue/file methods still E_NOTIMPL |
 | **Total** | **8** | |
 
 Measured working address bindings:
@@ -82,8 +82,10 @@ Measured working address bindings:
   Windows `ID3D12Device11` host COM factory; Xbox-only flags ignored
 - **1** [partial DirectStorage factory binding](XBOX_DSTORAGE_FACTORY.md):
   exact guest-observed IID, process-static COM object, real 32-MiB owned
-  staging memory and validated vtable `+0x40` sizing. Queue/file/asset
-  streaming and completion APIs remain E_NOTIMPL, not fabricated success
+  staging memory and validated vtable `+0x40` sizing. The separate
+  [host-only async file queue](XBOX_DSTORAGE_HOST_ASYNC.md) now performs
+  genuine bounded Win32 reads, exact FIFO completions and factory staging
+  leases, but guest queue/file/asset APIs remain E_NOTIMPL
 - **1** experimental `D3D12ConfigureVirtualMemoryX` import linked to a
   [validated 16/24 GiB host GPU VA reservation bridge](GPU_VIRTUAL_MEMORY.md);
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.

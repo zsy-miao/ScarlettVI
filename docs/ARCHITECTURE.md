@@ -65,8 +65,11 @@ console code, keys or proprietary binary libraries belong in this repository.
   allocations remain outside this quota; it is not Xbox partition emulation.
   The [partial Xbox DirectStorage factory](XBOX_DSTORAGE_FACTORY.md)
   now provides original static COM ownership and actual configured host
-  staging memory through the title-verified +0x40 method. Xbox
-  queue/file/decompression and async completion services remain missing.
+  staging memory through the title-verified +0x40 method. A separate
+  [host-only async file queue](XBOX_DSTORAGE_HOST_ASYNC.md) now performs
+  real bounded generated-file reads with FIFO completion and prevents
+  staging resizing while alive. Xbox guest COM queues, game file/asset
+  streaming, decompression and guest completions remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.
   Import linkage is not

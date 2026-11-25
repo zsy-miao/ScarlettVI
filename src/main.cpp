@@ -30,6 +30,7 @@
 #include "audio/dsp_convolution.h"
 #include "runtime/xmem_query.h"
 #include "storage/dstorage_factory_host.h"
+#include "storage/dstorage_async_queue.h"
 #include <Windows.h>
 #include <algorithm>
 #include <array>
@@ -132,6 +133,7 @@ void usage() {
                << L"  ScarlettVI.exe xmem-stats-fixture\n"
                << L"  ScarlettVI.exe xmem-transfer-fixture\n"
                << L"  ScarlettVI.exe storage-factory-fixture\n"
+               << L"  ScarlettVI.exe storage-async-fixture\n"
                << L"  ScarlettVI.exe audio-memory-fixture\n"
                << L"  ScarlettVI.exe audio-address-fixture\n"
                << L"  ScarlettVI.exe audio-shape-fixture\n"
@@ -173,6 +175,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"storage-async-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::storage::verify_host_dstorage_async_queue_fixture();
+            std::cout << "ScarlettVI | bounded real Win32 async host file queue: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nExact generated file readbacks, FIFO completions, "
+                      << "concurrent admissions, factory staging lease."
+                      << " Xbox COM queues and title code remain unsupported.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"storage-factory-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
