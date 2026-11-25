@@ -40,7 +40,9 @@ source-to-output transfers and three corroborated category paths over
 including invalid-range and preservation tests. This research helper does
 not bind any Xbox graphics API. The new read-only [post-creation indirect-call survey](docs/XG_VCALL_SURVEY.md)
 corroborates five indirect-call instructions in three XG creation callers,
-without assuming what the methods do. The full Xbox XG texture computer/swizzle
+and the new table-register signature check finds five nearby RCX-sourced
+loads that match the indirect call registers. Neither check assumes what
+the methods do or proves an Xbox object lifetime contract. The full Xbox XG texture computer/swizzle
 ABI remains unknown, so both graphics imports are still **unresolved**.
 
 The native x64 PE mapper now supports recursive DLL dependencies, forwarded

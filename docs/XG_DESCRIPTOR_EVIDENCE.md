@@ -32,7 +32,9 @@ The helper also branches on source bytes at `+0x06`, `+0x0B`, `+0x0C`, and `+0x0
 - Both `XGSuggestSwizzleMode` callers zero EDX immediately before the import. One also copies RAX into R8 before calling. Each copies EAX into ECX after returning and passes control to a shared helper; this does **not** establish what the return value means.
 - Returned texture-computer pointers are used for indirect method calls in some success paths. The [read-only indirect-call survey](XG_VCALL_SURVEY.md) independently
 reproduces five indirect-call instruction locations with `+0x08`, `+0x10`
-and `+0x50` displacements; the full dispatch-table layout, method semantics
+and `+0x50` displacements. A second bounded signature check correlates all
+five candidates with a nearby RCX-sourced table-register load; the full
+dispatch-table layout, method semantics
 and memory ownership remain unverified. Treating the object as ordinary
 desktop COM without proof would be unsafe.
 

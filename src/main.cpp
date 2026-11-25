@@ -2,6 +2,7 @@
 #include "analysis/xg_callsite_probe.h"
 #include "analysis/xg_field_projection.h"
 #include "analysis/xg_vcall_candidates.h"
+#include "analysis/xg_vcall_loads.h"
 #include "loader/image_mapper.h"
 #include "runtime/import_router.h"
 #include "runtime/readiness_report.h"
@@ -109,6 +110,7 @@ void usage() {
                << L"  ScarlettVI.exe xg-calls-fixture\n"
                << L"  ScarlettVI.exe xg-field-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls-fixture\n"
+               << L"  ScarlettVI.exe xg-vcall-links-fixture\n"
                << L"  ScarlettVI.exe xg-vcalls <title.exe>\n"
                << L"  ScarlettVI.exe map <title.exe> [--json <report.json>]\n"
                << L"  ScarlettVI.exe readiness <title.exe> [--json <readiness.json>]\n"
@@ -140,6 +142,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"xg-vcall-links-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::analysis::verify_xg_table_load_fixtures();
+            std::cout << "ScarlettVI | synthetic XG table-register "
+                      << "load-signature fixture: "
+                      << (passed ? "PASS" : "FAIL") << "\n"
+                      << "Bounded REX.W MOV byte patterns only; "
+                      << "no Xbox object ABI claimed.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"xg-vcalls-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =
@@ -182,8 +195,28 @@ int wmain(int argc, wchar_t** argv) {
                           << static_cast<unsigned>(hit.base_register)
                           << " | displacement +0x" << std::hex
                           << hit.displacement << std::dec << "\n";
-            std::cout << "These are byte-pattern candidates, NOT an instruction "
-                      << "decoder or verified XG object-method ABI.\n";
+            std::vector<scarlett::analysis::XgTableLoadCandidate> loads;
+            if (!scarlett::analysis::scan_xg_table_load_candidates(
+                    create_contexts, found, loads)) {
+                std::cerr << "Bounded XG table-load survey failed.\n";
+                return 3;
+            }
+            std::cout << "Local table-register load signatures: "
+                      << loads.size() << "/" << found.size() << "\n";
+            for (const auto& load : loads)
+                std::cout << "  indirect call VA 0x" << std::hex
+                          << (report.image_base + load.indirect_call_rva)
+                          << " | nearby load VA 0x"
+                          << (report.image_base + load.load_rva)
+                          << std::dec << " | pointer GPR "
+                          << static_cast<unsigned>(load.source_pointer_register)
+                          << " -> table GPR "
+                          << static_cast<unsigned>(load.table_register)
+                          << " | byte gap "
+                          << static_cast<unsigned>(load.distance_to_call_bytes)
+                          << "\n";
+            std::cout << "All evidence is byte-pattern-only, NOT a complete "
+                      << "instruction decoder or Xbox object-method ABI.\n";
             return 0;
         }
         if (verb == L"xg-field-fixture") {
