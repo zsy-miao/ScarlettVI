@@ -65,8 +65,13 @@ mappings before any GPU page transfer. A synthetic mapping-fence failure
 retains every CPU pin, GPU tile slot, command buffer and backing heap
 until an explicitly fenced retry can retire them. The original single
 frame `bind` retains its own independently fenced path. The dedicated
-`gpu-page-batch` fixture verifies **16 successful 64 KiB GPU transfers
-in four queue submissions**, native tile-slot reuse and no leaks.
+`gpu-page-batch` fixture verifies **20 completed 64 KiB GPU transfers
+in five submissions**, and `unbind_batch` now NULL-unmaps both four-page
+alias groups in **two native D3D12 calls** rather than eight individual
+calls. Injected failures before any unmap, after the source-group unmap,
+and after both group unmaps preserve CPU pins and GPU backing until
+retryable fence-safe retirement; the test confirms tile-slot reuse and
+no leaks.
 
 ## Remaining blockers
 

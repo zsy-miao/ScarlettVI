@@ -130,9 +130,13 @@ enqueue, prepares per-frame D3D12 stagers, and groups source and alias
 GPU mapping updates by native D3D12 resource. Four frames require **two
 native mapping calls instead of eight** and share one real completion
 fence before any transfer. The independent RTX 5060 Ti `gpu-page-batch`
-fixture verifies **16 page GPU transfers in four queue submissions**,
-including recovery from a synthetic mapping-fence failure and safe GPU
-tile reuse. The original single-frame `bind` path remains unchanged.
+fixture verifies **20 completed 64 KiB page transfers across five queue
+submissions**. The new `unbind_batch` path retires four adjacent pages
+with **two native NULL updates** (one per reserved GPU resource) instead
+of eight. Synthetic failures after the first or both unmaps retain every
+CPU alias pin and physical GPU tile until a real retry fence succeeds;
+`clear()` can safely retire partially unmapped cohorts. The original
+single-frame `bind`/`unbind` path remains unchanged.
 
 ### XMem physical-page to real GPU tile staging
 

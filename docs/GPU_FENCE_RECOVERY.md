@@ -34,6 +34,20 @@ It then exercises three separate synthetic failure cases, without triggering an 
 
 One initial expanded test exceeded the default Windows stack with another 256 KiB local array; the extra batch result storage was moved to a heap-allocated vector.
 
+## Fenced multi-page NULL unmap
+
+The optional [pinned GPU cohort teardown](GPU_PAGE_BATCH_REGISTRATION.md)
+extends this fail-closed policy to `GuestGpuPageRegistry::unbind_batch`.
+For four adjacent registered frames, it fences all previous GPU work,
+enqueues **two NULL `UpdateTileMappings` calls** (one per native GPU
+alias resource, rather than eight per-page calls), then waits on a
+shared completion fence **before releasing any CPU XMem pins or GPU tile
+slots**. Synthetic failures before unmap, after the first NULL update
+or after both NULL updates are covered by the separate `gpu-page-batch`
+test. Pending groups can be retried without repeating already enqueued
+NULL mappings, or `clear()` can safely retire the remaining GPU objects.
+Actual GPU device removal/recreation is still unsupported.
+
 ## Limits
 
 Synthetic test failure is *not* physical device removal or a real ten-second GPU timeout. An actual removed GPU cannot currently be recreated by ScarlettVI; unresolved native work must be reported to the caller and may require the fail-stop policy. CPU XMem pagefile allocations and GPU D3D12 heaps are still **physically separate**, with explicit readback/writeback rather than Xbox unified coherency.

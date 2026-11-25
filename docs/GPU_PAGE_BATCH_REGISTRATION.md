@@ -20,6 +20,39 @@ The existing single-frame `bind` and [independent GPU page stager](GPU_PAGE_STAG
 
 This is host resource-lifetime management only. Both CPU XMem aliases are backed by pagefile sections, whereas the physical D3D12 heap tiles are separately backed; explicit GPU upload/readback and optional writeback are still necessary.
 
+## Fenced grouped NULL tile unmapping
+
+The companion `GuestGpuPageRegistry::unbind_batch(span<frame IDs>)` now
+retires an ordered cohort using at most **one native NULL
+`UpdateTileMappings` call for each of its two adjacent GPU alias
+groups**. Like registration, each group must remain entirely within one
+native D3D12 reserved resource.
+
+- **Preflight** rejects empty, duplicate or out-of-order frame IDs and
+  nonadjacent GPU slots without modifying a mapping or CPU pin.
+- **Pre-unmap fences** wait on every page's real shared GPU queue work
+  before a native tile map can change. A failed pre-fence leaves all
+  mappings intact and GPU transfers usable.
+- **Disable data transfers** for the cohort once it enters the native
+  unmap phase. NULL mapping of the source four-page group enqueues one
+  call; NULL mapping of the alias four-page group enqueues another.
+  Successful enqueues are recorded per stager so retry never repeats a
+  completed group.
+- **Post-unmap fence** must confirm the queued work before the registry
+  closes native resources, unpins CPU aliases, or reuses heap tile slots.
+  A timeout after the first or both native NULL calls leaves all frames
+  bound and their CPU aliases pinned. The next `unbind_batch` can
+  finish the missing group and fence; alternatively `clear()` can
+  safely complete per-frame retirement.
+- Host native unmap call counts remain observable via
+  `native_unmapping_count()`. No claim is made that a `void`
+  `UpdateTileMappings` enqueue is proof of GPU completion.
+
+This is **not** transactional GPU page-table replacement on Xbox, nor
+device-loss recovery. The existing `unbind(frame)` and `clear()`
+remain supported for arbitrary/noncontiguous resource layouts and
+fail-closed fallback cleanup.
+
 ## New end-to-end test
 
 ```powershell
@@ -35,9 +68,12 @@ The fixture uses **four genuine 64 KiB XMem physical frames**, **eight independe
 - Run a second four-page transfer batch with **different generated contents** and explicitly write the GPU readback into the second CPU alias. Verify both CPU aliases see those bytes.
 - Unbind one frame, prove it drops precisely two CPU pins and two GPU mappings without disturbing the other three; rebind through the original single-page `bind` and verify physical GPU heap-tile 0 is safely reused. Transfer all four frames again through one GPU batch.
 - Retire all frames, inject a **synthetic mapping-completion timeout after two real native mapping calls** in a fresh four-frame registration, and verify all eight CPU pins and GPU virtual mappings remain owned. Attempted transfer is rejected while the GPU mapping fence has not been confirmed.
-- `clear` then waits for real host GPU completion, NULL-unmaps both aliases per frame, frees the shared heap and CPU pins, and returns to zero live frames. A final full four-frame registration and GPU copy after this recovery verifies the same resources are reusable. Clear again and verify no leaks.
+- `clear` then waits for real host GPU completion, NULL-unmaps both aliases per frame, frees the shared heap and CPU pins, and returns to zero live frames. A full four-frame registration and GPU copy after this recovery verifies the same resources are reusable.
+- Reject duplicate and out-of-order unbind frame lists. Inject a **synthetic pre-unmap fence timeout**: no NULL mappings may be queued and all CPU pins remain intact. The GPU transfer test then runs successfully.
+- Inject a synthetic interruption **after the real source-group NULL update**. Four GPU mappings remain in the alias resource, all eight CPU aliases remain pinned, and further GPU transfers are rejected. Retrying `unbind_batch` queues only the missing alias-group NULL update, waits on a real GPU fence and releases all page pins. Exactly **two native NULL mapping calls** replace eight per-frame calls.
+- Bind and GPU-copy the entire cohort again. Inject a synthetic interruption **after both real grouped NULL updates**, before the completion fence: the mapping index reaches zero but pins, heap tiles and bindings remain owned. `clear()` then confirms GPU completion and releases all resources without duplicate NULL updates.
 
-**Observed RTX 5060 Ti Release result:** PASS, **16 verified 65,536-byte page transfers** across **four actual GPU command queue submissions**. The fixture reports **eight native GPU tile mapping calls** across three successful registrations, one single-page rebind and one interrupted four-page registration. Without batching, the first cohort alone would require eight mapping calls rather than two. At exit there are **zero allocated XMem pages, zero CPU pins, zero GPU tile mappings and zero shared GPU heap allocations**.
+**Observed RTX 5060 Ti Release result:** PASS, **20 verified 65,536-byte GPU page transfers** across **five actual GPU command submissions**. The fixture reports ten native GPU mapping calls across multiple successful and injected-error registrations, and **four grouped NULL mapping calls** across two four-page unbind attempts. Each four-page cohort uses two calls instead of eight independent native NULL calls. At exit: **zero allocated XMem pages, zero CPU pins, zero GPU tile mappings and zero shared GPU heap allocations**.
 
 ## Limits
 

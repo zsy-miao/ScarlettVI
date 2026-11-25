@@ -49,6 +49,10 @@ public:
     // 4GiB reserved GPU resource. One UpdateTileMappings per alias group;
     // all CPU pins are retained until an acknowledged GPU completion fence.
     HRESULT bind_batch(std::span<const PageBinding> pages) noexcept;
+    // Batch NULL-maps two contiguous GPU alias groups, with a fence before
+    // and after mapping updates. Failed waits retain CPU pins/heap slots;
+    // retries complete only the pending alias group(s).
+    HRESULT unbind_batch(std::span<const uintptr_t> frames) noexcept;
 
     // Uses a real D3D12 queue and fence. Source may be the first CPU alias
     // or independent generated host bytes. Output must be a disjoint 64KiB
@@ -69,6 +73,7 @@ public:
     size_t native_queue_count() const noexcept;
     // Actual native host UpdateTileMappings calls across both bind paths.
     uint64_t native_mapping_count() const noexcept;
+    uint64_t native_unmapping_count() const noexcept;
     // One 4MiB default heap with 64 separately assignable 64KiB host tiles.
     static constexpr uint32_t heap_capacity_tiles = 64;
     size_t physical_heap_count() const noexcept;
@@ -88,6 +93,8 @@ private:
         uintptr_t frame, uint32_t successful_waits_before_failure = 0) noexcept;
     void inject_next_batch_wait_failure_for_test() noexcept;
     void inject_next_mapping_wait_failure_for_test() noexcept;
+    void inject_next_unmap_failure_after_source_for_test() noexcept;
+    void inject_next_unmap_failure_after_both_for_test() noexcept;
     struct Binding {
         uint8_t* first_cpu = nullptr;
         uint8_t* second_cpu = nullptr;
@@ -110,6 +117,8 @@ private:
     uint64_t gpu_submissions_ = 0;
     bool test_fail_next_batch_wait_ = false;
     bool test_fail_next_mapping_wait_ = false;
+    bool test_fail_next_unmap_after_source_ = false;
+    bool test_fail_next_unmap_after_both_ = false;
     mutable std::mutex mutex_;
     std::unordered_map<uintptr_t, Binding> bindings_;
     std::map<GpuSlot, uintptr_t> gpu_slots_;

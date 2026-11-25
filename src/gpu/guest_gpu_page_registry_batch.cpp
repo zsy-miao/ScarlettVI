@@ -288,4 +288,190 @@ uint64_t GuestGpuPageRegistry::native_mapping_count() const noexcept {
     std::lock_guard lock(mutex_);
     return windows_.native_map_update_calls();
 }
+uint64_t GuestGpuPageRegistry::native_unmapping_count() const noexcept {
+    std::lock_guard lock(mutex_);
+    return windows_.native_unmap_update_calls();
+}
+
+void GuestGpuPageRegistry::inject_next_unmap_failure_after_source_for_test() noexcept {
+    std::lock_guard lock(mutex_);
+    test_fail_next_unmap_after_source_ = true;
+}
+
+void GuestGpuPageRegistry::inject_next_unmap_failure_after_both_for_test() noexcept {
+    std::lock_guard lock(mutex_);
+    test_fail_next_unmap_after_both_ = true;
+}
+
+// Fenced native NULL tile-range unmap for a complete, contiguous cohort.
+// Each source/alias group belongs to one D3D12 reserved resource. This
+// intentionally leaves per-frame unbind and clear() available for arbitrary
+// noncontiguous bindings and as recovery after a partial update failure.
+HRESULT GuestGpuPageRegistry::unbind_batch(
+    std::span<const uintptr_t> frames) noexcept {
+    constexpr uint64_t tile = GpuPageStager::page_bytes;
+    const size_t count = frames.size();
+    if (!count || count > heap_capacity_tiles) return E_INVALIDARG;
+    if (!device_ || !queue_) return E_UNEXPECTED;
+
+    std::lock_guard lock(mutex_);
+    std::array<Binding*, heap_capacity_tiles> selected{};
+    std::array<GpuPageStager*, heap_capacity_tiles> stagers{};
+    const auto first = bindings_.find(frames.front());
+    if (first == bindings_.end())
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    const GpuSlot source = first->second.source;
+    const GpuSlot alias = first->second.alias;
+    if (source.offset > UINT64_MAX - (count - 1) * tile ||
+        alias.offset > UINT64_MAX - (count - 1) * tile)
+        return E_INVALIDARG;
+    uint64_t ignored_source = 0, ignored_alias = 0;
+    ID3D12Resource* src_resource = windows_.tile_resource(
+        source.window, source.offset, &ignored_source);
+    ID3D12Resource* alias_resource = windows_.tile_resource(
+        alias.window, alias.offset, &ignored_alias);
+    if (!src_resource || !alias_resource || src_resource == alias_resource)
+        return E_INVALIDARG;
+
+    bool source_mapped = first->second.stager->first_mapped_;
+    bool alias_mapped = first->second.stager->second_mapped_;
+    for (size_t i = 0; i < count; ++i) {
+        const auto found = bindings_.find(frames[i]);
+        if (found == bindings_.end())
+            return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        auto& entry = found->second;
+        if (entry.source.window != source.window ||
+            entry.alias.window != alias.window ||
+            entry.source.offset != source.offset + i * tile ||
+            entry.alias.offset != alias.offset + i * tile ||
+            entry.stager->first_mapped_ != source_mapped ||
+            entry.stager->second_mapped_ != alias_mapped)
+            return E_INVALIDARG;
+        uint64_t src_offset = 0, dst_offset = 0;
+        if (windows_.tile_resource(source.window, entry.source.offset,
+                                   &src_offset) != src_resource ||
+            windows_.tile_resource(alias.window, entry.alias.offset,
+                                   &dst_offset) != alias_resource)
+            return E_INVALIDARG;
+        for (size_t j = 0; j < i; ++j)
+            if (frames[j] == frames[i]) return E_INVALIDARG;
+        selected[i] = &entry;
+        stagers[i] = entry.stager.get();
+    }
+
+    // Establish that ALL earlier submitted per-frame work is complete
+    // before modifying either native resource's tile residency. If any
+    // wait fails no new NULL tile-mapping operation has been queued.
+    for (size_t i = 0; i < count; ++i) {
+        auto* s = stagers[i];
+        if (s->queue_ && s->fence_ && s->event_) {
+            const HRESULT hr = s->sync();
+            if (FAILED(hr)) return hr;
+            s->in_flight_ = false;
+        } else if (s->windows_ || source_mapped || alias_mapped) {
+            return E_UNEXPECTED;
+        }
+    }
+
+    // From here the cohort is unavailable to normal GPU transfers, even
+    // after a failure halfway through NULL mapping. Existing CPU pins and
+    // occupied physical heap tiles remain until every NULL unmap is fenced.
+    for (size_t i = 0; i < count; ++i) {
+        stagers[i]->opened_ = false;
+        stagers[i]->prepared_ = false;
+    }
+
+    if (source_mapped) {
+        const HRESULT hr = windows_.unmap_tiles(
+            queue_.Get(), source.window, source.offset,
+            static_cast<uint32_t>(count));
+        if (FAILED(hr)) return hr;
+        for (size_t i = 0; i < count; ++i)
+            stagers[i]->first_mapped_ = false;
+        if (test_fail_next_unmap_after_source_) {
+            test_fail_next_unmap_after_source_ = false;
+            // Synthetic error AFTER a REAL native NULL tile enqueue;
+            // retry must not unmap this group again.
+            return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        }
+    }
+    if (alias_mapped) {
+        const HRESULT hr = windows_.unmap_tiles(
+            queue_.Get(), alias.window, alias.offset,
+            static_cast<uint32_t>(count));
+        if (FAILED(hr)) return hr;
+        for (size_t i = 0; i < count; ++i)
+            stagers[i]->second_mapped_ = false;
+        if (test_fail_next_unmap_after_both_) {
+            test_fail_next_unmap_after_both_ = false;
+            // Queued TWO actual D3D12 NULL mapping operations. Preserve
+            // the entire cohort until a later successful completion fence.
+            return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        }
+    }
+
+    if (!batch_fence_) {
+        const HRESULT hr = device_->CreateFence(
+            0, D3D12_FENCE_FLAG_NONE,
+            IID_PPV_ARGS(batch_fence_.GetAddressOf()));
+        if (FAILED(hr)) return hr;
+    }
+    if (!batch_event_) {
+        batch_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!batch_event_) return HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (next_batch_fence_ == UINT64_MAX)
+        return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+    const uint64_t target = next_batch_fence_++;
+    HRESULT hr = queue_->Signal(batch_fence_.Get(), target);
+    if (FAILED(hr)) return hr;
+    const auto observe = [this, target]() noexcept {
+        return classify_fence_observation(
+            batch_fence_->GetCompletedValue(), target);
+    };
+    const auto removed = [this]() noexcept {
+        const HRESULT reason = device_->GetDeviceRemovedReason();
+        return FAILED(reason) ? reason : DXGI_ERROR_DEVICE_REMOVED;
+    };
+    auto status = observe();
+    if (status == FenceObservation::device_removed) return removed();
+    if (status == FenceObservation::pending) {
+        hr = batch_fence_->SetEventOnCompletion(target, batch_event_);
+        if (FAILED(hr)) return hr;
+        const DWORD waited = WaitForSingleObject(batch_event_, 10000);
+        if (waited != WAIT_OBJECT_0)
+            return HRESULT_FROM_WIN32(
+                waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError());
+    }
+    status = observe();
+    if (status == FenceObservation::device_removed) return removed();
+    if (status != FenceObservation::completed) return E_FAIL;
+
+    // The complete cohort's NULL mappings have now been acknowledged.
+    // If a per-stager close fails, no CPU aliases are unpinned, so a retry
+    // or the registry's existing clear() can safely finish retirement.
+    for (size_t i = 0; i < count; ++i) {
+        if (stagers[i]->windows_) {
+            hr = stagers[i]->close();
+            if (FAILED(hr)) return hr;
+        }
+    }
+    for (size_t i = 0; i < count; ++i) {
+        const auto frame = frames[i];
+        auto& entry = *selected[i];
+        const bool mirror = physical_.unpin_mapped_alias(
+            entry.second_cpu, frame);
+        const bool primary = physical_.unpin_mapped_alias(
+            entry.first_cpu, frame);
+        // Unpinning a validated live mapping cannot fail in normal use;
+        // fail-stop rather than silently recycle an incompletely pinned VA.
+        if (!mirror || !primary) std::terminate();
+        gpu_slots_.erase(entry.source);
+        gpu_slots_.erase(entry.alias);
+        occupied_heap_tiles_[entry.heap_tile] = false;
+        bindings_.erase(frame);
+    }
+    return S_OK;
+}
+
 } // namespace scarlett::gpu

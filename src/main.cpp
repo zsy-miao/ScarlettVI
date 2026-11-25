@@ -139,9 +139,10 @@ int wmain(int argc, wchar_t** argv) {
             const size_t pins =
                 scarlett::memory::PhysicalMemory::instance().pinned_alias_count();
             const bool pass = SUCCEEDED(hr) &&
-                gpu.submitted_commands() == 16 &&
-                gpu.registry_queue_submissions() == 4 &&
-                gpu.registry_batch_mapping_updates() == 8 &&
+                gpu.submitted_commands() == 20 &&
+                gpu.registry_queue_submissions() == 5 &&
+                gpu.registry_batch_mapping_updates() == 10 &&
+                gpu.registry_grouped_unmapping_updates() == 4 &&
                 pages == 0 && pins == 0;
             std::wcout << L"ScarlettVI | four-frame pinned GPU tile batch: "
                        << (pass ? L"PASS" : L"FAIL")
@@ -152,6 +153,8 @@ int wmain(int argc, wchar_t** argv) {
                       << gpu.registry_queue_submissions()
                       << " | native tile map calls: "
                       << gpu.registry_batch_mapping_updates()
+                      << " | grouped native tile unmap calls: "
+                      << gpu.registry_grouped_unmapping_updates()
                       << " | remaining pages: " << pages
                       << " | remaining pins: " << pins
                       << " | HRESULT 0x" << std::hex

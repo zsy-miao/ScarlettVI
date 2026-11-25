@@ -126,9 +126,11 @@ retryable fence-safe cleanup with zero leaks
 pinned XMem frame registry: four CPU-backed physical frames, eight
 CPU aliases and eight GPU aliases are prevalidated and pinned before
 **two real native GPU tile mapping calls**, followed by a queue fence.
-It verifies **16 completed 64 KiB GPU transfers in four GPU submissions**,
-interoperability with single-frame registration, synthetic mapping-wait
-failure retention, safe re-registration and zero leaked CPU pins/pages
+It verifies **20 completed 64 KiB GPU transfers in five submissions**,
+interoperability with single-frame registration and two-native-call
+four-page **grouped NULL unmapping**, plus synthetic pre-/post-unmap
+fence failures, retryable GPU retirement, safe re-registration and zero
+leaked CPU pins/pages
 ([GPU_PAGE_BATCH_REGISTRATION.md](GPU_PAGE_BATCH_REGISTRATION.md)).
 `gpu-tile-batch` verifies native one-resource multi-range
 `UpdateTileMappings`: four selected physical heap tiles map to four

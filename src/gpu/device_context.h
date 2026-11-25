@@ -44,6 +44,9 @@ public:
     uint64_t registry_batch_mapping_updates() const noexcept {
         return registry_batch_mapping_updates_;
     }
+    uint64_t registry_grouped_unmapping_updates() const noexcept {
+        return registry_grouped_unmapping_updates_;
+    }
     // Copies generated format-aware RGBA/block-compressed texture mips
     // through real D3D12 GPU footprints and verifies every returned block.
     HRESULT texture_layout_gpu_test();
@@ -97,6 +100,7 @@ private:
     uint64_t submitted_ = 0;
     uint64_t registry_queue_submissions_ = 0;
     uint64_t registry_batch_mapping_updates_ = 0;
+    uint64_t registry_grouped_unmapping_updates_ = 0;
     uint64_t staged_completed_fence_ = 0;
     uint64_t tile_mapping_updates_ = 0;
     uint64_t tile_unmapping_updates_ = 0;

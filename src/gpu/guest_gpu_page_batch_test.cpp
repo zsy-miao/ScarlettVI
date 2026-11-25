@@ -121,6 +121,26 @@ HRESULT DeviceContext::guest_gpu_page_batch_test() {
         if (registry.heap_tile_for(cpu.frames[i]) != i)
             return last_error_ = E_FAIL;
 
+    // Grouped unmap preflight rejects duplicate/unordered frame lists and
+    // a failed pre-unmap GPU wait WITHOUT changing either GPU alias group.
+    const std::array<uintptr_t, count> ordered_frames = cpu.frames;
+    auto invalid_unbind = ordered_frames;
+    invalid_unbind[1] = invalid_unbind[0];
+    if (registry.unbind_batch({}) != E_INVALIDARG ||
+        registry.unbind_batch(invalid_unbind) != E_INVALIDARG)
+        return last_error_ = E_FAIL;
+    invalid_unbind = ordered_frames;
+    std::swap(invalid_unbind[1], invalid_unbind[2]);
+    if (registry.unbind_batch(invalid_unbind) != E_INVALIDARG ||
+        !registry.inject_next_gpu_wait_failure_for_test(cpu.frames[2]) ||
+        registry.unbind_batch(ordered_frames) !=
+            HRESULT_FROM_WIN32(ERROR_TIMEOUT) ||
+        registry.native_unmapping_count() != 0 ||
+        windows.mapped_tile_count() != 2 * count ||
+        registry.pinned_alias_count() != 2 * count ||
+        registry.binding_count() != count)
+        return last_error_ = E_FAIL;
+
     void* const to_unmap[]{first, first + bytes};
     if (xmem::XMemMapPhysicalPagesScatter(
             to_unmap, 2, nullptr) != FALSE ||
@@ -257,13 +277,87 @@ HRESULT DeviceContext::guest_gpu_page_batch_test() {
                     next_pattern.size()) != 0)
         return last_error_ = FAILED(last_error_) ? last_error_ :
             HRESULT_FROM_WIN32(ERROR_CRC);
+    // Verify grouped UNMAP, including a retry after only the first
+    // real native NULL mapping was queued. Every CPU alias and physical
+    // GPU heap slot must remain reserved until the second group's NULL
+    // mapping and the final completion fence have succeeded.
+    constexpr HRESULT timeout = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    const std::array<uintptr_t, count> frames = cpu.frames;
+    auto invalid_frames = frames;
+    invalid_frames[1] = invalid_frames[0];
+    if (registry.unbind_batch(invalid_frames) != E_INVALIDARG ||
+        registry.unbind_batch({}) != E_INVALIDARG)
+        return last_error_ = E_FAIL;
+
+    const uint64_t unmap_before = registry.native_unmapping_count();
+    registry.inject_next_unmap_failure_after_source_for_test();
+    if (registry.unbind_batch(frames) != timeout ||
+        registry.native_unmapping_count() != unmap_before + 1 ||
+        registry.binding_count() != count ||
+        registry.used_heap_tile_count() != count ||
+        registry.pinned_alias_count() != count * 2 ||
+        windows.mapped_tile_count() != count ||
+        registry.transfer_batch(transfers) != E_UNEXPECTED ||
+        xmem::XMemMapPhysicalPages(first, 1, nullptr) != nullptr ||
+        GetLastError() != ERROR_BUSY)
+        return last_error_ = E_FAIL;
+
+    // A second attempt must skip the already-queued source NULL mapping,
+    // enqueue just the other GROUP and fence it before freeing pins.
+    last_error_ = registry.unbind_batch(frames);
+    if (FAILED(last_error_) ||
+        registry.native_unmapping_count() != unmap_before + 2 ||
+        registry.binding_count() != 0 ||
+        registry.pinned_alias_count() != 0 ||
+        registry.used_heap_tile_count() != 0 ||
+        windows.mapped_tile_count() != 0 ||
+        registry.physical_heap_count() != 1)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+    registry_grouped_unmapping_updates_ +=
+        registry.native_unmapping_count() - unmap_before;
+
+    // The old physical frames/CPU alias VAs and heap slots are reusable.
+    // A new four-page GPU registration/copy demonstrates safe reuse after
+    // two actual native NULL updates instead of eight independent ones.
+    last_error_ = registry.bind_batch(requests);
+    if (FAILED(last_error_) ||
+        registry.native_mapping_count() != 10 ||
+        registry.binding_count() != count)
+        return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
+    last_error_ = registry.transfer_batch(transfers);
+    if (FAILED(last_error_) ||
+        registry.submitted_transfers() != 5 * count ||
+        registry.queue_submission_count() != 5 ||
+        std::memcmp(gpu_output.data(), next_pattern.data(),
+                    next_pattern.size()) != 0)
+        return last_error_ = FAILED(last_error_) ? last_error_ :
+            HRESULT_FROM_WIN32(ERROR_CRC);
+
+    // A different injected failure happens AFTER both actual NULL mapping
+    // calls, before the post-unmap queue fence. Existing clear() must fence
+    // pending work and release every pinned CPU frame without double unmap.
+    const uint64_t second_unmap_before = registry.native_unmapping_count();
+    registry.inject_next_unmap_failure_after_both_for_test();
+    if (registry.unbind_batch(frames) != timeout ||
+        registry.native_unmapping_count() != second_unmap_before + 2 ||
+        registry.binding_count() != count ||
+        registry.pinned_alias_count() != count * 2 ||
+        registry.used_heap_tile_count() != count ||
+        windows.mapped_tile_count() != 0 ||
+        xmem::XMemMapPhysicalPages(first, 1, nullptr) != nullptr ||
+        GetLastError() != ERROR_BUSY)
+        return last_error_ = E_FAIL;
+    registry_grouped_unmapping_updates_ +=
+        registry.native_unmapping_count() - second_unmap_before;
+
     last_error_ = registry.clear();
     if (FAILED(last_error_) ||
         registry.pinned_alias_count() != 0 ||
         registry.physical_heap_count() != 0 ||
         registry.used_heap_tile_count() != 0 ||
         registry.binding_count() != 0 ||
-        windows.mapped_tile_count() != 0)
+        windows.mapped_tile_count() != 0 ||
+        registry_grouped_unmapping_updates_ != 4)
         return last_error_ = FAILED(last_error_) ? last_error_ : E_FAIL;
 
     registry_batch_mapping_updates_ = registry.native_mapping_count();

@@ -73,10 +73,13 @@ with **four native mapping and four native unmapping calls** rather than
 [pinned multi-frame batch registration API](docs/GPU_PAGE_BATCH_REGISTRATION.md).
 Four genuine XMem frames and eight pinned CPU aliases are mapped into
 eight GPU VA slots with only **two native tile-mapping calls**. An RTX
-5060 Ti fixture verifies **16 different 64 KiB GPU page readbacks in four
-queue submissions**, successful mixed single/batch registration, safe
-heap-tile reuse, injected mapping-fence failure recovery and **zero leaked
-CPU pages or GPU tile mappings**. The new original [host texture-layout bridge](docs/XG_TEXTURE_LAYOUT.md)
+5060 Ti fixture now verifies **20 completed 64 KiB GPU page transfers in
+five queue submissions**, with both grouped **registration and unmapping**.
+Four-page NULL unmapping takes **two native calls instead of eight**, and
+synthetic failures after the first or second NULL update keep CPU aliases
+pinned until a real GPU fence confirms cleanup. Mixed single/batch
+registration, safe heap-tile reuse, and **zero leaked CPU pages or GPU
+tile mappings** are also verified. The new original [host texture-layout bridge](docs/XG_TEXTURE_LAYOUT.md)
 verifies RGBA8, R8, BC1, BC3 and BC5 block/pitch translation: **130 generated CPU
 subresources (211,460 bytes)** and **40 real GPU texture subresources** passed
 across mip levels and arrays. Xbox GPU page tables and XG swizzles are not translated.
