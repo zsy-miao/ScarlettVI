@@ -179,6 +179,7 @@ void usage() {
                << L"  ScarlettVI.exe gpu-page-scattered\n"
                << L"  ScarlettVI.exe gpu-texture-layout\n"
                << L"  ScarlettVI.exe gpu-texture-detile\n"
+               << L"  ScarlettVI.exe gpu-xmem-texture\n"
                << L"  ScarlettVI.exe gpu-vmem-config [3|4]\n"
                << L"\nmap is a data-only PE memory mapping/import probe; it DOES NOT execute title code.\n";
 }
@@ -919,6 +920,26 @@ int wmain(int argc, wchar_t** argv) {
                       << " Xbox XMemTransferMemory remains unsupported.\n";
             return pass ? 0 : 3;
         }
+        if (verb == L"gpu-xmem-texture") {
+            if (argc != 2) { usage(); return 2; }
+            scarlett::gpu::DeviceContext gpu;
+            const HRESULT hr = gpu.detile_host_texture_xmem_fixture();
+            std::wcout << L"ScarlettVI | owned XMem heap to real D3D12 "
+                       << L"texture detile and pinned heap writeback: "
+                       << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n"
+                       << L"GPU: " << gpu.adapter_name() << L"\n";
+            std::cout << "Generated fixtures: "
+                      << 2 * scarlett::gpu::kHostTextureFormats.size()
+                      << " | actual GPU submissions: "
+                      << gpu.submitted_commands()
+                      << " | HRESULT: 0x" << std::hex
+                      << static_cast<uint32_t>(hr) << std::dec << "\n"
+                      << "No Xbox XG descriptor/swizzle emulation or "
+                      << "native title code execution.\n";
+            return SUCCEEDED(hr) &&
+                gpu.submitted_commands() ==
+                    2 * scarlett::gpu::kHostTextureFormats.size() ? 0 : 3;
+        }
         if (verb == L"gpu-texture-detile") {
             if (argc != 2) { usage(); return 2; }
             scarlett::gpu::DeviceContext gpu;
@@ -926,8 +947,10 @@ int wmain(int argc, wchar_t** argv) {
             std::wcout << L"ScarlettVI | real DXIL GPU texture detiling: "
                        << (SUCCEEDED(hr) ? L"PASS" : L"FAIL") << L"\n"
                        << L"GPU: " << gpu.adapter_name() << L"\n";
-            std::cout << "20 synthetic D3D12 GPU submissions across"
-                      << " 5 DXGI formats, mip chains and odd dimensions"
+            std::cout << (4 * scarlett::gpu::kHostTextureFormats.size())
+                      << " synthetic D3D12 GPU submissions across "
+                      << scarlett::gpu::kHostTextureFormats.size()
+                      << " DXGI formats, mip chains and odd dimensions"
                       << " | compiled DXIL: " << gpu.detile_dxil_bytes()
                       << " bytes | submissions: " << gpu.submitted_commands()
                       << " | HRESULT: 0x" << std::hex
@@ -936,7 +959,8 @@ int wmain(int argc, wchar_t** argv) {
                       << " swizzle and NOT game shader execution.\n";
             if (FAILED(hr) && !gpu.shader_diagnostics().empty())
                 std::cerr << "DXC: " << gpu.shader_diagnostics() << "\n";
-            return SUCCEEDED(hr) && gpu.submitted_commands() == 20 ? 0 : 3;
+            return SUCCEEDED(hr) && gpu.submitted_commands() ==
+                   4 * scarlett::gpu::kHostTextureFormats.size() ? 0 : 3;
         }
         if (verb == L"gpu-texture-layout") {
             if (argc != 2) { usage(); return 2; }
@@ -950,11 +974,13 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "ScarlettVI | generated format-aware host texture layouts"
                       << " + real D3D12 texture mips: "
                       << (SUCCEEDED(hr) ? "PASS" : "FAIL") << "\n"
-                      << "Formats: R8, RGBA8, BC1, BC3, BC5"
+                      << "Formats: R8, R16F, R32F, RGBA8, RG16F, RGBA16F,"
+                      << " BC1, BC3, BC4, BC5, BC6H, BC7"
                       << " | CPU subresources: " << subresources_checked
                       << " | exact CPU decoded bytes: " << bytes_checked
                       << " | GPU subresources checked: "
-                      << (SUCCEEDED(hr) ? 40 : 0)
+                      << (SUCCEEDED(hr) ?
+                            8 * scarlett::gpu::kHostTextureFormats.size() : 0)
                       << " | GPU submissions: " << gpu.submitted_commands()
                       << " | HRESULT: 0x" << std::hex << static_cast<uint32_t>(hr)
                       << std::dec << "\n"

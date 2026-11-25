@@ -1,6 +1,7 @@
 #include "device_context.h"
 #include "dxil_compiler.h"
 #include "texture_layout.h"
+#include "../runtime/xmem_bridge.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -273,16 +274,47 @@ HRESULT DeviceContext::detile_host_texture_gpu(
     return last_error_ = S_OK;
 }
 
+HRESULT DeviceContext::detile_host_texture_xmem_heap(
+    const TextureLayout& layout, const void* tiled_source,
+    void* linear_destination) {
+    // Explicit host-only bridge for live ScarlettVI XMemAlloc allocations.
+    // Do not read either supplied address before registry validation.
+    constexpr uint64_t kMaxXMemBridgeBytes = 1024ull * 1024;
+    if (!tiled_source || !linear_destination ||
+        !layout.tiled_size() || !layout.linear_size() ||
+        layout.tiled_size() > kMaxXMemBridgeBytes ||
+        layout.linear_size() > kMaxXMemBridgeBytes ||
+        layout.subresources().empty())
+        return last_error_ = E_INVALIDARG;
+
+    std::shared_ptr<xmem::HostXMemWritePin> output;
+    const HRESULT pin_hr = xmem::pin_owned_xmem_destination(
+        linear_destination, static_cast<size_t>(layout.linear_size()), output);
+    if (FAILED(pin_hr)) return last_error_ = pin_hr;
+
+    try {
+        std::vector<uint8_t> tiled(static_cast<size_t>(layout.tiled_size()));
+        std::vector<uint8_t> linear(static_cast<size_t>(layout.linear_size()));
+        if (!xmem::snapshot_owned_xmem_allocation(
+                tiled_source, tiled.size(), tiled.data()))
+            return last_error_ = E_INVALIDARG;
+
+        // All GPU operations use private host staging bytes. Only
+        // successful fence/readback results are committed to the
+        // independently pinned output allocation.
+        const HRESULT gpu_hr = detile_host_texture_gpu(layout, tiled, linear);
+        if (FAILED(gpu_hr)) return last_error_ = gpu_hr;
+        return last_error_ = output->write(linear.data(), linear.size());
+    } catch (...) {
+        return last_error_ = E_OUTOFMEMORY;
+    }
+}
+
 HRESULT DeviceContext::detile_host_texture_gpu_fixture() {
     // Generated synthetic 8x8 host Morton layout. This test drives actual
     // HLSL -> DXIL compilation, D3D12 GPU execution, fence and readback.
-    const DXGI_FORMAT formats[]{
-        DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
-        DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC3_UNORM,
-        DXGI_FORMAT_BC5_UNORM
-    };
     uint32_t verified_cases = 0;
-    for (DXGI_FORMAT format : formats) {
+    for (DXGI_FORMAT format : kHostTextureFormats) {
         for (const auto [width, height] :
              {std::pair{1u, 1u}, std::pair{7u, 9u},
               std::pair{53u, 37u}, std::pair{129u, 65u}}) {
@@ -327,8 +359,106 @@ HRESULT DeviceContext::detile_host_texture_gpu_fixture() {
             ++verified_cases;
         }
     }
-    if (verified_cases != 20 || !detile_dxil_bytes_)
+    if (verified_cases != 4u * kHostTextureFormats.size() ||
+        !detile_dxil_bytes_)
         return last_error_ = E_FAIL;
     return last_error_ = S_OK;
 }
+HRESULT DeviceContext::detile_host_texture_xmem_fixture() {
+    // Integration: generated guest-owned heap bytes -> real D3D12 DXIL
+    // detile -> pinned guest-owned heap destination. No title assets.
+    struct HeapOwner {
+        void* pointer = nullptr;
+        ~HeapOwner() { if (pointer) xmem::XMemFree(pointer, 0); }
+    };
+    uint32_t verified = 0;
+    for (const DXGI_FORMAT format : kHostTextureFormats) {
+        for (const auto [width, height] :
+             {std::pair{1u, 1u}, std::pair{53u, 37u}}) {
+            const auto layout = TextureLayout::build({
+                width, height, width == 1 ? 1u : 4u, 2u, format});
+            if (!layout || layout->tiled_size() > 1024 * 1024 ||
+                layout->linear_size() > 1024 * 1024)
+                return last_error_ = E_FAIL;
+            std::vector<uint8_t> linear(layout->linear_size());
+            std::vector<uint8_t> tiled(layout->tiled_size());
+            for (size_t i = 0; i < linear.size(); ++i)
+                linear[i] = static_cast<uint8_t>(
+                    (i * 79u + (i >> 4) * 13u + uint32_t(format) +
+                     width * 11u) & 255u);
+            if (!layout->swizzle(linear, tiled))
+                return last_error_ = E_FAIL;
+
+            HeapOwner source{xmem::XMemAlloc(tiled.size() + 32, 0)};
+            HeapOwner destination{xmem::XMemAlloc(linear.size() + 48, 0)};
+            if (!source.pointer || !destination.pointer)
+                return last_error_ = E_OUTOFMEMORY;
+            auto* source_bytes = static_cast<uint8_t*>(source.pointer) + 13;
+            auto* dest_bytes = static_cast<uint8_t*>(destination.pointer) + 16;
+            std::memcpy(source_bytes, tiled.data(), tiled.size());
+            std::memset(destination.pointer, 0xa3, linear.size() + 48);
+            const uint64_t before_dispatch = submitted_;
+            const size_t before_pins = xmem::active_xmem_write_pin_count();
+
+            // Foreign source/destination pointers are never dereferenced.
+            if (detile_host_texture_xmem_heap(
+                    *layout, reinterpret_cast<void*>(uintptr_t{0x1234}),
+                    dest_bytes) != E_INVALIDARG ||
+                SUCCEEDED(detile_host_texture_xmem_heap(
+                    *layout, source_bytes,
+                    reinterpret_cast<void*>(uintptr_t{0x3456}))) ||
+                submitted_ != before_dispatch ||
+                xmem::active_xmem_write_pin_count() != before_pins ||
+                !std::all_of(dest_bytes, dest_bytes + linear.size(),
+                    [](uint8_t x) { return x == 0xa3; }))
+                return last_error_ = E_FAIL;
+
+            std::shared_ptr<xmem::HostXMemWritePin> retained;
+            if (xmem::pin_owned_xmem_destination(
+                    dest_bytes, linear.size(), retained) != S_OK ||
+                xmem::active_xmem_write_pin_count() != before_pins + 1)
+                return last_error_ = E_FAIL;
+
+            last_error_ = detile_host_texture_xmem_heap(
+                *layout, source_bytes, dest_bytes);
+            if (FAILED(last_error_) ||
+                submitted_ != before_dispatch + 1 ||
+                xmem::active_xmem_write_pin_count() != before_pins + 1 ||
+                !std::equal(linear.begin(), linear.end(), dest_bytes))
+                return last_error_ = E_FAIL;
+            const auto* canaries = static_cast<const uint8_t*>(
+                destination.pointer);
+            if (!std::all_of(canaries, canaries + 16,
+                    [](uint8_t c) { return c == 0xa3; }) ||
+                !std::all_of(canaries + 16 + linear.size(),
+                             canaries + linear.size() + 48,
+                    [](uint8_t c) { return c == 0xa3; }))
+                return last_error_ = E_FAIL;
+            // A caller cannot release output while an independent pin
+            // remains, even after our internal synchronous pin retires.
+            SetLastError(ERROR_SUCCESS);
+            xmem::XMemFree(destination.pointer, 0);
+            if (GetLastError() != ERROR_BUSY)
+                return last_error_ = E_FAIL;
+            retained.reset();
+            if (xmem::active_xmem_write_pin_count() != before_pins)
+                return last_error_ = E_FAIL;
+            ++verified;
+        }
+    }
+    // Oversize output is rejected without touching guest memory, or
+    // issuing GPU work. That limit is a deliberate host policy.
+    const auto oversize = TextureLayout::build({
+        2048, 2048, 1, 1, DXGI_FORMAT_R8_UNORM});
+    const uint64_t previous = submitted_;
+    if (!oversize ||
+        detile_host_texture_xmem_heap(
+            *oversize, reinterpret_cast<const void*>(uintptr_t{0x1234}),
+            reinterpret_cast<void*>(uintptr_t{0x3456})) != E_INVALIDARG ||
+        submitted_ != previous ||
+        verified != 2u * kHostTextureFormats.size())
+        return last_error_ = E_FAIL;
+    return last_error_ = S_OK;
+}
+
 } // namespace scarlett::gpu

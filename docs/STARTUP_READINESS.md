@@ -132,8 +132,11 @@ Measured working address bindings:
   Xbox page tables, tiling and CPU/GPU coherency remain unsupported.
   Native host [D3D12 tile backing](GPU_TILES.md) and the new
   [GPU-executed host texture detiler](GPU_TEXTURE_DETILE.md) are tested
-  separately; neither binds additional Xbox imports or reproduces XG
-  console texture swizzling
+  separately. Its 12 DXGI host formats now include BC6H/BC7/HDR; the
+  [XMem-owned GPU texture bridge](GPU_XMEM_TEXTURE_BRIDGE.md) also tests
+  24 real XMemAlloc-input to pinned-XMemAlloc-output GPU conversions.
+  None of these bind additional Xbox imports or reproduce actual Xbox
+  XG console texture swizzling
 
 A [public compatibility-project comparison](PUBLIC_COMPATIBILITY_RESEARCH.md)
 identifies additional implementation work and licenses to review. The

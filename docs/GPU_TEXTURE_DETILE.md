@@ -1,52 +1,90 @@
 # GPU-executed host texture detiling through DXIL
 
-**Status: real, reusable Windows D3D12 GPU compute conversion.** The original ScarlettVI 8×8 Morton host-only tiled format can now be deswizzled into linear, block-compressed or uncompressed texture data on the actual GPU. This is **not** the Xbox Series X|S XG swizzle, RDNA2 texture address algorithm, guest descriptor ABI, or a bound xg_xs.dll import.
+**State: 12 DXGI host formats, real D3D12 GPU execution, tested.**
+The original ScarlettVI 8 x 8 Morton microtile layout can be converted to
+linear texture bytes by a reusable Shader Model 6 DXIL compute pipeline.
+**This is not the Xbox Series X|S XG swizzle, RDNA2 texture address
+algorithm, guest COM ABI, or guest shader translation.** Actual XG
+imports are linked as [error-only functions](XG_IMPORT_FAILURE_BRIDGE.md).
 
-## Why this is a useful runtime component
+## Actual implementation
 
-Before this milestone, TextureLayout::deswizzle() performed host microtile conversion entirely on the CPU, while separately the D3D12 backend could upload/download native textures and compile original compute shaders. The missing link was a reusable GPU conversion routine with mip/layer layout validation, byte-addressed block handling, robust interleaving of R8 and BC mips, and a fence-verified readback path.
+`DeviceContext::detile_host_texture_gpu()` performs real GPU work:
 
-The original implementation in src/gpu/gpu_texture_detiler.cpp adds:
+1. Validate per-mip and per-array layout offsets, buffer sizes and
+   non-overlap, with a **32 MiB** per-call host staging cap.
+2. Compile the original byte-addressed HLSL compute shader to DXIL.
+   Cache its D3D12 root signature and compute pipeline in the
+   persistent `DeviceContext`.
+3. Upload the encoded host microtiles to a real D3D12 buffer.
+   The shader computes Morton microtile addresses for each output
+   element byte and writes packed, DWORD-aligned GPU output.
+4. Give each mip and array slice a separate padded output region.
+   This prevents an odd-length R8/R16 linear mip tail from
+   overwriting the next slice.
+5. Submit the real GPU command list, wait for its fence, map the
+   independent readback buffer and copy **only valid output bytes**
+   into the caller's storage.
 
-    HRESULT DeviceContext::detile_host_texture_gpu(
-        const TextureLayout& layout,
-        std::span<const uint8_t> tiled,
-        std::span<uint8_t> linear);
+Any rejected input or failed GPU step returns an HRESULT without
+fabricating successful data or partially modifying the caller's
+output. BC formats are copied as **opaque 8/16-byte compressed blocks**;
+they are not decoded or recompressed by this converter.
 
-It is an actual D3D12 execution path: DXC builds original Shader Model 6 HLSL into DXIL; ScarlettVI creates a compute root signature and pipeline, uploads source microtiles to a CPU-visible buffer, dispatches a ByteAddressBuffer-to-RWByteAddressBuffer conversion on a default-heap GPU buffer, transitions it to COPY_SOURCE, copies to a readback resource, fences the queue, and copies sized subresources into the caller's linear output.
+The original `TextureLayout::swizzle/deswizzle` CPU reference
+and `DeviceContext::texture_layout_gpu_test` use the same
+`host_texture_format_info()` metadata from `texture_layout.cpp`,
+so the three pipelines cannot accidentally diverge on block sizes.
 
-The pipeline is cached in the persistent DeviceContext; data buffers are independent per invocation. All five supported TextureLayout format families work, including native BCn blocks treated as opaque bytes rather than decoded/recompressed pixels.
+## Host DXGI format coverage
 
-## Correct handling of subresource boundaries
-
-The host CPU texture layout packs linear mip subresources tightly. In particular, an R8 mip can end after an odd number of bytes. A GPU ByteAddressBuffer stores 32-bit aligned words, so writing a word at such an offset could overwrite the first bytes of a different subresource. Instead, ScarlettVI creates **separate DWORD-aligned GPU output segments per mip/layer**, pads the final partial DWORD, and copies back only the subresource's original valid length into tightly packed caller storage.
-
-Each GPU thread reconstructs one 32-bit word from up to four source bytes. For every byte, the shader computes block coordinates, locates its Morton microtile, loads a four-byte aligned source word, extracts the chosen byte, and assembles the final aligned output DWORD. A bounds check prevents reading beyond the subresource's valid linear bytes. This works for 1-byte R8 texels and 4/8/16-byte RGBA/BC blocks without assuming texture elements have four-byte alignment in the linear output.
-
-The conversion rejects wrong source/destination sizes, overlapping input and output, missing layouts, unsupported or oversized staging requests, and mip offsets beyond source/output buffer extents. The limit is **32 MiB GPU staging per invocation**, a conservative host safety cap, not an Xbox format limit.
-
-The GPU result is not copied into caller output until **after fence completion and successful readback mapping**. Invalid arguments do not submit work and do not touch caller output. Failures are returned as HRESULTs, not masked by fake success. The existing CPU TextureLayout converter remains available for staging and reference checks.
-
-## Actual GPU regression
-
-    .\build\x64\Release\ScarlettVI.exe gpu-texture-detile
-
-The original fixture creates generated bytes and layouts for five supported DXGI formats:
-
-| Tested host texture format | Bytes per element | Element extent |
+| Format family | Element bytes | Texel extent |
 | --- | ---: | --- |
-| R8_UNORM | 1 | 1×1 pixel |
-| R8G8B8A8_UNORM | 4 | 1×1 pixel |
-| BC1_UNORM | 8 | 4×4 pixels |
-| BC3_UNORM | 16 | 4×4 pixels |
-| BC5_UNORM | 16 | 4×4 pixels |
+| R8_UNORM | 1 | 1 x 1 |
+| R16_FLOAT | 2 | 1 x 1 |
+| R32_FLOAT | 4 | 1 x 1 |
+| R8G8B8A8_UNORM | 4 | 1 x 1 |
+| R16G16_FLOAT | 4 | 1 x 1 |
+| R16G16B16A16_FLOAT | 8 | 1 x 1 |
+| BC1_UNORM, BC4_UNORM | 8 | 4 x 4 |
+| BC3_UNORM, BC5_UNORM, BC6H_UF16, BC7_UNORM | 16 | 4 x 4 |
 
-It exercises **20 real GPU submissions** across four dimensions per format, including 1×1 textures and odd dimensions 7×9, 53×37 and 129×65; up to four mips and two array layers per image. Each case uses independently generated source bytes, converts them to the original host Morton layout with the tested CPU code, runs DXIL detiling **on the GPU**, and compares **every returned byte** to expected linear values. Caller buffer canaries remain unchanged. Invalid or undersized spans are rejected without GPU submissions or output modifications.
+These are ordinary Windows DXGI formats. They are not Xbox-specific
+resource descriptors or XG layout/swizzle mode enumerations.
 
-**Observed Windows host:** NVIDIA GeForce RTX 5060 Ti. DXC returned **4,296 bytes** of compiled DXIL; all **20 GPU dispatch submissions** completed, full byte-for-byte readback checks passed and HRESULT was S_OK.
+## Verified host GPU tests
 
-## What this does not solve
+```powershell
+.\build\x64\Release\ScarlettVI.exe gpu-texture-layout
+.\build\x64\Release\ScarlettVI.exe gpu-texture-detile
+.\build\x64\Release\ScarlettVI.exe gpu-xmem-texture
+```
 
-The two xg_xs.dll imports (XGCreateTextureComputer and XGSuggestSwizzleMode) remain **unresolved**. The actual Xbox swizzle mode, address function, resource descriptor flags and texture-computer object/vtable semantics have not been independently established by read-only callsite research. Do not expose the host Morton converter as if it were one of those guest APIs. GPU shader ISA lowering, console texture address metadata, DirectStorage streaming, GPU virtual address coherency and real title frame presentation are also missing. No title code or game DLL initializer is executed.
+On the tested NVIDIA GeForce RTX 5060 Ti:
 
-This provides a proven **GPU-hosted data rearrangement and readback pipeline** to reuse when correct guest texture addressing becomes available. The game's readiness remains at **9 unresolved Xbox imports**, and TITLE EXECUTION: BLOCKED.
+- The CPU layout fixture verifies **312 subresources** and
+  **779,692 generated bytes** of exact round-trip data.
+- The D3D12 texture upload/readback fixture verifies **96 native
+  texture subresources** across **12 real GPU copy submissions**.
+- The cached DXIL detiler completed **48 actual GPU dispatch
+  submissions**, using 1x1, 7x9, 53x37 and 129x65 test dimensions,
+  mip chains and two array layers. DXIL code was **4,296 bytes**.
+- The [XMem-owned GPU texture bridge](GPU_XMEM_TEXTURE_BRIDGE.md)
+  completed **24 additional real GPU submissions** taking bounded
+  XMemAlloc source data into private GPU staging and writing the
+  verified results into lifetime-pinned XMemAlloc buffers.
+
+The fixtures verify byte-for-byte results, invalid sizes, mismatched
+spans, overlapping buffers and untouched output canaries. They use
+independently generated test data, never title shaders or assets.
+
+## Remaining blockers
+
+To implement real Xbox XG and D3D12_XS behavior, the project still needs
+verified Xbox resource descriptor layouts, texture computer object
+vtable and lifetime rules, actual RDNA2 swizzle equations, supported
+Xbox swizzle-mode enumerations, shader ISA/metadata translation,
+command queue/resource ABI translation and frame presentation.
+Native game DLL initialization, system services and actual streaming
+also remain unimplemented. **Zero unresolved import addresses does
+not mean successful title startup. TITLE EXECUTION: BLOCKED.**

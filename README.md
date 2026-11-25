@@ -250,15 +250,16 @@ produced **24 verified GPU page transfers across three submissions**;
 third-run mapping-fence fault injection and partial-unmap recovery both
 released all CPU pins and GPU tile mappings. The new original
 [host texture-layout bridge](docs/XG_TEXTURE_LAYOUT.md)
-verifies RGBA8, R8, BC1, BC3 and BC5 block/pitch translation: **130 generated CPU
-subresources (211,460 bytes)** and **40 real GPU texture subresources** passed
-across mip levels and arrays. The new
-[real GPU texture detiler](docs/GPU_TEXTURE_DETILE.md) compiles original
-DXIL compute, converts the synthetic 8×8 host Morton layout into linear
-textures on the RTX 5060 Ti, and verifies every returned byte across
-**20 GPU submissions**, five DXGI formats and odd-sized mip chains. This
-is a reusable GPU data-path component, not Xbox XG swizzle or RDNA2
-guest shader translation. Xbox GPU page tables and XG APIs remain incomplete.
+now supports **12 DXGI host formats**, including BC4/BC6H/BC7
+and 16/32-bit floating-point textures: **312 generated CPU
+subresources** (779,692 bytes) and **96 real D3D12 texture subresources**
+passed byte-for-byte checks. The [real GPU detiler](docs/GPU_TEXTURE_DETILE.md)
+ran **48 DXIL compute submissions** on the RTX 5060 Ti. The new
+[XMem-owned GPU texture bridge](docs/GPU_XMEM_TEXTURE_BRIDGE.md)
+adds **24 real XMemAlloc-to-GPU-to-pinned-XMemAlloc conversions**
+with ownership validation, canaries and pin-safe writes. These
+are host GPU data-path components, **not** Xbox XG/RDNA2 texture
+swizzling, genuine console GPU commands or game frame rendering.
 The original [XMem-to-sparse-GPU staging test](docs/XMEM_GPU_STAGING.md)
 now uses a reusable [GpuPageStager host API](docs/GPU_PAGE_STAGER.md) to
 transfer **three different 64 KiB payloads** through real sparse GPU tiles
@@ -315,6 +316,7 @@ msbuild ScarlettVI.sln /p:Configuration=Release /p:Platform=x64
 .\build\x64\Release\ScarlettVI.exe gpu-texture-shader
 .\build\x64\Release\ScarlettVI.exe gpu-texture-layout
 .\build\x64\Release\ScarlettVI.exe gpu-texture-detile
+.\build\x64\Release\ScarlettVI.exe gpu-xmem-texture
 .\build\x64\Release\ScarlettVI.exe gpu-memory-bridge
 .\build\x64\Release\ScarlettVI.exe gpu-device11
 .\build\x64\Release\ScarlettVI.exe gpu-device-factory

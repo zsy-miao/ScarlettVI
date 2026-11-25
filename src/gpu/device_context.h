@@ -61,6 +61,13 @@ public:
                                    std::span<const uint8_t> tiled,
                                    std::span<uint8_t> linear);
     HRESULT detile_host_texture_gpu_fixture();
+    // Owned, bounded XMemAlloc input and pinned XMemAlloc output bridge
+    // around the real host DXIL texture detiler. Never reads an arbitrary
+    // raw guest pointer. Still synthetic host Morton, NOT Xbox XG.
+    HRESULT detile_host_texture_xmem_heap(
+        const TextureLayout& layout, const void* tiled_source,
+        void* linear_destination);
+    HRESULT detile_host_texture_xmem_fixture();
     uint32_t detile_dxil_bytes() const noexcept { return detile_dxil_bytes_; }
     HRESULT compute_dispatch_test(uint32_t seed);
     HRESULT texture_shader_test();

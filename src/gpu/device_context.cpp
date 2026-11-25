@@ -199,22 +199,17 @@ HRESULT DeviceContext::texture_layout_gpu_test() {
         if (FAILED(last_error_)) return last_error_;
     }
 
-    constexpr DXGI_FORMAT formats[]{
-        DXGI_FORMAT_R8_UNORM,
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        DXGI_FORMAT_BC1_UNORM,
-        DXGI_FORMAT_BC3_UNORM,
-        DXGI_FORMAT_BC5_UNORM
-    };
     constexpr UINT kLayers = 2;
     constexpr UINT kMips = 4;
     constexpr UINT kSubresources = kLayers * kMips;
-    for (const auto format : formats) {
+    for (const auto format : kHostTextureFormats) {
         // BC top-level dimensions are block aligned for native D3D12. The
         // smaller mip levels still exercise partial final compression blocks.
-        const bool compressed = format == DXGI_FORMAT_BC1_UNORM ||
-                                format == DXGI_FORMAT_BC3_UNORM ||
-                                format == DXGI_FORMAT_BC5_UNORM;
+        const auto info = host_texture_format_info(format);
+        const bool compressed = info.block_extent == 4;
+        if (!info.block_bytes || (info.block_extent != 1 &&
+                                  info.block_extent != 4))
+            return last_error_ = E_INVALIDARG;
         const TextureDescription shape{
             compressed ? 76u : 73u, compressed ? 48u : 45u,
             kMips, kLayers, format

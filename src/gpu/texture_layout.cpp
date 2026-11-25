@@ -6,18 +6,24 @@
 #include <utility>
 
 namespace scarlett::gpu {
-namespace {
-struct FormatInfo { uint32_t block_extent, block_bytes; };
-constexpr FormatInfo format_info(DXGI_FORMAT format) {
+HostTextureFormatInfo host_texture_format_info(DXGI_FORMAT format) noexcept {
     switch (format) {
     case DXGI_FORMAT_R8_UNORM: return {1, 1};
+    case DXGI_FORMAT_R16_FLOAT: return {1, 2};
+    case DXGI_FORMAT_R32_FLOAT: return {1, 4};
     case DXGI_FORMAT_R8G8B8A8_UNORM: return {1, 4};
-    case DXGI_FORMAT_BC1_UNORM: return {4, 8};
+    case DXGI_FORMAT_R16G16_FLOAT: return {1, 4};
+    case DXGI_FORMAT_R16G16B16A16_FLOAT: return {1, 8};
+    case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC4_UNORM: return {4, 8};
     case DXGI_FORMAT_BC3_UNORM:
-    case DXGI_FORMAT_BC5_UNORM: return {4, 16};
+    case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC6H_UF16:
+    case DXGI_FORMAT_BC7_UNORM: return {4, 16};
     default: return {0, 0};
     }
 }
+namespace {
 // Conventional 3-bit Morton encoding, used solely as an ORIGINAL synthetic
 // tiling fixture. Does not reproduce the Xbox hardware's XG swizzle.
 constexpr uint32_t morton8(uint32_t x, uint32_t y) {
@@ -40,7 +46,7 @@ uint64_t block_offset(uint32_t x, uint32_t y, const TextureSubresource& s) {
 std::optional<TextureLayout> TextureLayout::build(
     const TextureDescription& description) noexcept {
     constexpr uint64_t kMaxBytes = 256ull * 1024 * 1024;
-    const FormatInfo format = format_info(description.format);
+    const HostTextureFormatInfo format = host_texture_format_info(description.format);
     if (!format.block_bytes || !description.width || !description.height ||
         description.width > 16384 || description.height > 16384 ||
         !description.array_layers || description.array_layers > 16 ||
@@ -138,11 +144,7 @@ bool verify_texture_layout_fixtures(uint64_t* checked_bytes,
                                     uint32_t* checked_subresources) {
     if (checked_bytes) *checked_bytes = 0;
     if (checked_subresources) *checked_subresources = 0;
-    const DXGI_FORMAT formats[]{
-        DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
-        DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_BC5_UNORM
-    };
-    for (const auto format : formats) {
+    for (const auto format : kHostTextureFormats) {
         for (auto [width, height] :
              {std::pair{1u, 1u}, std::pair{7u, 9u},
               std::pair{53u, 37u}, std::pair{129u, 65u}}) {
@@ -180,6 +182,15 @@ bool verify_texture_layout_fixtures(uint64_t* checked_bytes,
             if (checked_subresources)
                 *checked_subresources += static_cast<uint32_t>(layout->subresources().size());
         }
+    }
+    if (host_texture_format_info(DXGI_FORMAT_UNKNOWN).block_bytes != 0 ||
+        host_texture_format_info(DXGI_FORMAT_D32_FLOAT).block_bytes != 0)
+        return false;
+    for (const auto format : kHostTextureFormats) {
+        const auto info = host_texture_format_info(format);
+        if (!info.block_bytes || (info.block_extent != 1 &&
+                                  info.block_extent != 4))
+            return false;
     }
     return !TextureLayout::build({0, 4, 1, 1, DXGI_FORMAT_R8_UNORM}) &&
            !TextureLayout::build({64, 64, 1, 1, DXGI_FORMAT_UNKNOWN}) &&

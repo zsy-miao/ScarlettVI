@@ -1,5 +1,6 @@
 #pragma once
 #include <dxgiformat.h>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -7,6 +8,28 @@
 #include <vector>
 
 namespace scarlett::gpu {
+
+// Host DXGI texture elements, with block-compressed elements treated as
+// opaque 4x4 byte blocks. No Xbox XG format codes are implied.
+struct HostTextureFormatInfo {
+    uint32_t block_extent = 0;
+    uint32_t block_bytes = 0;
+};
+HostTextureFormatInfo host_texture_format_info(DXGI_FORMAT format) noexcept;
+inline constexpr std::array<DXGI_FORMAT, 12> kHostTextureFormats{
+    DXGI_FORMAT_R8_UNORM,
+    DXGI_FORMAT_R16_FLOAT,
+    DXGI_FORMAT_R32_FLOAT,
+    DXGI_FORMAT_R8G8B8A8_UNORM,
+    DXGI_FORMAT_R16G16B16A16_FLOAT,
+    DXGI_FORMAT_BC1_UNORM,
+    DXGI_FORMAT_BC3_UNORM,
+    DXGI_FORMAT_BC4_UNORM,
+    DXGI_FORMAT_BC5_UNORM,
+    DXGI_FORMAT_BC6H_UF16,
+    DXGI_FORMAT_BC7_UNORM,
+    DXGI_FORMAT_R16G16_FLOAT
+};
 
 // Original *host* texture-layout intermediary. Microtile order is a
 // deterministic 8x8 Morton address, NOT the Xbox XG swizzle algorithm.
