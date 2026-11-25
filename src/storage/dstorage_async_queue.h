@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace scarlett::storage {
+struct HostDStorageStatusArrayX;
 
 // Entirely HOST-ONLY request format. This is NOT a DSTORAGE_REQUEST,
 // not a guest COM IDStorageQueueX, and never exposed to the title.
@@ -54,6 +55,11 @@ public:
 
     // Hold work without touching a file until submit_pending() commits it.
     HRESULT enqueue(const HostFileReadRequest& request) noexcept;
+    // Host-only FIFO status barrier. It is NOT IDStorageQueueX::EnqueueStatus;
+    // the worker finishes it with the first real preceding read error.
+    HRESULT enqueue_status(uint64_t token,
+                           HostDStorageStatusArrayX* status,
+                           uint32_t index) noexcept;
     // Commit all held work in FIFO order; no allocation or blocking I/O.
     // Returns the number of newly committed host requests.
     size_t submit_pending() noexcept;
@@ -78,11 +84,14 @@ private:
                                 SubmitPolicy policy);
     struct Job {
         HostFileReadRequest request;
+        HostDStorageStatusArrayX* status = nullptr;
+        uint32_t status_index = 0;
         HostFileReadCompletion result;
         bool ready = false;
     };
     HRESULT admit(const HostFileReadRequest& request,
-                  bool staged) noexcept;
+                  bool staged, HostDStorageStatusArrayX* status = nullptr,
+                  uint32_t status_index = 0) noexcept;
     void run() noexcept;
     HostFileReadCompletion execute(
         const HostFileReadRequest& request, uint64_t sequence) noexcept;
@@ -103,6 +112,7 @@ private:
     std::thread worker_;
     uint64_t reserved_bytes_ = 0;
     uint64_t next_sequence_ = 1;
+    HRESULT first_unreported_failure_ = S_OK;
     bool stopped_ = false;
     bool leased_ = false;
 };

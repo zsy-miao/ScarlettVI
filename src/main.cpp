@@ -31,6 +31,7 @@
 #include "runtime/xmem_query.h"
 #include "storage/dstorage_factory_host.h"
 #include "storage/dstorage_async_queue.h"
+#include "storage/dstorage_status_host.h"
 #include <Windows.h>
 #include <algorithm>
 #include <array>
@@ -135,6 +136,7 @@ void usage() {
                << L"  ScarlettVI.exe storage-factory-fixture\n"
                << L"  ScarlettVI.exe storage-async-fixture\n"
                << L"  ScarlettVI.exe storage-submit-fixture\n"
+               << L"  ScarlettVI.exe storage-status-fixture\n"
                << L"  ScarlettVI.exe audio-memory-fixture\n"
                << L"  ScarlettVI.exe audio-address-fixture\n"
                << L"  ScarlettVI.exe audio-shape-fixture\n"
@@ -176,6 +178,17 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { usage(); return 0; }
     try {
         const std::wstring verb = argv[1];
+        if (verb == L"storage-status-fixture") {
+            if (argc != 2) { usage(); return 2; }
+            const bool passed =
+                scarlett::storage::verify_dstorage_status_array_fixture();
+            std::cout << "ScarlettVI | guest IID DirectStorage status-array "
+                      << "and real host read barriers: "
+                      << (passed ? "PASS" : "FAIL")
+                      << "\nCOM GetHResult/IsComplete + host completion ownership;"
+                      << " guest queue/file and game asset streaming remain blocked.\n";
+            return passed ? 0 : 3;
+        }
         if (verb == L"storage-submit-fixture") {
             if (argc != 2) { usage(); return 2; }
             const bool passed =

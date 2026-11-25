@@ -70,7 +70,10 @@ console code, keys or proprietary binary libraries belong in this repository.
   real bounded generated-file reads with FIFO completion and prevents
   staging resizing while alive. A [host-only enqueue/submit gate](XBOX_DSTORAGE_SUBMIT_GATE.md)
   now holds work until explicitly committed or until 32 requests are
-  enqueued in the automatic mode. Xbox guest COM queues, game file/asset
+  enqueued in the automatic mode. A separate [real guest-IID status
+  array](XBOX_DSTORAGE_STATUS_ARRAY.md) now uses the corrected factory
+  `+0x28` method and receives real S_OK/first-failure results from
+  host-only FIFO barriers. Xbox guest COM queues, game file/asset
   streaming, decompression and guest completions remain missing.
   [VIctory/ztrx research](VICTORY_REFERENCE_NOTES.md) exposes the major
   loader/shader/streaming gap relative to self-reported runnable ports.

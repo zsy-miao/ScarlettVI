@@ -13,18 +13,27 @@ namespace scarlett::storage {
 inline constexpr GUID kObservedXboxDStorageFactoryIid{
     0x62959d11, 0xd45f, 0x4884,
     {0xa0,0xa3,0xf7,0x86,0x2e,0xa2,0x43,0xae}};
+inline constexpr GUID kObservedXboxDStorageFileIid{
+    0x43704f9f, 0x27c6, 0x4a9f,
+    {0x88,0x15,0xd1,0x65,0x27,0x89,0x4d,0xf4}};
+inline constexpr GUID kObservedXboxDStorageQueueIid{
+    0x3c02cb0c, 0xc050, 0x4195,
+    {0x99,0xa1,0xa1,0xce,0x94,0xba,0x33,0xc5}};
 inline constexpr uint32_t kDefaultStagingBytes = 32u * 1024 * 1024;
 
-// Public Xbox method ordering (IUnknown + IDStorageFactoryX 6,
+// Verified game CALLSITE order (IUnknown + IDStorageFactoryX 6,
 // IDStorageFactoryX1 GetStats, IDStorageFactoryX2 CreateQueue1).
 // Unknown queue/file descriptor layouts are NEVER read by this class.
 struct HostDStorageFactoryX2 : public IUnknown {
     virtual HRESULT STDMETHODCALLTYPE CreateQueue(
         const void* desc, REFIID iid, void** output) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE CreateStatusArray(
-        uint32_t capacity, const char* name, REFIID iid, void** output) noexcept = 0;
+    // Original title independently verifies OpenFile at +0x20
+    // (path, REFIID, out) and CreateStatusArray at +0x28
+    // (capacity, debug name, REFIID, out), NOT alphabetical order.
     virtual HRESULT STDMETHODCALLTYPE OpenFile(
         const wchar_t* path, REFIID iid, void** output) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE CreateStatusArray(
+        uint32_t capacity, const char* name, REFIID iid, void** output) noexcept = 0;
     virtual HRESULT STDMETHODCALLTYPE SetCpuAffinity(uint64_t affinity) noexcept = 0;
     virtual void STDMETHODCALLTYPE SetDebugFlags(uint32_t flags) noexcept = 0;
     virtual HRESULT STDMETHODCALLTYPE SetStagingBufferSize(uint32_t bytes) noexcept = 0;

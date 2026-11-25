@@ -93,8 +93,8 @@ bool verify_dstorage_factory_fixture() noexcept {
                 return false;
         }
 
-        // Unimplemented guest file and queue interfaces fail explicitly;
-        // no Xbox title or PC DirectStorage factory is ever forwarded.
+        // Guest file/queue calls fail explicitly; the independently
+        // verified status-array interface now has real COM state.
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
         if (owned.object->CreateQueue(
                 nullptr, invalid, &out) != E_NOTIMPL || out)
@@ -105,7 +105,7 @@ bool verify_dstorage_factory_fixture() noexcept {
             return false;
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
         if (owned.object->CreateStatusArray(
-                4, "generated", invalid, &out) != E_NOTIMPL || out)
+                4, "generated", invalid, &out) != E_NOINTERFACE || out)
             return false;
         out = reinterpret_cast<void*>(uintptr_t{0x1234});
         if (owned.object->OpenFile(

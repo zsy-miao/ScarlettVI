@@ -20,11 +20,14 @@ The existing `HostAsyncFileQueue` in `src/storage/dstorage_async_queue.{h,cpp}` 
 - The existing `shutdown()` now cancels **both** held and runnable requests; an already-running Win32 read may finish, then the worker joins. All accepted request tokens can be retired through the normal result API.
 - The worker has access only to the runnable FIFO. The two FIFOs use C++ `std::list::splice`, which transfers existing nodes under a lock without allocation, so batch commits are not vulnerable to partially applied heap failures.
 
+A subsequent [guest-IID status array](XBOX_DSTORAGE_STATUS_ARRAY.md) now accepts host-only queued status markers. Each marker follows the same explicit/automatic commit rules and completes with the *first real preceding read failure* since the last marker. The marker and its status COM reference are owned until retirement; no guest EnqueueStatus method is exposed.
+
 The original restricted-file-leaf validation, non-reparse root/file policy, exact-length Win32 reads, failure-only missing/EOF completions, data ownership and factory staging lease all remain in force. Existing immediate-submit programs retain their working behavior.
 
 ## New real generated fixture
 
     .\build\x64\Release\ScarlettVI.exe storage-submit-fixture
+    .\build\x64\Release\ScarlettVI.exe storage-status-fixture
     .\build\x64\Release\ScarlettVI.exe storage-async-fixture
     .\build\x64\Release\ScarlettVI.exe storage-factory-fixture
 

@@ -1,5 +1,6 @@
 #include "dstorage_async_queue.h"
 #include "dstorage_factory_host.h"
+#include "dstorage_status_host.h"
 #include <algorithm>
 #include <chrono>
 #include <cwctype>
@@ -67,6 +68,11 @@ HRESULT HostAsyncFileQueue::create(
 
 HostAsyncFileQueue::~HostAsyncFileQueue() noexcept {
     shutdown();
+    // Worker has joined; release marker-held COM references for any
+    // unconsumed completions before the host staging lease is returned.
+    for (auto& [token, job] : jobs_)
+        if (job.status) job.status->Release();
+    jobs_.clear();
     if (leased_) {
         release_host_dstorage_queue_lease();
         leased_ = false;
@@ -103,11 +109,16 @@ bool HostAsyncFileQueue::allowed_leaf(
 }
 
 HRESULT HostAsyncFileQueue::admit(
-    const HostFileReadRequest& request, bool staged) noexcept {
-    if (!request.token || !allowed_leaf(request.filename) ||
-        request.offset > static_cast<uint64_t>(
-            std::numeric_limits<int64_t>::max()) ||
-        !request.bytes || request.bytes > kMaxReadBytes)
+    const HostFileReadRequest& request, bool staged,
+    HostDStorageStatusArrayX* status, uint32_t status_index) noexcept {
+    if (!request.token) return E_INVALIDARG;
+    if (status) {
+        if (!staged || !request.filename.empty() ||
+            request.offset || request.bytes) return E_INVALIDARG;
+    } else if (!allowed_leaf(request.filename) ||
+               request.offset > static_cast<uint64_t>(
+                   std::numeric_limits<int64_t>::max()) ||
+               !request.bytes || request.bytes > kMaxReadBytes)
         return E_INVALIDARG;
     try {
         const std::lock_guard lock(mutex_);
@@ -120,6 +131,8 @@ HRESULT HostAsyncFileQueue::admit(
 
         Job job;
         job.request = request; // copy guest-independent host leaf
+        job.status = status;
+        job.status_index = status_index;
         job.result.token = request.token;
         job.result.sequence = next_sequence_;
         const auto [it, inserted] =
@@ -135,6 +148,20 @@ HRESULT HostAsyncFileQueue::admit(
         } catch (...) {
             jobs_.erase(it);
             throw;
+        }
+        if (status) {
+            // Begin while queue admission is locked, before the worker
+            // can see a committed marker. Failure rolls back insertion
+            // and doesn't change sequence or resource quotas.
+            const HRESULT status_hr = begin_host_dstorage_status(
+                status, status_index);
+            if (FAILED(status_hr)) {
+                if (staged) pending_.pop_back();
+                else fifo_.pop_back();
+                jobs_.erase(it);
+                return status_hr;
+            }
+            status->AddRef();
         }
         ++next_sequence_;
         reserved_bytes_ += request.bytes;
@@ -159,6 +186,12 @@ HRESULT HostAsyncFileQueue::admit(
 HRESULT HostAsyncFileQueue::enqueue(
     const HostFileReadRequest& request) noexcept {
     return admit(request, true);
+}
+HRESULT HostAsyncFileQueue::enqueue_status(
+    uint64_t token, HostDStorageStatusArrayX* status,
+    uint32_t index) noexcept {
+    if (!status) return E_POINTER;
+    return admit({token, L"", 0, 0}, true, status, index);
 }
 HRESULT HostAsyncFileQueue::submit(
     const HostFileReadRequest& request) noexcept {
@@ -187,6 +220,11 @@ HRESULT HostAsyncFileQueue::cancel_unsubmitted(
     pending_.erase(pending);
     job->second.result.status = kIoCancelled;
     job->second.result.data.clear();
+    if (job->second.status) {
+        (void)finish_host_dstorage_status(job->second.status,
+                                          job->second.status_index,
+                                          kIoCancelled);
+    }
     job->second.ready = true;
     ready_.notify_all();
     return S_OK;
@@ -277,6 +315,8 @@ void HostAsyncFileQueue::run() noexcept {
         uint64_t token = 0;
         HostFileReadRequest request;
         uint64_t sequence = 0;
+        HostDStorageStatusArrayX* status = nullptr;
+        uint32_t status_index = 0;
         {
             std::unique_lock lock(mutex_);
             ready_.wait(lock, [&]{ return stopped_ || !fifo_.empty(); });
@@ -293,8 +333,25 @@ void HostAsyncFileQueue::run() noexcept {
             // completion retirement can release the admission charge.
             request = std::move(found->second.request);
             sequence = found->second.result.sequence;
+            status = found->second.status;
+            status_index = found->second.status_index;
         }
-        auto completion = execute(request, sequence);
+        HostFileReadCompletion completion;
+        if (status) {
+            // A genuine worker barrier: aggregate the FIRST error from
+            // preceding committed reads since the prior status marker.
+            completion.token = token;
+            completion.sequence = sequence;
+            completion.status = first_unreported_failure_;
+            (void)finish_host_dstorage_status(
+                status, status_index, completion.status);
+            first_unreported_failure_ = S_OK;
+        } else {
+            completion = execute(request, sequence);
+            if (FAILED(completion.status) &&
+                SUCCEEDED(first_unreported_failure_))
+                first_unreported_failure_ = completion.status;
+        }
         {
             const std::lock_guard lock(mutex_);
             if (const auto found = jobs_.find(token);
@@ -314,6 +371,7 @@ HRESULT HostAsyncFileQueue::take_locked(
     if (!it->second.ready) return kIoPending;
     output = std::move(it->second.result);
     reserved_bytes_ -= it->second.request.bytes;
+    if (it->second.status) it->second.status->Release();
     jobs_.erase(it);
     return S_OK;
 }
@@ -346,6 +404,12 @@ void HostAsyncFileQueue::shutdown() noexcept {
                         it->second.result.status = kIoCancelled;
                         it->second.result.data.clear();
                         it->second.ready = true;
+                        if (it->second.status) {
+                            (void)finish_host_dstorage_status(
+                                it->second.status,
+                                it->second.status_index,
+                                kIoCancelled);
+                        }
                     }
                 }
             };

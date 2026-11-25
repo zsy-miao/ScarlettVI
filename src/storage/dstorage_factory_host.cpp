@@ -1,4 +1,5 @@
 #include "dstorage_factory_host.h"
+#include "dstorage_status_host.h"
 #include <atomic>
 #include <limits>
 #include <mutex>
@@ -50,10 +51,13 @@ public:
         return E_NOTIMPL;
     }
     HRESULT STDMETHODCALLTYPE CreateStatusArray(
-        uint32_t, const char*, REFIID, void** output) noexcept override {
-        if (!output) return E_POINTER;
-        *output = nullptr;
-        return E_NOTIMPL;
+        uint32_t capacity, const char* name, REFIID iid,
+        void** output) noexcept override {
+        // Guest-observed IID and public COM method layout verified.
+        // Completed statuses will only be produced by actual host I/O
+        // barriers; Xbox guest queues remain unsupported.
+        return create_host_dstorage_status_array(
+            capacity, name, iid, output);
     }
     HRESULT STDMETHODCALLTYPE OpenFile(
         const wchar_t*, REFIID, void** output) noexcept override {

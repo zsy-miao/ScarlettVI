@@ -1,6 +1,6 @@
 # Bounded asynchronous host file queue for future Xbox DirectStorage
 
-**Status: original, tested asynchronous Windows-host file I/O; NOT a bound Xbox IDStorageQueueX interface.** The existing partial Xbox DStorageGetFactory binding remains partial. It still returns E_NOTIMPL for the guest's CreateQueue, CreateQueue1, OpenFile and status-array methods. The new internal queue performs real generated-file reads and verified completions, but neither game assets nor title code are opened or executed.
+**Status: original, tested asynchronous Windows-host file I/O; NOT a bound Xbox IDStorageQueueX interface.** The existing partial Xbox DStorageGetFactory binding remains partial. It still returns E_NOTIMPL for guest CreateQueue, CreateQueue1 and OpenFile. The separate [guest-IID status-array](XBOX_DSTORAGE_STATUS_ARRAY.md) is now implemented but is not a guest queue. The new internal queue performs real generated-file reads and verified completions, but neither game assets nor title code are opened or executed.
 
 ## What is implemented
 
@@ -13,12 +13,15 @@ New original files src/storage/dstorage_async_queue.h, .cpp and _test.cpp implem
 - shutdown() immediately cancels queued work, permits an already-running synchronous host read to finish and joins the worker. Completed/cancelled requests can still be consumed, while new submissions fail. Destruction releases every owned worker and buffer.
 - A **host-only staging lease** links the internal worker queue to the existing partial Xbox factory. When any such queue exists, SetStagingBufferSize returns ERROR_BUSY, even for the current size. After the host queue is destroyed, stage-size changes are again permitted. This enforces the public Xbox rule for these host-owned workers; it does not imply the Xbox guest COM CreateQueue method works.
 
+The [guest-IID status-array object](XBOX_DSTORAGE_STATUS_ARRAY.md) can now receive host-only FIFO status barriers: it aggregates the first actual Win32 read error between markers, exposes E_PENDING before completion, and safely retains COM references until marker retirement. This is not the Xbox EnqueueStatus guest COM method.
+
 Actual program memory is allocated and actual generated file bytes are read. No fake success or empty no-op result is used. This is not NVMe hardware access, Xbox compression/decryption, or a complete game-visible API. The [host-only submission gate](XBOX_DSTORAGE_SUBMIT_GATE.md) now implements the published **Enqueue → Submit** scheduling shape and a 32-request auto-submit threshold with actual Win32 reads, but does not bind an Xbox COM method.
 
 ## Real generated regression
 
     .\build\x64\Release\ScarlettVI.exe storage-async-fixture
     .\build\x64\Release\ScarlettVI.exe storage-submit-fixture
+    .\build\x64\Release\ScarlettVI.exe storage-status-fixture
     .\build\x64\Release\ScarlettVI.exe storage-factory-fixture
     .\build\x64\Release\ScarlettVI.exe readiness '..\GTA6.Xbox.v1.0.2.1\game_scarlett_master.exe'
 
