@@ -77,8 +77,9 @@ struct HostDStorageQueueX2 : IUnknown {
 HRESULT create_host_dstorage_queue1(
     const void* desc, REFIID iid, void** output) noexcept;
 
-// Internal fixture-only hooks. These are NEVER registered as guest exports,
-// and do not interpret DSTORAGE_REQUEST or title-owned buffers.
+// Internal fixture-only hooks. These are NEVER registered as guest exports.
+// They do not accept arbitrary title-owned buffers or dereference an
+// unregistered raw guest request pointer.
 HRESULT enqueue_host_dstorage_queue_fixture_read(
     HostDStorageQueueX2* queue, const HostFileReadRequest& request) noexcept;
 // HOST-ONLY: read through a validated ScarlettVI-owned IDStorageFileX
@@ -97,6 +98,11 @@ HRESULT register_host_dstorage_fixture_request(
 // arbitrary process pointer or crosses a mapped 64KiB page boundary.
 HRESULT register_host_dstorage_fixture_alias_request(
     const GuestDStorageRequest* request, uintptr_t physical_frame) noexcept;
+// Explicitly approve contiguous virtual destinations crossing mapped 64KiB
+// XMem pages. All frame identities must match before a permit is issued.
+HRESULT register_host_dstorage_fixture_alias_pages_request(
+    const GuestDStorageRequest* request,
+    const uintptr_t* physical_frames, size_t frame_count) noexcept;
 void unregister_host_dstorage_fixture_request(
     const GuestDStorageRequest* request) noexcept;
 HRESULT wait_host_dstorage_queue_fixture_read(

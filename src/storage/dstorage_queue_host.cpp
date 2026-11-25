@@ -95,6 +95,7 @@ public:
                 r.destination == approved.destination->data() &&
                 r.destination_size == approved.destination->size();
             const bool approved_alias = approved.alias &&
+                r.destination == approved.alias->address() &&
                 r.destination_size == approved.alias->size();
             if (!r.options && r.file &&
                 (approved_vector != approved_alias) &&
@@ -371,20 +372,26 @@ HRESULT register_host_dstorage_fixture_request(
 }
 HRESULT register_host_dstorage_fixture_alias_request(
     const GuestDStorageRequest* request, uintptr_t physical_frame) noexcept {
-    if (!request || !physical_frame) return E_INVALIDARG;
+    return register_host_dstorage_fixture_alias_pages_request(
+        request, &physical_frame, 1);
+}
+HRESULT register_host_dstorage_fixture_alias_pages_request(
+    const GuestDStorageRequest* request,
+    const uintptr_t* physical_frames, size_t frame_count) noexcept {
+    if (!request || !physical_frames || !frame_count) return E_INVALIDARG;
     // Trusted fixture helper: only the test-owned structure is read here.
     // Queue EnqueueRequest itself never reads a raw guest request pointer.
     const GuestDStorageRequest snapshot = *request;
     if (snapshot.options || !snapshot.file || !snapshot.destination ||
         !snapshot.destination_size ||
         snapshot.destination_size != snapshot.source_size ||
-        snapshot.destination_size > HostDStorageAliasDestination::page_bytes ||
+        snapshot.destination_size > HostAsyncFileQueue::kMaxReadBytes ||
         snapshot.intermediate_size)
         return E_INVALIDARG;
     std::shared_ptr<HostDStorageAliasDestination> pinned;
-    const HRESULT hr = HostDStorageAliasDestination::pin(
-        snapshot.destination, physical_frame, snapshot.destination_size,
-        pinned);
+    const HRESULT hr = HostDStorageAliasDestination::pin_pages(
+        snapshot.destination, physical_frames, frame_count,
+        snapshot.destination_size, pinned);
     if (FAILED(hr)) return hr;
     try {
         const std::lock_guard lock(fixture_request_mutex);

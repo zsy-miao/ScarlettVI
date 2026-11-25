@@ -55,9 +55,11 @@ A different build may have different addresses and must be reanalyzed.
   non-swizzled, non-physical-memory read.
 - A host-generated test must explicitly register a *snapshot* of the
   request pointer and either an owned `vector<uint8_t>` or a
-  [pinned real XMem CPU alias](XBOX_DSTORAGE_CPU_ALIAS.md) from the
-  existing 64KiB physical-memory registry. The alias requires a trusted
-  frame identity and rejects page-crossing buffers. These registration
+  [pinned, contiguous XMem CPU alias span](XBOX_DSTORAGE_CPU_ALIAS.md)
+  from the existing 64KiB physical-memory registry. Each virtual page
+  requires its own trusted frame identity; single-frame approval still
+  rejects crossing requests. The multi-page route pins every required
+  page and rolls back all pins when any page fails. These registration
   functions are **not** exported or available to titles. Unapproved
   destination pointers are never dereferenced.
 - Queue `EnqueueRequest` compares the request **address** with the
@@ -85,8 +87,8 @@ A different build may have different addresses and must be reanalyzed.
 
 ## Still required before any title streaming
 
-A general title-accessible guest-memory translator, multi-page pinned
-CPU writes, Xbox physical page-list and compression modes, BCPack and
+A general title-accessible guest-memory translator, Xbox physical
+page-list destination semantics and compression modes, BCPack and
 swizzling, guest VFS and actual title paths, full queue vtable validation,
 cancellation and lifetime semantics, actual Xbox error records/events,
 GPU destination resources, and the outstanding graphics/audio services.

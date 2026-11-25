@@ -56,7 +56,7 @@ Do not enable actual title asset loads on this partial evidence.
   original host subset of the documented 64-byte `DSTORAGE_REQUEST`
   layout: ordinary uncompressed file sources and byte-for-byte
   asynchronous writeback into explicitly approved generated buffers or
-  [real pinned 64KiB XMem CPU aliases](XBOX_DSTORAGE_CPU_ALIAS.md). The raw request is matched against a host-only permit
+  [real pinned, contiguous multi-page XMem CPU aliases](XBOX_DSTORAGE_CPU_ALIAS.md). The raw request is matched against a host-only permit
   registry **before any pointer is dereferenced**. Ordinary game requests
   still insert ordered **E_NOTIMPL failures**, never fake successful reads.
   `EnqueueSignal` still fails closed.
@@ -99,6 +99,9 @@ file pointers, and 160 unsupported requests across 20 successive batches.
 The expanded fixture also checks actual XMem CPU alias pins, protected
 unmap/release while queued, exact final-page writeback, malformed frame
 and crossing-range rejection, EOF no-write and zero leaked XMem resources.
+A three-page regression also verifies exact cross-boundary data, a stale
+middle frame and unmapped middle page rollback, overflow rejection, and
+full pin release after success, EOF or withdrawn permits.
 Microsoft describes independent handles through
 [`ReOpenFile`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-reopenfile).
 

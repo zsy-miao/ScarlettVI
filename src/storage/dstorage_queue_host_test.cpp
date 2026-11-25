@@ -47,6 +47,31 @@ struct AliasFixture {
         return alias && mem.map_pages(alias, 1, &frame) == alias;
     }
 };
+struct TripleAliasFixture {
+    static constexpr size_t count = 3;
+    std::array<uintptr_t, count> frames{};
+    uint8_t* alias = nullptr;
+    bool allocated = false;
+    ~TripleAliasFixture() {
+        auto& memory = memory::PhysicalMemory::instance();
+        if (alias) {
+            (void)memory.map_pages(alias, count, nullptr);
+            (void)memory.release_alias_region(alias);
+        }
+        if (allocated) (void)memory.free_pages(count, frames.data());
+    }
+    bool create() noexcept {
+        auto& memory = memory::PhysicalMemory::instance();
+        uintptr_t wanted = count;
+        if (!memory.allocate_pages(
+                MEM_64K_PAGES, &wanted, frames.data()) || wanted != count)
+            return false;
+        allocated = true;
+        alias = static_cast<uint8_t*>(memory.reserve_alias_region(
+            nullptr, count * memory.page_bytes));
+        return alias && memory.map_pages(alias, count, frames.data()) == alias;
+    }
+};
 struct FileFixture {
     fs::path root;
     fs::path file;
@@ -109,7 +134,8 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             !fs::create_directory(cleanup.root)) return false;
         cleanup.created = true;
         cleanup.file = cleanup.root / L"generated.bin";
-        std::vector<uint8_t> data(4096+37);
+        // Large enough for genuine file reads spanning three 64KiB aliases.
+        std::vector<uint8_t> data(3 * 64 * 1024 + 8017);
         for (size_t i=0; i<data.size(); ++i)
             data[i] = static_cast<uint8_t>(((i*37u) ^ (i >> 4u) ^ 0x8bu) & 255u);
         {
@@ -384,6 +410,170 @@ bool verify_dstorage_queue_com_fixture() noexcept {
             return false;
         }
         pages.allocated = false;
+
+        // A single uncompressed request can now write across three
+        // adjacent *virtual* CPU aliases (not an Xbox physical page list).
+        // All three mapped frames must be independently pinned, and any
+        // rejected middle page must unwind the already-acquired first pin.
+        TripleAliasFixture triple;
+        if (!triple.create()) {
+            source->Release();
+            return false;
+        }
+        constexpr size_t kMultiBytes =
+            memory::PhysicalMemory::page_bytes + 2048;
+        uint8_t* const multi_dest =
+            triple.alias + memory::PhysicalMemory::page_bytes - 333;
+        std::fill_n(multi_dest, kMultiBytes, uint8_t{0xa9});
+        GuestDStorageRequest multi{};
+        multi.file = source;
+        multi.file_offset = 317;
+        multi.destination = multi_dest;
+        multi.destination_size = static_cast<uint32_t>(kMultiBytes);
+        multi.source_size = multi.destination_size;
+        std::array<uintptr_t, TripleAliasFixture::count> wrong_frames =
+            triple.frames;
+        wrong_frames[1] = triple.frames[0]; // first valid, middle wrong
+        if (register_host_dstorage_fixture_alias_pages_request(
+                &multi, wrong_frames.data(), wrong_frames.size()) == S_OK ||
+            physical.pinned_alias_count() != original_pins ||
+            register_host_dstorage_fixture_alias_pages_request(
+                &multi, triple.frames.data(), 2) == S_OK ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+
+        // First page pins successfully, but an unmapped middle page
+        // rejects the entire request and must not leak that first pin.
+        uint8_t* const middle = triple.alias +
+            memory::PhysicalMemory::page_bytes;
+        if (physical.map_pages(middle, 1, nullptr) != middle ||
+            register_host_dstorage_fixture_alias_pages_request(
+                &multi, triple.frames.data(), triple.frames.size()) == S_OK ||
+            physical.pinned_alias_count() != original_pins ||
+            physical.map_pages(middle, 1, &triple.frames[1]) != middle) {
+            source->Release();
+            return false;
+        }
+
+        // Prevent wraparound before trying to pin a hostile virtual range.
+        void* const saved_destination = multi.destination;
+        multi.destination = reinterpret_cast<void*>(UINTPTR_MAX - 32);
+        if (register_host_dstorage_fixture_alias_pages_request(
+                &multi, triple.frames.data(), triple.frames.size()) == S_OK ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+        multi.destination = saved_destination;
+
+        if (register_host_dstorage_fixture_alias_pages_request(
+                &multi, triple.frames.data(), triple.frames.size()) != S_OK ||
+            physical.pinned_alias_count() != original_pins + 3 ||
+            physical.map_pages(middle, 1, nullptr) != nullptr ||
+            GetLastError() != ERROR_BUSY ||
+            physical.release_alias_region(triple.alias) != FALSE ||
+            GetLastError() != ERROR_BUSY) {
+            source->Release();
+            return false;
+        }
+        enqueue_request(queue.ptr, &multi);
+        multi.file = nullptr;
+        multi.destination = nullptr; // request snapshot is immutable
+        enqueue_status(queue.ptr, status.ptr, 0);
+        if (status.ptr->IsComplete(0) ||
+            physical.pinned_alias_count() != original_pins + 3 ||
+            !std::all_of(multi_dest, multi_dest + kMultiBytes,
+                [](uint8_t byte) { return byte == uint8_t{0xa9}; })) {
+            source->Release();
+            return false;
+        }
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0, S_OK) ||
+            !std::equal(multi_dest, multi_dest + kMultiBytes,
+                        data.begin() + 317) ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+
+        // Failed cross-page reads must leave *every* page untouched and
+        // release all pins, including when the bytes run past file EOF.
+        multi.destination = multi_dest;
+        multi.file = source;
+        multi.file_offset = static_cast<uint64_t>(data.size()) - 50;
+        std::fill_n(multi_dest, kMultiBytes, uint8_t{0x79});
+        if (register_host_dstorage_fixture_alias_pages_request(
+                &multi, triple.frames.data(), triple.frames.size()) != S_OK ||
+            physical.pinned_alias_count() != original_pins + 3) {
+            source->Release();
+            return false;
+        }
+        enqueue_request(queue.ptr, &multi);
+        enqueue_status(queue.ptr, status.ptr, 0);
+        submit(queue.ptr);
+        if (!status_equals(status.ptr, 0,
+                HRESULT_FROM_WIN32(ERROR_HANDLE_EOF)) ||
+            !std::all_of(multi_dest, multi_dest + kMultiBytes,
+                [](uint8_t byte) { return byte == uint8_t{0x79}; }) ||
+            physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+
+        // An unconsumed permission's destructor unpins the whole span.
+        if (register_host_dstorage_fixture_alias_pages_request(
+                &multi, triple.frames.data(), triple.frames.size()) != S_OK ||
+            physical.pinned_alias_count() != original_pins + 3) {
+            source->Release();
+            return false;
+        }
+        unregister_host_dstorage_fixture_request(&multi);
+        if (physical.pinned_alias_count() != original_pins) {
+            source->Release();
+            return false;
+        }
+
+        // A different queue closing with a still-unsubmitted multi-page
+        // read must cancel the job and release all three held page pins.
+        QueueOwner abandoned{};
+        if (factory.ptr->CreateQueue1(&desc,
+                kObservedXboxDStorageQueueIid,
+                reinterpret_cast<void**>(&abandoned.ptr)) != S_OK ||
+            !abandoned.ptr) {
+            source->Release();
+            return false;
+        }
+        multi.file_offset = 317;
+        if (register_host_dstorage_fixture_alias_pages_request(
+                &multi, triple.frames.data(), triple.frames.size()) != S_OK ||
+            physical.pinned_alias_count() != original_pins + 3) {
+            source->Release();
+            return false;
+        }
+        abandoned.ptr->EnqueueRequest(&multi);
+        abandoned.ptr->Close(); // no Submit: cancels held work
+        if (physical.pinned_alias_count() != original_pins ||
+            !std::all_of(multi_dest, multi_dest + kMultiBytes,
+                [](uint8_t byte) { return byte == uint8_t{0x79}; })) {
+            source->Release();
+            return false;
+        }
+        abandoned.ptr->Release();
+        abandoned.ptr = nullptr;
+        if (live_host_dstorage_queues() != 1 ||
+            active_host_dstorage_queue_leases() != 1 ||
+            physical.map_pages(triple.alias, triple.count, nullptr) !=
+                triple.alias ||
+            !physical.release_alias_region(triple.alias) ||
+            !physical.free_pages(triple.count, triple.frames.data()) ||
+            physical.allocated_page_count() != original_pages) {
+            source->Release();
+            return false;
+        }
+        triple.alias = nullptr;
+        triple.allocated = false;
 
         HANDLE invalid = reinterpret_cast<HANDLE>(uintptr_t{0x1234});
         if (reopen_owned_dstorage_file_for_read(
